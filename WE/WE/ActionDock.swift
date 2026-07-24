@@ -37,6 +37,8 @@ enum WEAction: String, Identifiable {
 struct ActionDock: View {
     let onSelect: (WEAction) -> Void
 
+    @State private var lastSelected: WEAction?
+
     @AppStorage(WEHue.personalStorageKey)
     private var storedPersonalHue = ""
 
@@ -54,6 +56,7 @@ struct ActionDock: View {
         .glassEffect(.regular, in: Capsule())
         .padding(.horizontal, 20)
         .padding(.vertical, 8)
+        .sensoryFeedback(.impact(weight: .light), trigger: lastSelected)
     }
 
     private func actionButton(
@@ -61,6 +64,7 @@ struct ActionDock: View {
         emphasized: Bool = false
     ) -> some View {
         Button {
+            lastSelected = action
             onSelect(action)
         } label: {
             actionLabel(action)

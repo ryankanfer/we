@@ -69,6 +69,22 @@ enum WEHue: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Hues bright enough that white text placed over them stops being legible.
+    var isLight: Bool {
+        switch self {
+        case .pearl, .mist, .blush, .celadon:
+            true
+        default:
+            false
+        }
+    }
+
+    /// The hue as it should appear behind white text — light hues are
+    /// substituted for their deepened control tone so contrast holds.
+    var atmosphereColor: Color {
+        isLight ? controlColor : color
+    }
+
     var controlColor: Color {
         switch self {
         case .pearl:

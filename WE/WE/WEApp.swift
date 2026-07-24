@@ -21,24 +21,22 @@ struct WEApp: App {
         WindowGroup {
             ZStack {
                 ContentView()
-                    .allowsHitTesting(
-                        !showsSplash && !personalHueRawValue.isEmpty
-                    )
-                    .accessibilityHidden(
-                        showsSplash || personalHueRawValue.isEmpty
-                    )
+                    .allowsHitTesting(!isCovered)
+                    .accessibilityHidden(isCovered)
 
-                if !showsSplash && personalHueRawValue.isEmpty {
+                // First run asks for a color before anything else, so the
+                // splash that follows is already lit in the user's own hue.
+                if needsOnboarding {
                     HueOnboardingView { hue in
                         withAnimation(.easeInOut(duration: 0.55)) {
                             personalHueRawValue = hue.rawValue
                         }
                     }
-                    .transition(.opacity.combined(with: .scale(scale: 1.02)))
-                    .zIndex(5)
-                }
-
-                if showsSplash {
+                    .transition(
+                        .opacity.combined(with: .scale(scale: 1.02))
+                    )
+                    .zIndex(10)
+                } else if showsSplash {
                     SplashView(
                         extendedWelcome: lastExtendedWelcomeDay != todayKey
                     ) {
@@ -49,10 +47,19 @@ struct WEApp: App {
                         }
                     }
                     .transition(.opacity)
-                    .zIndex(10)
+                    .zIndex(5)
                 }
             }
+            .animation(.easeInOut(duration: 0.45), value: needsOnboarding)
         }
+    }
+
+    private var needsOnboarding: Bool {
+        personalHueRawValue.isEmpty
+    }
+
+    private var isCovered: Bool {
+        needsOnboarding || showsSplash
     }
 
     private var todayKey: String {

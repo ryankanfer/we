@@ -13,6 +13,7 @@ struct WEActionSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var draft = ""
+    @State private var submitted = false
 
     var body: some View {
         NavigationStack {
@@ -30,6 +31,7 @@ struct WEActionSheet: View {
                 .padding(20)
             }
             .background(Color("WEBackground"))
+            .sensoryFeedback(.success, trigger: submitted)
             .navigationTitle(action.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -76,10 +78,13 @@ struct WEActionSheet: View {
                     in: RoundedRectangle(cornerRadius: 18)
                 )
 
-            Button(action == .capture ? "Keep privately" : "Ask WE") {}
-                .buttonStyle(.borderedProminent)
-                .tint(Color("WEBurgundy"))
-                .disabled(draft.isEmpty)
+            Button(action == .capture ? "Keep privately" : "Ask WE") {
+                submitted = true
+                dismiss()
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Color("WEBurgundy"))
+            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
         case .shape:
             InsightCard(insight: PreviewData.insights[0])
