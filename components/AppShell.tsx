@@ -7,6 +7,7 @@ import { useWeStore } from "@/lib/store";
 import { PEOPLE } from "@/lib/seed";
 import type { PersonId } from "@/lib/types";
 import InterlockMark from "./InterlockMark";
+import Onboarding from "./Onboarding";
 
 const TABS = [
   { href: "/mine", label: "Mine" },
@@ -21,6 +22,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const viewer = useWeStore((s) => s.viewer);
   const announcement = useWeStore((s) => s.announcement);
+  const onboarded = useWeStore((s) => s.onboarded);
+  const onboarding = mounted && !onboarded;
 
   return (
     <div className="flex min-h-dvh flex-col items-center gap-4 px-3 py-4 sm:py-8">
@@ -31,7 +34,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <InterlockMark size={26} overlap="interlocked" />
             <span className="font-serif text-lg tracking-[0.18em]">WE</span>
           </Link>
-          {mounted && (
+          {mounted && !onboarding && (
             <span className="text-xs text-faint" aria-label={`Viewing as ${PEOPLE[viewer].name}`}>
               {PEOPLE[viewer].name}
             </span>
@@ -39,29 +42,31 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </header>
 
         <main className="flex-1 overflow-y-auto px-6 pb-6 pt-2">
-          {mounted ? children : <div aria-hidden="true" />}
+          {!mounted ? <div aria-hidden="true" /> : onboarding ? <Onboarding /> : children}
         </main>
 
-        <nav aria-label="Spaces" className="border-t border-line px-6 py-3">
-          <ul className="flex items-center justify-between">
-            {TABS.map((t) => {
-              const active = pathname === t.href;
-              return (
-                <li key={t.href}>
-                  <Link
-                    href={t.href}
-                    aria-current={active ? "page" : undefined}
-                    className={`rounded-full px-4 py-2 text-sm transition-colors ${
-                      active ? "bg-ink text-cream" : "text-faint hover:text-ink"
-                    }`}
-                  >
-                    {t.label}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
+        {!onboarding && (
+          <nav aria-label="Spaces" className="border-t border-line px-6 py-3">
+            <ul className="flex items-center justify-between">
+              {TABS.map((t) => {
+                const active = pathname === t.href;
+                return (
+                  <li key={t.href}>
+                    <Link
+                      href={t.href}
+                      aria-current={active ? "page" : undefined}
+                      className={`rounded-full px-4 py-2 text-sm transition-colors ${
+                        active ? "bg-ink text-cream" : "text-faint hover:text-ink"
+                      }`}
+                    >
+                      {t.label}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
+        )}
       </div>
 
       {/* Screen-reader announcements for consent transitions. */}
@@ -69,7 +74,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         {mounted ? announcement : ""}
       </div>
 
-      {mounted && <DemoController viewer={viewer} />}
+      {mounted && !onboarding && <DemoController viewer={viewer} />}
     </div>
   );
 }
