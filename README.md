@@ -55,6 +55,14 @@ npm test                     # consent state machine + privacy invariants
 Launch runs a brief **splash** (two circles settling into one), then a three-beat **intro**
 (arrival → one shared place → the promise) on first run, then sign-in and pairing.
 
+**Preview without a backend:** add `?demo=1` to any URL (e.g. `localhost:3000/?demo=1`) to explore
+the whole app on sample data — no Supabase, no login. Use Profile → "Experience as" to flip
+between the two partners and feel both sides of a reveal.
+
+**PWA:** WE ships a manifest, icons, and a service worker, so it installs to the home screen and
+runs full-bleed (mobile bottom-nav, desktop sidebar — a true responsive layout, not a phone
+frame).
+
 > Note: the app talks to Supabase directly from the browser, so it must run somewhere that can
 > reach `*.supabase.co` (your machine, or a deployment). For the prototype, turn **off**
 > "Confirm email" in Supabase → Authentication → Providers → Email so password sign-up is instant.

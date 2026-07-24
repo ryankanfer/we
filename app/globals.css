@@ -16,13 +16,25 @@
 }
 
 html {
-  background: var(--color-outer);
+  background: var(--color-cream);
 }
 
 body {
   color: var(--color-ink);
   font-family: var(--font-sans);
+  background: var(--color-cream);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Safe-area helpers for installed PWA / notched devices. */
+.pt-safe {
+  padding-top: max(env(safe-area-inset-top), 0px);
+}
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom), 0px);
+}
+.min-h-dvh-safe {
+  min-height: 100dvh;
 }
 
 @media (prefers-reduced-motion: reduce) {

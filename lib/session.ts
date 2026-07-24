@@ -2,6 +2,16 @@
 
 import { create } from "zustand";
 import { supabase, supabaseConfigured } from "./supabase";
+import { demoRecords, DEMO_MEMBERS, DEMO_REFLECTIONS } from "./demo";
+import {
+  acceptReveal,
+  declineReveal,
+  dismissSuggestion,
+  requestReveal,
+  resolve as resolveLocal,
+  submitResponse as submitLocal,
+  withdrawReveal,
+} from "./consent";
 import type { InsightRecord, InsightState, PersonResponse, Reflection } from "./types";
 
 export type Member = { id: string; name: string; hue: "burgundy" | "sage" };
@@ -28,6 +38,8 @@ interface DbResponse {
 
 interface SessionState {
   status: Status;
+  /** True when running on mock data (no backend) — for preview and design. */
+  demo: boolean;
   user: { id: string; name: string } | null;
   couple: { id: string; joinCode: string } | null;
   members: Member[];
@@ -40,6 +52,7 @@ interface SessionState {
   announcement: string;
 
   init: () => Promise<void>;
+  setViewer: (id: string) => void;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, name: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -63,6 +76,7 @@ let realtimeBound = false;
 
 export const useSession = create<SessionState>((set, get) => ({
   status: "loading",
+  demo: false,
   user: null,
   couple: null,
   members: [],
@@ -74,6 +88,8 @@ export const useSession = create<SessionState>((set, get) => ({
   info: null,
   announcement: "",
 
+  setViewer: (id) => set({ viewer: id }),
+
   memberById: (id) => (id ? get().members.find((m) => m.id === id) : undefined),
   partnerId: () => {
     const { members, viewer } = get();
@@ -81,6 +97,23 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   init: async () => {
+    const demo =
+      typeof window !== "undefined" &&
+      (new URLSearchParams(window.location.search).has("demo") ||
+        process.env.NEXT_PUBLIC_WE_DEMO === "1");
+    if (demo) {
+      set({
+        demo: true,
+        status: "ready",
+        user: { id: "ry", name: "Ry" },
+        viewer: "ry",
+        couple: { id: "demo", joinCode: "WEDEMO" },
+        members: DEMO_MEMBERS,
+        records: demoRecords(),
+        reflections: DEMO_REFLECTIONS,
+      });
+      return;
+    }
     if (!supabaseConfigured) {
       set({ status: "unconfigured" });
       return;
@@ -270,17 +303,51 @@ export const useSession = create<SessionState>((set, get) => ({
     }
   },
 
-  request: async (id) => runRpc(set, get, "request_reveal", { p_insight: id }, "Brought to your partner. Waiting, without pressure."),
-  accept: async (id) => runRpc(set, get, "accept_reveal", { p_insight: id }, "Opened together. This now lives between you."),
-  decline: async (id) => runRpc(set, get, "decline_reveal", { p_insight: id }, "Held for later. Your partner won't be notified."),
-  withdraw: async (id) => runRpc(set, get, "withdraw_reveal", { p_insight: id }, "Withdrawn. No record remains."),
-  submit: async (id, choice, note) =>
-    runRpc(set, get, "submit_response", { p_insight: id, p_choice: choice, p_note: note ?? null }, "Your answer is in."),
-  settle: async (id, type, choice) =>
-    runRpc(set, get, "resolve_insight", { p_insight: id, p_type: type, p_choice: choice ?? null },
-      type === "leftOpen" ? "Left open. Nothing has been decided." : "Settled together."),
-  dismiss: async (id) => runRpc(set, get, "dismiss_suggestion", { p_insight: id }, "Set aside, just for you."),
+  request: async (id) => {
+    if (get().demo) return localApply(set, get, id, (st, v) => requestReveal(st, v, Date.now()), "Brought to your partner. Waiting, without pressure.");
+    return runRpc(set, get, "request_reveal", { p_insight: id }, "Brought to your partner. Waiting, without pressure.");
+  },
+  accept: async (id) => {
+    if (get().demo) return localApply(set, get, id, (st, v) => acceptReveal(st, v, Date.now()), "Opened together. This now lives between you.");
+    return runRpc(set, get, "accept_reveal", { p_insight: id }, "Opened together. This now lives between you.");
+  },
+  decline: async (id) => {
+    if (get().demo) return localApply(set, get, id, (st, v) => declineReveal(st, v), "Held for later. Your partner won't be notified.");
+    return runRpc(set, get, "decline_reveal", { p_insight: id }, "Held for later. Your partner won't be notified.");
+  },
+  withdraw: async (id) => {
+    if (get().demo) return localApply(set, get, id, (st, v) => withdrawReveal(st, v), "Withdrawn. No record remains.");
+    return runRpc(set, get, "withdraw_reveal", { p_insight: id }, "Withdrawn. No record remains.");
+  },
+  submit: async (id, choice, note) => {
+    if (get().demo) return localApply(set, get, id, (st, v) => submitLocal(st, v, choice, note), "Your answer is in.");
+    return runRpc(set, get, "submit_response", { p_insight: id, p_choice: choice, p_note: note ?? null }, "Your answer is in.");
+  },
+  settle: async (id, type, choice) => {
+    if (get().demo) return localApply(set, get, id, (st) => resolveLocal(st, type, 0, choice), type === "leftOpen" ? "Left open. Nothing has been decided." : "Settled together.");
+    return runRpc(set, get, "resolve_insight", { p_insight: id, p_type: type, p_choice: choice ?? null },
+      type === "leftOpen" ? "Left open. Nothing has been decided." : "Settled together.");
+  },
+  dismiss: async (id) => {
+    if (get().demo) return localApply(set, get, id, (st, v) => dismissSuggestion(st, v), "Set aside, just for you.");
+    return runRpc(set, get, "dismiss_suggestion", { p_insight: id }, "Set aside, just for you.");
+  },
 }));
+
+/** Demo-mode local state transition, using the same consent functions as the DB. */
+function localApply(
+  set: (partial: Partial<SessionState>) => void,
+  get: () => SessionState,
+  id: string,
+  fn: (state: InsightState, viewer: string) => InsightState,
+  announce: string
+) {
+  const { records, viewer } = get();
+  set({
+    records: records.map((r) => (r.insight.id === id ? { ...r, state: fn(r.state, viewer) } : r)),
+    announcement: announce,
+  });
+}
 
 async function runRpc(
   set: (partial: Partial<SessionState>) => void,
