@@ -9,50 +9,28 @@
 import SwiftUI
 
 struct AppShell: View {
+    @State private var presentedAction: WEAction?
+    @State private var showsWESpace = false
+
     var body: some View {
-        TabView {
-            NavigationStack {
-                TodayView()
+        NavigationStack {
+            TodayView {
+                showsWESpace = true
             }
-            .tabItem {
-                Label("Today", systemImage: "sun.max.fill")
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            ActionDock { action in
+                presentedAction = action
             }
-
-            PlaceholderView(title: "Plan", symbol: "calendar")
-                .tabItem {
-                    Label("Plan", systemImage: "calendar")
-                }
-
-            PlaceholderView(title: "Home", symbol: "house")
-                .tabItem {
-                    Label("Home", systemImage: "house")
-                }
-
-            PlaceholderView(title: "Profile", symbol: "person")
-                .tabItem {
-                    Label("Profile", systemImage: "person")
-                }
+        }
+        .sheet(item: $presentedAction) { action in
+            WEActionSheet(action: action)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .fullScreenCover(isPresented: $showsWESpace) {
+            WESpaceView()
         }
         .tint(Color("WEBurgundy"))
-    }
-}
-
-private struct PlaceholderView: View {
-    let title: String
-    let symbol: String
-
-    var body: some View {
-        ZStack {
-            Color("WEBackground").ignoresSafeArea()
-
-            VStack(spacing: 12) {
-                Image(systemName: symbol)
-                    .font(.largeTitle)
-
-                Text(title)
-                    .font(.weTitle)
-            }
-            .foregroundStyle(Color("WEInk"))
-        }
     }
 }

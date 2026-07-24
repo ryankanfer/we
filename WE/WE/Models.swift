@@ -38,5 +38,6 @@ struct Insight: Identifiable, Codable, Hashable, Sendable {
     let body: String
     let evidence: String
     let source: String
+    let actionTitle: String
     let options: [String]
 }

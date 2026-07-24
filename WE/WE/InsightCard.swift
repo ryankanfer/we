@@ -11,7 +11,7 @@ import SwiftUI
 struct InsightCard: View {
     let insight: Insight
 
-    @State private var isOpened = false
+    @State private var showsDetail = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -22,23 +22,18 @@ struct InsightCard: View {
             Text(insight.body)
                 .font(.weBody)
                 .foregroundStyle(Color("WEFaint"))
-                .lineSpacing(3)
-
-            Divider()
-                .overlay(Color("WELine"))
 
             Button {
-                withAnimation {
-                    isOpened.toggle()
-                }
+                showsDetail = true
             } label: {
                 HStack {
-                    Text(isOpened ? "Opened for preview" : "Open together")
+                    Text(insight.actionTitle)
                     Spacer()
-                    Image(systemName: isOpened ? "checkmark" : "arrow.right")
+                    Image(systemName: "arrow.up.right")
                 }
-                .font(.system(size: 14, weight: .semibold))
+                .font(.weHeadline)
                 .foregroundStyle(Color("WEBurgundy"))
+                .frame(minHeight: 44)
             }
             .buttonStyle(.plain)
         }
@@ -50,6 +45,47 @@ struct InsightCard: View {
         .overlay {
             RoundedRectangle(cornerRadius: 22)
                 .stroke(Color("WELine"))
+        }
+        .sheet(isPresented: $showsDetail) {
+            InsightDetailView(insight: insight)
+        }
+    }
+}
+
+private struct InsightDetailView: View {
+    let insight: Insight
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    Text(insight.title)
+                        .font(.weLargeTitle)
+
+                    Text(insight.evidence)
+                        .font(.weBody)
+                        .foregroundStyle(Color("WEFaint"))
+
+                    VStack(spacing: 10) {
+                        ForEach(insight.options, id: \.self) { option in
+                            Button(option) {}
+                                .buttonStyle(.bordered)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+                .padding(20)
+            }
+            .background(Color("WEBackground"))
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
         }
     }
 }
