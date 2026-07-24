@@ -474,7 +474,7 @@ private struct HueAtmosphere: View {
 
             RadialGradient(
                 colors: [
-                    personalHue.color.opacity(0.34),
+                    personalHue.atmosphereColor.opacity(0.34),
                     .clear
                 ],
                 center: UnitPoint(x: 0.08, y: 0.12),

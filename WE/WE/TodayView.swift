@@ -30,9 +30,7 @@ struct TodayView: View {
                     todayTogether
 
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("STILL OPEN")
-                            .font(.weCaption)
-                            .foregroundStyle(.white.opacity(0.55))
+                        WESectionLabel("STILL OPEN")
 
                         AtmosphericInsightCard(
                             insight: PreviewData.insights[1]
@@ -57,7 +55,7 @@ struct TodayView: View {
 
                 Text("You and Dylan, right now.")
                     .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.62))
+                    .foregroundStyle(.white.opacity(0.68))
             }
 
             Spacer()
@@ -90,9 +88,7 @@ struct TodayView: View {
 
     private var todayTogether: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("TODAY TOGETHER")
-                .font(.weCaption)
-                .foregroundStyle(.white.opacity(0.55))
+            WESectionLabel("TODAY TOGETHER")
 
             timelineRow(
                 time: "Today",
@@ -215,6 +211,7 @@ private struct AtmosphericInsightCard: View {
                 style: .continuous
             )
         )
+        .sensoryFeedback(.impact(weight: .light), trigger: showsDetail)
         .sheet(isPresented: $showsDetail) {
             NowInsightDetail(insight: insight)
         }
@@ -248,7 +245,9 @@ private struct NowInsightDetail: View {
                     VStack(spacing: 10) {
                         ForEach(insight.options, id: \.self) { option in
                             Button {
-                                selectedOption = option
+                                withAnimation(.weSettle(duration: 0.32)) {
+                                    selectedOption = option
+                                }
                             } label: {
                                 HStack {
                                     Text(option)
@@ -257,18 +256,27 @@ private struct NowInsightDetail: View {
 
                                     if selectedOption == option {
                                         Image(systemName: "checkmark")
+                                            .transition(
+                                                .opacity.combined(
+                                                    with: .scale(scale: 0.6)
+                                                )
+                                            )
                                     }
                                 }
                                 .frame(maxWidth: .infinity, minHeight: 44)
                             }
                             .buttonStyle(.bordered)
                             .tint(personalHue.controlColor)
+                            .fontWeight(
+                                selectedOption == option ? .semibold : .regular
+                            )
                         }
                     }
                 }
                 .padding(20)
             }
             .background(Color("WEBackground"))
+            .sensoryFeedback(.selection, trigger: selectedOption)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") {
@@ -292,8 +300,8 @@ private struct HomeAtmosphere: View {
         ZStack {
             LinearGradient(
                 colors: [
-                    personalHue.color.opacity(0.94),
-                    Color("WEInk"),
+                    personalHue.atmosphereColor.opacity(0.94),
+                    Color.weCinematicInk,
                     WEHue.partnerDefault.color.opacity(0.82)
                 ],
                 startPoint: .topLeading,
@@ -312,7 +320,7 @@ private struct HomeAtmosphere: View {
 
             RadialGradient(
                 colors: [
-                    personalHue.color.opacity(0.42),
+                    personalHue.atmosphereColor.opacity(0.42),
                     .clear
                 ],
                 center: .bottomTrailing,

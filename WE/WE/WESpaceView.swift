@@ -35,6 +35,8 @@ enum WESpaceDestination: String, CaseIterable, Identifiable, Hashable {
 struct WESpaceView: View {
     @Environment(\.dismiss) private var dismiss
 
+    @State private var dismissed = false
+
     @AppStorage(WEHue.personalStorageKey)
     private var storedPersonalHue = ""
 
@@ -156,6 +158,7 @@ struct WESpaceView: View {
                 Spacer()
 
                 Button {
+                    dismissed = true
                     dismiss()
                 } label: {
                     Image(systemName: "xmark")
@@ -165,6 +168,7 @@ struct WESpaceView: View {
                 .buttonStyle(.glass)
                 .foregroundStyle(.white)
                 .accessibilityLabel("Close WE space")
+                .sensoryFeedback(.impact(weight: .light), trigger: dismissed)
             }
             .padding(.horizontal, 20)
             .padding(.top, 8)
@@ -186,7 +190,7 @@ private struct WESpaceBackground: View {
         ZStack {
             LinearGradient(
                 colors: [
-                    personalHue.color,
+                    personalHue.atmosphereColor,
                     Color.weCinematicInk,
                     WEHue.partnerDefault.color.opacity(0.9)
                 ],
@@ -206,7 +210,7 @@ private struct WESpaceBackground: View {
 
             RadialGradient(
                 colors: [
-                    personalHue.color.opacity(0.55),
+                    personalHue.atmosphereColor.opacity(0.55),
                     .clear
                 ],
                 center: .bottomTrailing,
@@ -216,7 +220,7 @@ private struct WESpaceBackground: View {
 
             HStack(spacing: -62) {
                 Circle()
-                    .fill(personalHue.color.opacity(0.12))
+                    .fill(personalHue.atmosphereColor.opacity(0.12))
 
                 Circle()
                     .fill(WEHue.partnerDefault.color.opacity(0.1))

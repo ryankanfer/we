@@ -127,7 +127,6 @@ struct SplashView: View {
                 nanoseconds: extendedWelcome ? 1_650_000_000 : 520_000_000
             )
 
-            guard !Task.isCancelled else { return }
             onFinished()
         }
     }
@@ -147,7 +146,7 @@ private struct SplashBackground: View {
 
             RadialGradient(
                 colors: [
-                    personalHue.color.opacity(0.52),
+                    personalHue.atmosphereColor.opacity(0.52),
                     .clear
                 ],
                 center: UnitPoint(x: 0.18, y: 0.24),
