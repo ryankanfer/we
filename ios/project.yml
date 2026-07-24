@@ -1,0 +1,36 @@
+# XcodeGen spec — generates WE.xcodeproj from these sources.
+#   brew install xcodegen   (once)
+#   cd ios && xcodegen       (regenerates the project)
+name: WE
+options:
+  bundleIdPrefix: com.we
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+packages:
+  Supabase:
+    url: https://github.com/supabase/supabase-swift
+    from: "2.5.1"
+targets:
+  WE:
+    type: application
+    platform: iOS
+    sources:
+      - WE
+    dependencies:
+      - package: Supabase
+        product: Supabase
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.we.app
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: WE
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_USER_SCRIPT_SANDBOXING: YES

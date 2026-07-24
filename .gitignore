@@ -6,3 +6,11 @@ out
 *.tsbuildinfo
 next-env.d.ts
 .DS_Store
+
+# iOS / Xcode (WE.xcodeproj is generated from ios/project.yml by XcodeGen)
+ios/WE.xcodeproj
+ios/build
+ios/DerivedData
+**/xcuserdata
+*.xcworkspace
+.swiftpm
