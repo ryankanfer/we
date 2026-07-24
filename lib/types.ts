@@ -1,4 +1,5 @@
-export type PersonId = "ry" | "dylan";
+/** A person's id. The seed/test model uses "ry"/"dylan"; the live app uses uuids. */
+export type PersonId = string;
 
 export interface Person {
   id: PersonId;

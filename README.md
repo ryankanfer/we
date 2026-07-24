@@ -31,24 +31,35 @@ machine below — never behind a separate tab.
 The consent state machine lives in `lib/consent.ts` with three independent axes
 (`visibility`, `readiness`, `response`) and is covered by tests in `lib/consent.test.ts`.
 
+## Two real people, one shared space
+
+WE runs on a Supabase backend. Each partner makes their own email + password sign-in, then one
+**creates a shared space** (getting a 6-character join code) and the other **joins with the
+code** — two real devices, one continuity. Realtime keeps both sides in sync as the consent loop
+moves.
+
+The consent invariants are enforced in the **database**, not just the UI (see
+`supabase/migrations/0001_we_init.sql`): row-level security makes a partner's private reflection
+and un-revealed answer unreadable even with a raw API key, and every state transition runs
+through a `SECURITY DEFINER` function that mirrors `lib/consent.ts`.
+
 ## Running it
 
 ```bash
 npm install
-npm run dev    # http://localhost:3000
-npm test       # consent state machine + privacy invariants
+cp .env.example .env.local   # fill in your Supabase URL + publishable key
+npm run dev                  # http://localhost:3000
+npm test                     # consent state machine + privacy invariants
 ```
 
-The dashed **Demo controls** panel below the phone frame is the research harness, not the
-product: switch between Ry and Dylan, advance the demo clock 18 hours to feel the later
-waiting treatment, and reset the scenario.
+Launch runs a brief **splash** (two circles settling into one), then a three-beat **intro**
+(arrival → one shared place → the promise) on first run, then sign-in and pairing.
 
-Launch runs a brief **splash** (two circles settling into one), then a four-beat **onboarding**
-(arrival → one shared place → the promise → who you are) on first run.
+> Note: the app talks to Supabase directly from the browser, so it must run somewhere that can
+> reach `*.supabase.co` (your machine, or a deployment). For the prototype, turn **off**
+> "Confirm email" in Supabase → Authentication → Providers → Email so password sign-up is instant.
 
 ## What this slice deliberately excludes
 
-Calendars, tasks, finances, and real AI. Accounts and a shared backend are the **next** build:
-magic-link sign-in with a Supabase-backed couple, so two real phones share one continuity. State
-today is local (Zustand + localStorage) behind a service-shaped layer so that backend can replace
-it without touching the screens.
+Calendars, tasks, finances, and real AI — those remain future. The intelligence is still seeded
+and rule-based (four insights per couple), organized under the Today / Life / Us lenses.

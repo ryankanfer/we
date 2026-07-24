@@ -23,6 +23,11 @@ import type {
 
 export const partnerOf = (p: PersonId): PersonId => (p === "ry" ? "dylan" : "ry");
 
+/** The other member's id, derived from the two response keys (id-agnostic). */
+function otherKey(s: InsightState, viewer: PersonId): PersonId {
+  return Object.keys(s.responses).find((k) => k !== viewer) ?? partnerOf(viewer);
+}
+
 export function initialState(
   visibility: "private" | "shared" = "shared",
   owner?: PersonId
@@ -108,13 +113,13 @@ export function submitResponse(s: InsightState, by: PersonId, choice: string, no
   const mine = s.responses[by].status;
   if (mine === "submitted" || mine === "revealed") fail("already submitted");
   let next = withResponse(s, by, { status: "submitted", choice, note });
-  const other = partnerOf(by);
-  if (next.responses[other].status === "submitted") {
+  const other = otherKey(s, by);
+  if (next.responses[other]?.status === "submitted") {
     next = {
       ...next,
       responses: {
-        ry: { ...next.responses.ry, status: "revealed" },
-        dylan: { ...next.responses.dylan, status: "revealed" },
+        [by]: { ...next.responses[by], status: "revealed" },
+        [other]: { ...next.responses[other], status: "revealed" },
       },
     };
   }
@@ -123,8 +128,11 @@ export function submitResponse(s: InsightState, by: PersonId, choice: string, no
 
 /** Do the revealed answers agree? Meaningful only once both are revealed. */
 export function answersMatch(s: InsightState): boolean | undefined {
-  if (s.responses.ry.status !== "revealed" || s.responses.dylan.status !== "revealed") return undefined;
-  return s.responses.ry.choice === s.responses.dylan.choice;
+  const keys = Object.keys(s.responses);
+  if (keys.length < 2) return undefined;
+  const [a, b] = keys;
+  if (s.responses[a].status !== "revealed" || s.responses[b].status !== "revealed") return undefined;
+  return s.responses[a].choice === s.responses[b].choice;
 }
 
 /** Settle, release, or leave open — decided together after the reveal. */
@@ -134,7 +142,8 @@ export function resolve(
   at: number,
   choice?: string
 ): InsightState {
-  if (s.responses.ry.status !== "revealed" || s.responses.dylan.status !== "revealed")
+  const keys = Object.keys(s.responses);
+  if (keys.some((k) => s.responses[k].status !== "revealed") || keys.length < 2)
     fail("cannot resolve before both answers are revealed");
   return { ...s, resolution: { type, choice, at } };
 }
@@ -174,7 +183,7 @@ export interface Projection {
 }
 
 export function projectFor(s: InsightState, viewer: PersonId): Projection | null {
-  const other = partnerOf(viewer);
+  const other = otherKey(s, viewer);
 
   // Mine is private: non-owners never see private items.
   if (s.visibility === "private" && s.owner !== viewer) return null;

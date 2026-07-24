@@ -2,18 +2,14 @@
 
 import { useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { useWeStore } from "@/lib/store";
-import { PEOPLE } from "@/lib/seed";
-import type { PersonId } from "@/lib/types";
 import InterlockMark from "./InterlockMark";
 
 /**
- * First-run sequence: before WE shows anything, it states its contract.
- * Four beats — arrival, the three spaces, the promise, and identity.
- * One partner can complete this alone; nothing requires the other yet.
+ * First-run intro: before WE asks anyone to sign in, it states its contract.
+ * Three beats — arrival, one shared place, the promise — then hands off to
+ * sign-in. One partner can pass through this alone; nothing requires the other.
  */
-export default function Onboarding() {
-  const completeOnboarding = useWeStore((s) => s.completeOnboarding);
+export default function Onboarding({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState(0);
   const reduceMotion = useReducedMotion();
 
@@ -32,13 +28,12 @@ export default function Onboarding() {
         <motion.div key={step} {...fade} className="flex flex-1 flex-col">
           {step === 0 && <Arrival onNext={() => setStep(1)} />}
           {step === 1 && <HowItWorks onNext={() => setStep(2)} />}
-          {step === 2 && <Promise_ onNext={() => setStep(3)} />}
-          {step === 3 && <Identity onChoose={completeOnboarding} />}
+          {step === 2 && <Promise_ onNext={onDone} />}
         </motion.div>
       </AnimatePresence>
 
       <div className="flex items-center justify-center gap-2 pb-2 pt-6" aria-hidden="true">
-        {[0, 1, 2, 3].map((i) => (
+        {[0, 1, 2].map((i) => (
           <span
             key={i}
             className={`h-1 rounded-full transition-all duration-500 ${
@@ -132,36 +127,7 @@ function Promise_({ onNext }: { onNext: () => void }) {
         ))}
       </ul>
       <div className="mt-12">
-        <Next onClick={onNext}>That works for me</Next>
-      </div>
-    </div>
-  );
-}
-
-function Identity({ onChoose }: { onChoose: (p: PersonId) => void }) {
-  return (
-    <div className="flex flex-1 flex-col justify-center">
-      <h2 className="font-serif text-[1.7rem] leading-snug">And you are —</h2>
-      <p className="mt-3 text-sm leading-relaxed text-faint">
-        Just so WE knows who’s here. Your partner joins with their own sign-in, whenever they’re
-        ready — nothing is waiting on them.
-      </p>
-      <div className="mt-8 space-y-3">
-        {(Object.keys(PEOPLE) as PersonId[]).map((id) => {
-          const p = PEOPLE[id];
-          const soft = p.hue === "burgundy" ? "bg-burgundy-soft" : "bg-sage-soft";
-          const dot = p.hue === "burgundy" ? "bg-burgundy" : "bg-sage";
-          return (
-            <button
-              key={id}
-              onClick={() => onChoose(id)}
-              className={`flex w-full items-center gap-4 rounded-2xl ${soft} px-5 py-5 text-left transition-transform active:scale-[0.99]`}
-            >
-              <span className={`h-3 w-3 rounded-full ${dot}`} aria-hidden="true" />
-              <span className="font-serif text-xl">I'm {p.name}</span>
-            </button>
-          );
-        })}
+        <Next onClick={onNext}>Let’s begin</Next>
       </div>
     </div>
   );

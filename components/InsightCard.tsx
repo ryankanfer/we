@@ -2,9 +2,8 @@
 
 import Link from "next/link";
 import type { Projection } from "@/lib/consent";
-import { partnerOf } from "@/lib/consent";
-import { PEOPLE } from "@/lib/seed";
-import type { Insight, PersonId } from "@/lib/types";
+import { useSession } from "@/lib/session";
+import type { Insight } from "@/lib/types";
 import InterlockMark from "./InterlockMark";
 
 const KIND_LABEL: Record<Insight["kind"], string> = {
@@ -13,13 +12,12 @@ const KIND_LABEL: Record<Insight["kind"], string> = {
   unresolved: "Still open",
 };
 
-export function statusLine(p: Projection, viewer: PersonId): string | null {
-  const partner = PEOPLE[partnerOf(viewer)].name;
+export function statusLine(p: Projection, partner: string, initiatorName: string): string | null {
   switch (p.phase) {
     case "waiting":
       return `Waiting for ${partner} to open this with you`;
     case "invited":
-      return `${PEOPLE[p.initiator!].name} brought this to you`;
+      return `${initiatorName} brought this to you`;
     case "answering":
       return "Open between you — your answer is still yours";
     case "held":
@@ -40,25 +38,17 @@ function markState(p: Projection): "apart" | "touching" | "interlocked" {
   return "apart";
 }
 
-export default function InsightCard({
-  insight,
-  projection,
-  viewer,
-}: {
-  insight: Insight;
-  projection: Projection;
-  viewer: PersonId;
-}) {
-  const status = statusLine(projection, viewer);
+export default function InsightCard({ insight, projection }: { insight: Insight; projection: Projection }) {
+  const partner = useSession((s) => s.memberById(s.partnerId())?.name ?? "your partner");
+  const initiatorName = useSession((s) => s.memberById(projection.initiator)?.name ?? "Someone");
+  const status = statusLine(projection, partner, initiatorName);
   return (
     <Link
       href={`/insight/${insight.id}`}
       className="block rounded-2xl border border-line bg-card px-5 py-5 transition-colors hover:border-faint/60"
     >
       <div className="flex items-start justify-between gap-4">
-        <p className="text-[11px] uppercase tracking-[0.14em] text-faint">
-          {KIND_LABEL[insight.kind]}
-        </p>
+        <p className="text-[11px] uppercase tracking-[0.14em] text-faint">{KIND_LABEL[insight.kind]}</p>
         <InterlockMark size={22} overlap={markState(projection)} breathing={projection.phase === "waiting"} />
       </div>
       <h2 className="mt-2 font-serif text-[1.35rem] leading-snug">{insight.title}</h2>

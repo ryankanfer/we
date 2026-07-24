@@ -4,17 +4,16 @@ import { use, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { useWeStore } from "@/lib/store";
-import { partnerOf, projectFor, type Projection } from "@/lib/consent";
-import { PEOPLE } from "@/lib/seed";
+import { useSession } from "@/lib/session";
+import { projectFor, type Projection } from "@/lib/consent";
 import type { Insight, PersonId } from "@/lib/types";
 import InterlockMark from "@/components/InterlockMark";
 import PersonChip from "@/components/PersonChip";
 
 export default function InsightDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const viewer = useWeStore((s) => s.viewer);
-  const record = useWeStore((s) => s.records.find((r) => r.insight.id === id));
+  const viewer = useSession((s) => s.viewer);
+  const record = useSession((s) => s.records.find((r) => r.insight.id === id));
 
   const projection = record ? projectFor(record.state, viewer) : null;
 
@@ -54,11 +53,9 @@ function Flow({ insight, p, viewer }: { insight: Insight; p: Projection; viewer:
       <AnimatePresence mode="wait">
         <motion.div key={p.phase} {...fade} className="mt-4">
           {p.phase === "open" && <Open insight={insight} />}
-          {p.phase === "waiting" && <Waiting insight={insight} p={p} viewer={viewer} />}
-          {p.phase === "invited" && <Invited insight={insight} p={p} viewer={viewer} />}
-          {(p.phase === "answering" || p.phase === "held") && (
-            <Answering insight={insight} p={p} viewer={viewer} />
-          )}
+          {p.phase === "waiting" && <Waiting insight={insight} p={p} />}
+          {p.phase === "invited" && <Invited insight={insight} p={p} />}
+          {(p.phase === "answering" || p.phase === "held") && <Answering insight={insight} p={p} />}
           {p.phase === "revealed" && <Revealed insight={insight} p={p} viewer={viewer} />}
           {p.phase === "resolved" && <Resolved insight={insight} p={p} viewer={viewer} />}
         </motion.div>
@@ -113,8 +110,8 @@ function Quiet({ onClick, children }: { onClick: () => void; children: React.Rea
 /* ---------- phases ---------- */
 
 function Open({ insight }: { insight: Insight }) {
-  const request = useWeStore((s) => s.request);
-  const dismiss = useWeStore((s) => s.dismiss);
+  const request = useSession((s) => s.request);
+  const dismiss = useSession((s) => s.dismiss);
   const router = useRouter();
   return (
     <div>
@@ -139,11 +136,10 @@ function Open({ insight }: { insight: Insight }) {
   );
 }
 
-function Waiting({ insight, p, viewer }: { insight: Insight; p: Projection; viewer: PersonId }) {
-  const withdraw = useWeStore((s) => s.withdraw);
-  const clock = useWeStore((s) => s.clock);
-  const partner = PEOPLE[partnerOf(viewer)].name;
-  const hoursWaiting = clock - (p.requestedAt ?? 0);
+function Waiting({ insight, p }: { insight: Insight; p: Projection }) {
+  const withdraw = useSession((s) => s.withdraw);
+  const partner = useSession((s) => s.memberById(s.partnerId())?.name ?? "your partner");
+  const hoursWaiting = p.requestedAt ? (Date.now() - p.requestedAt) / 3_600_000 : 0;
   const later = hoursWaiting >= 18;
 
   return (
@@ -165,11 +161,11 @@ function Waiting({ insight, p, viewer }: { insight: Insight; p: Projection; view
   );
 }
 
-function Invited({ insight, p, viewer }: { insight: Insight; p: Projection; viewer: PersonId }) {
-  const accept = useWeStore((s) => s.accept);
-  const decline = useWeStore((s) => s.decline);
+function Invited({ insight, p }: { insight: Insight; p: Projection }) {
+  const accept = useSession((s) => s.accept);
+  const decline = useSession((s) => s.decline);
   const router = useRouter();
-  const from = PEOPLE[p.initiator!].name;
+  const from = useSession((s) => s.memberById(p.initiator)?.name ?? "They");
 
   return (
     <div>
@@ -199,11 +195,11 @@ function Invited({ insight, p, viewer }: { insight: Insight; p: Projection; view
   );
 }
 
-function Answering({ insight, p, viewer }: { insight: Insight; p: Projection; viewer: PersonId }) {
-  const submit = useWeStore((s) => s.submit);
+function Answering({ insight, p }: { insight: Insight; p: Projection }) {
+  const submit = useSession((s) => s.submit);
   const [choice, setChoice] = useState<string | undefined>(p.myResponse.choice);
   const [note, setNote] = useState(p.myResponse.note ?? "");
-  const partner = PEOPLE[partnerOf(viewer)].name;
+  const partner = useSession((s) => s.memberById(s.partnerId())?.name ?? "your partner");
   const held = p.phase === "held";
 
   if (held) {
@@ -273,7 +269,8 @@ function Answering({ insight, p, viewer }: { insight: Insight; p: Projection; vi
 }
 
 function AnswerCard({ person, choice, note }: { person: PersonId; choice?: string; note?: string }) {
-  const hue = PEOPLE[person].hue === "burgundy" ? "bg-burgundy-soft" : "bg-sage-soft";
+  const hueName = useSession((s) => s.memberById(person)?.hue);
+  const hue = hueName === "sage" ? "bg-sage-soft" : "bg-burgundy-soft";
   return (
     <div className={`rounded-2xl ${hue} px-5 py-4`}>
       <PersonChip id={person} suffix="chose" />
@@ -284,9 +281,9 @@ function AnswerCard({ person, choice, note }: { person: PersonId; choice?: strin
 }
 
 function Revealed({ insight, p, viewer }: { insight: Insight; p: Projection; viewer: PersonId }) {
-  const settle = useWeStore((s) => s.settle);
+  const settle = useSession((s) => s.settle);
+  const partner = useSession((s) => s.partnerId());
   const [showDetail, setShowDetail] = useState(false);
-  const partner = partnerOf(viewer);
   const matched = p.matched === true;
 
   return (
@@ -305,7 +302,7 @@ function Revealed({ insight, p, viewer }: { insight: Insight; p: Projection; vie
       {(matched || showDetail) && (
         <div className="mt-6 space-y-3">
           <AnswerCard person={viewer} choice={p.myResponse.choice} note={p.myResponse.note} />
-          <AnswerCard person={partner} choice={p.partnerResponse?.choice} note={p.partnerResponse?.note} />
+          <AnswerCard person={partner ?? ""} choice={p.partnerResponse?.choice} note={p.partnerResponse?.note} />
         </div>
       )}
 
@@ -340,7 +337,7 @@ function Revealed({ insight, p, viewer }: { insight: Insight; p: Projection; vie
 }
 
 function Resolved({ insight, p, viewer }: { insight: Insight; p: Projection; viewer: PersonId }) {
-  const partner = partnerOf(viewer);
+  const partner = useSession((s) => s.partnerId());
   const label =
     p.resolution?.type === "released"
       ? "Let go, together."
@@ -359,7 +356,7 @@ function Resolved({ insight, p, viewer }: { insight: Insight; p: Projection; vie
       </div>
       <div className="mt-8 space-y-3 opacity-80">
         <AnswerCard person={viewer} choice={p.myResponse.choice} note={p.myResponse.note} />
-        <AnswerCard person={partner} choice={p.partnerResponse?.choice} note={p.partnerResponse?.note} />
+        <AnswerCard person={partner ?? ""} choice={p.partnerResponse?.choice} note={p.partnerResponse?.note} />
       </div>
     </div>
   );

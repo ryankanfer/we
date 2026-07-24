@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { useWeStore } from "@/lib/store";
+import { useSession } from "@/lib/session";
 import { projectFor } from "@/lib/consent";
-import { REFLECTIONS } from "@/lib/seed";
 import type { Domain, Insight } from "@/lib/types";
 import InsightCard from "@/components/InsightCard";
 import InterlockMark from "@/components/InterlockMark";
+import InviteBanner from "@/components/InviteBanner";
 
 /** A lens is a way of looking at the one shared life, not a separate room. */
 type Lens = "today" | "life" | "us";
@@ -23,8 +23,9 @@ function inLens(insight: Insight, lens: Lens): boolean {
 }
 
 export default function Home() {
-  const viewer = useWeStore((s) => s.viewer);
-  const records = useWeStore((s) => s.records);
+  const viewer = useSession((s) => s.viewer);
+  const records = useSession((s) => s.records);
+  const allReflections = useSession((s) => s.reflections);
   const [lens, setLens] = useState<Lens>("today");
   const reduceMotion = useReducedMotion();
 
@@ -38,9 +39,7 @@ export default function Home() {
   // Privacy as a property, not a place: the viewer's own reflections surface
   // inline, under the matching lens. Never shown in the time-based Today view.
   const reflections =
-    lens === "today"
-      ? []
-      : REFLECTIONS.filter((r) => r.owner === viewer && (r.domain as Domain) === lens);
+    lens === "today" ? [] : allReflections.filter((r) => (r.domain as Domain) === lens);
 
   const empty = active.length === 0 && reflections.length === 0 && settled.length === 0;
   const note = LENSES.find((l) => l.id === lens)!.note;
@@ -48,6 +47,8 @@ export default function Home() {
   return (
     <div>
       <h1 className="font-serif text-[1.9rem] leading-tight">What needs us?</h1>
+
+      <InviteBanner />
 
       {/* Soft lenses — facets of one continuity, never separate destinations. */}
       <div className="mt-5" role="tablist" aria-label="Lenses">
@@ -97,7 +98,7 @@ export default function Home() {
           ) : (
             <div className="mt-6 space-y-3">
               {active.map(({ r, p }) => (
-                <InsightCard key={r.insight.id} insight={r.insight} projection={p!} viewer={viewer} />
+                <InsightCard key={r.insight.id} insight={r.insight} projection={p!} />
               ))}
 
               {reflections.map((rfl) => (
@@ -109,12 +110,7 @@ export default function Home() {
                   <p className="text-[11px] uppercase tracking-[0.14em] text-faint">Settled together</p>
                   <div className="mt-3 space-y-3 opacity-70">
                     {settled.map(({ r, p }) => (
-                      <InsightCard
-                        key={r.insight.id}
-                        insight={r.insight}
-                        projection={p!}
-                        viewer={viewer}
-                      />
+                      <InsightCard key={r.insight.id} insight={r.insight} projection={p!} />
                     ))}
                   </div>
                 </div>
