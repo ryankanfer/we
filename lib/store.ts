@@ -21,7 +21,6 @@ interface WeStore {
   /** Demo clock, in hours since the session began. */
   clock: number;
   records: InsightRecord[];
-  teachingSeen: boolean;
   /** First-run onboarding: the contract WE makes before showing anything. */
   onboarded: boolean;
   /** Screen-reader announcement channel (aria-live). */
@@ -30,7 +29,6 @@ interface WeStore {
   setViewer: (p: PersonId) => void;
   completeOnboarding: (p: PersonId) => void;
   advanceClock: (hours: number) => void;
-  markTeachingSeen: () => void;
   announce: (msg: string) => void;
   reset: () => void;
 
@@ -58,7 +56,6 @@ export const useWeStore = create<WeStore>()(
       viewer: "ry",
       clock: 0,
       records: seedRecords(),
-      teachingSeen: false,
       onboarded: false,
       announcement: "",
 
@@ -67,18 +64,15 @@ export const useWeStore = create<WeStore>()(
         set({
           viewer: p,
           onboarded: true,
-          teachingSeen: true,
-          announcement: "Welcome. This is Ours — what needs the two of you.",
+          announcement: "Welcome in. Here’s what needs the two of you.",
         }),
       advanceClock: (hours) => set((s) => ({ clock: s.clock + hours })),
-      markTeachingSeen: () => set({ teachingSeen: true }),
       announce: (msg) => set({ announcement: msg }),
       reset: () =>
         set({
           viewer: "ry",
           clock: 0,
           records: seedRecords(),
-          teachingSeen: false,
           onboarded: false,
           announcement: "Demo reset.",
         }),
@@ -155,6 +149,6 @@ export const useWeStore = create<WeStore>()(
           announcement: "Suggestion dismissed, just for you.",
         })),
     }),
-    { name: "we-demo-v1" }
+    { name: "we-demo-v2" }
   )
 );

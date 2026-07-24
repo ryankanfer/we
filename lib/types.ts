@@ -9,10 +9,23 @@ export interface Person {
 
 export type InsightKind = "logistical" | "relational" | "unresolved";
 
+/**
+ * The lenses WE organizes intelligence around. These are facets of one shared
+ * life, never ownership boundaries — "Us" is the relationship, not "your space."
+ *   life — the life the two of you are building and running
+ *   us   — the two of you: closeness, time, attention
+ * "Today" is not a domain; it is the present cross-section (see `present`).
+ */
+export type Domain = "life" | "us";
+
 /** Content of a surfaced card. Immutable; state lives in InsightState. */
 export interface Insight {
   id: string;
   kind: InsightKind;
+  /** Which lens of the shared life this belongs to. */
+  domain: Domain;
+  /** Whether it is live right now — surfaces under the "Today" lens. */
+  present: boolean;
   /** The editorial observation, set in serif. */
   title: string;
   body: string;
@@ -65,10 +78,15 @@ export interface InsightRecord {
   state: InsightState;
 }
 
-/** A private reflection living in one person's Mine space. Never projected to the partner. */
+/**
+ * A private reflection belonging to one person. Never projected to the partner.
+ * Privacy is a property, not a place: these surface inline within the shared
+ * continuity — under the same lens — visible only to their owner.
+ */
 export interface Reflection {
   id: string;
   owner: PersonId;
+  domain: Domain;
   text: string;
   kind: "reflection" | "suggestion";
 }

@@ -31,7 +31,7 @@ export default function Onboarding() {
       <AnimatePresence mode="wait">
         <motion.div key={step} {...fade} className="flex flex-1 flex-col">
           {step === 0 && <Arrival onNext={() => setStep(1)} />}
-          {step === 1 && <Spaces onNext={() => setStep(2)} />}
+          {step === 1 && <HowItWorks onNext={() => setStep(2)} />}
           {step === 2 && <Promise_ onNext={() => setStep(3)} />}
           {step === 3 && <Identity onChoose={completeOnboarding} />}
         </motion.div>
@@ -81,27 +81,32 @@ function Arrival({ onNext }: { onNext: () => void }) {
   );
 }
 
-function Spaces({ onNext }: { onNext: () => void }) {
-  const rows: { mark: "apart" | "touching" | "interlocked"; name: string; line: string }[] = [
-    { mark: "apart", name: "Mine", line: "Yours alone. Never shared, never hinted at." },
-    { mark: "touching", name: "Ours", line: "What WE notices for both of you — gently, with its reasons." },
-    { mark: "interlocked", name: "Between Us", line: "Only what you have both chosen to open, together." },
+function HowItWorks({ onNext }: { onNext: () => void }) {
+  const facets: { name: string; line: string }[] = [
+    { name: "Today", line: "What needs the two of you right now." },
+    { name: "Life", line: "The life you’re building and running together." },
+    { name: "Us", line: "The two of you — time, closeness, attention." },
   ];
   return (
     <div className="flex flex-1 flex-col justify-center">
-      <h2 className="font-serif text-[1.7rem] leading-snug">Three spaces.</h2>
-      <div className="mt-8 space-y-7">
-        {rows.map((r) => (
-          <div key={r.name} className="flex items-start gap-4">
-            <InterlockMark size={34} overlap={r.mark} className="mt-0.5 shrink-0" />
-            <div>
-              <p className="font-serif text-lg">{r.name}</p>
-              <p className="mt-1 text-sm leading-relaxed text-faint">{r.line}</p>
-            </div>
+      <div className="flex items-center gap-3">
+        <InterlockMark size={34} overlap="interlocked" className="shrink-0" />
+        <h2 className="font-serif text-[1.7rem] leading-snug">One shared place.</h2>
+      </div>
+      <p className="mt-4 text-sm leading-relaxed text-faint">
+        Not two accounts and a shared folder — one continuity, for both of you. WE quietly keeps an
+        eye on the life you share and surfaces only what’s worth your attention, seen through three
+        lenses:
+      </p>
+      <div className="mt-7 space-y-5">
+        {facets.map((f) => (
+          <div key={f.name} className="border-l border-line pl-4">
+            <p className="font-serif text-lg">{f.name}</p>
+            <p className="mt-0.5 text-sm leading-relaxed text-faint">{f.line}</p>
           </div>
         ))}
       </div>
-      <div className="mt-12">
+      <div className="mt-10">
         <Next onClick={onNext}>And one promise</Next>
       </div>
     </div>
@@ -110,7 +115,7 @@ function Spaces({ onNext }: { onNext: () => void }) {
 
 function Promise_({ onNext }: { onNext: () => void }) {
   const lines = [
-    "Nothing opens between you unless you both open it.",
+    "Some things stay yours until you both choose to open them — together.",
     "“Not now” is always safe. No one is told, and no one keeps count.",
     "WE describes patterns. It never diagnoses people, and it never scores you.",
     "The better things are, the quieter WE becomes.",
@@ -136,9 +141,9 @@ function Promise_({ onNext }: { onNext: () => void }) {
 function Identity({ onChoose }: { onChoose: (p: PersonId) => void }) {
   return (
     <div className="flex flex-1 flex-col justify-center">
-      <h2 className="font-serif text-[1.7rem] leading-snug">Who's holding this phone?</h2>
+      <h2 className="font-serif text-[1.7rem] leading-snug">And you are —</h2>
       <p className="mt-3 text-sm leading-relaxed text-faint">
-        WE works even if you're the only one here for now. Your partner can join whenever they're
+        Just so WE knows who’s here. Your partner joins with their own sign-in, whenever they’re
         ready — nothing is waiting on them.
       </p>
       <div className="mt-8 space-y-3">

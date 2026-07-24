@@ -25,7 +25,7 @@ export default function InsightDetail({ params }: { params: Promise<{ id: string
         <InterlockMark size={48} overlap="apart" />
         <p className="mt-6 font-serif text-xl">This isn’t here anymore.</p>
         <Link href="/" className="mt-4 text-sm text-faint underline underline-offset-2 hover:text-ink">
-          Back to Ours
+          Back home
         </Link>
       </div>
     );
@@ -48,7 +48,7 @@ function Flow({ insight, p, viewer }: { insight: Insight; p: Projection; viewer:
   return (
     <div>
       <Link href="/" className="text-xs text-faint hover:text-ink">
-        ← Ours
+        ← Back
       </Link>
 
       <AnimatePresence mode="wait">

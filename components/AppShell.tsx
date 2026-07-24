@@ -1,72 +1,62 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { AnimatePresence } from "framer-motion";
 import { useWeStore } from "@/lib/store";
 import { PEOPLE } from "@/lib/seed";
 import type { PersonId } from "@/lib/types";
 import InterlockMark from "./InterlockMark";
 import Onboarding from "./Onboarding";
-
-const TABS = [
-  { href: "/mine", label: "Mine" },
-  { href: "/", label: "Ours" },
-  { href: "/between-us", label: "Between Us" },
-];
+import Splash from "./Splash";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
+  const [splashDone, setSplashDone] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  const pathname = usePathname();
   const viewer = useWeStore((s) => s.viewer);
   const announcement = useWeStore((s) => s.announcement);
   const onboarded = useWeStore((s) => s.onboarded);
-  const onboarding = mounted && !onboarded;
+
+  const finishSplash = useCallback(() => setSplashDone(true), []);
+
+  // Launch → splash → (onboarding | the one continuous home).
+  const showSplash = mounted && !splashDone;
+  const onboarding = mounted && splashDone && !onboarded;
+  const chromeless = showSplash || onboarding;
 
   return (
     <div className="flex min-h-dvh flex-col items-center gap-4 px-3 py-4 sm:py-8">
       {/* The phone: WE itself. */}
       <div className="flex w-full max-w-[430px] flex-1 flex-col overflow-hidden rounded-[2rem] border border-line bg-cream shadow-[0_1px_2px_rgba(39,33,26,0.06)]">
-        <header className="flex items-center justify-between px-6 pb-2 pt-6">
-          <Link href="/" className="flex items-center gap-2.5" aria-label="WE home">
-            <InterlockMark size={26} overlap="interlocked" />
-            <span className="font-serif text-lg tracking-[0.18em]">WE</span>
-          </Link>
-          {mounted && !onboarding && (
-            <span className="text-xs text-faint" aria-label={`Viewing as ${PEOPLE[viewer].name}`}>
-              {PEOPLE[viewer].name}
-            </span>
-          )}
-        </header>
-
-        <main className="flex-1 overflow-y-auto px-6 pb-6 pt-2">
-          {!mounted ? <div aria-hidden="true" /> : onboarding ? <Onboarding /> : children}
-        </main>
-
-        {!onboarding && (
-          <nav aria-label="Spaces" className="border-t border-line px-6 py-3">
-            <ul className="flex items-center justify-between">
-              {TABS.map((t) => {
-                const active = pathname === t.href;
-                return (
-                  <li key={t.href}>
-                    <Link
-                      href={t.href}
-                      aria-current={active ? "page" : undefined}
-                      className={`rounded-full px-4 py-2 text-sm transition-colors ${
-                        active ? "bg-ink text-cream" : "text-faint hover:text-ink"
-                      }`}
-                    >
-                      {t.label}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </nav>
+        {!chromeless && (
+          <header className="flex items-center justify-between px-6 pb-2 pt-6">
+            <Link href="/" className="flex items-center gap-2.5" aria-label="WE home">
+              <InterlockMark size={26} overlap="interlocked" />
+              <span className="font-serif text-lg tracking-[0.18em]">WE</span>
+            </Link>
+            {mounted && (
+              <span className="text-xs text-faint" aria-label={`Signed in as ${PEOPLE[viewer].name}`}>
+                {PEOPLE[viewer].name}
+              </span>
+            )}
+          </header>
         )}
+
+        <main className="flex-1 overflow-y-auto px-6 pb-8 pt-2">
+          <AnimatePresence mode="wait">
+            {!mounted ? (
+              <div key="blank" aria-hidden="true" />
+            ) : showSplash ? (
+              <Splash key="splash" onDone={finishSplash} />
+            ) : onboarding ? (
+              <Onboarding key="onboarding" />
+            ) : (
+              <div key="app">{children}</div>
+            )}
+          </AnimatePresence>
+        </main>
       </div>
 
       {/* Screen-reader announcements for consent transitions. */}
@@ -74,7 +64,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         {mounted ? announcement : ""}
       </div>
 
-      {mounted && !onboarding && <DemoController viewer={viewer} />}
+      {mounted && !chromeless && <DemoController viewer={viewer} />}
     </div>
   );
 }
@@ -83,7 +73,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
  * Explicitly OUTSIDE the phone frame: this is the research harness, not WE.
  * It lets one tester experience both partners and the passage of time.
  * It never exposes the other partner's private content — switching identity
- * re-projects the entire app through the consent layer.
+ * re-projects the entire app through the consent layer. (Real two-device
+ * sign-in replaces this once the shared backend is live.)
  */
 function DemoController({ viewer }: { viewer: PersonId }) {
   const setViewer = useWeStore((s) => s.setViewer);
@@ -107,9 +98,7 @@ function DemoController({ viewer }: { viewer: PersonId }) {
             onClick={() => setViewer(id)}
             aria-pressed={viewer === id}
             className={`rounded-full border px-3 py-1 transition-colors ${
-              viewer === id
-                ? "border-ink bg-ink text-cream"
-                : "border-faint/40 hover:border-ink"
+              viewer === id ? "border-ink bg-ink text-cream" : "border-faint/40 hover:border-ink"
             }`}
           >
             {PEOPLE[id].name}
