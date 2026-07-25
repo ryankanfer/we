@@ -7,3 +7,6 @@ out
 next-env.d.ts
 .DS_Store
 xcuserdata/
+# Local Xcode scheme carries Supabase development credentials.
+WE/WE.xcodeproj/xcshareddata/xcschemes/WE.xcscheme
+supabase/.temp/

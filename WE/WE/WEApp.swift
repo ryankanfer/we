@@ -1,79 +1,64 @@
-//
-//  WEApp.swift
-//  WE
-//
-//  Created by Ryan Kanfer on 7/24/26.
-//
-
 import SwiftUI
 
 @main
 struct WEApp: App {
-    @AppStorage("lastExtendedWelcomeDay")
-    private var lastExtendedWelcomeDay = ""
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @StateObject private var session: AppSession
+    @AppStorage("hasSeenLivingConfluencePromise")
+    private var hasSeenPromise = false
+    @State private var isReplayingPromise = false
 
-    @AppStorage(WEHue.personalStorageKey)
-    private var personalHueRawValue = ""
-
-    @State private var showsSplash = true
+    init() {
+        let environment = AppEnvironment.current
+        let isOfflinePreview = environment.repositoryMode == .preview
+            && environment.previewScenario == .offline
+        _session = StateObject(
+            wrappedValue: AppSession(
+                repository: RepositoryFactory.make(environment: environment),
+                connectivity: ConnectivityMonitor(
+                    startImmediately: !isOfflinePreview,
+                    initiallyOnline: !isOfflinePreview
+                )
+            )
+        )
+    }
 
     var body: some Scene {
         WindowGroup {
             ZStack {
-                ContentView()
-                    .allowsHitTesting(!isCovered)
-                    .accessibilityHidden(isCovered)
+                ContentView {
+                    isReplayingPromise = true
+                }
+                .environmentObject(session)
+                .accessibilityHidden(showsPromise)
+                .allowsHitTesting(!showsPromise)
 
-                // First run asks for a color before anything else, so the
-                // splash that follows is already lit in the user's own hue.
-                if needsOnboarding {
-                    HueOnboardingView { hue in
-                        withAnimation(.easeInOut(duration: 0.55)) {
-                            personalHueRawValue = hue.rawValue
-                        }
-                    }
-                    .transition(
-                        .opacity.combined(with: .scale(scale: 1.02))
-                    )
-                    .zIndex(10)
-                } else if showsSplash {
-                    SplashView(
-                        extendedWelcome: lastExtendedWelcomeDay != todayKey
-                    ) {
-                        lastExtendedWelcomeDay = todayKey
-
-                        withAnimation(.easeOut(duration: 0.5)) {
-                            showsSplash = false
-                        }
+                if showsPromise {
+                    LivingConfluencePromise {
+                        hasSeenPromise = true
+                        isReplayingPromise = false
                     }
                     .transition(.opacity)
-                    .zIndex(5)
+                    .zIndex(10)
                 }
             }
-            .animation(.easeInOut(duration: 0.45), value: needsOnboarding)
+            .animation(
+                .weSettle(duration: 0.45, reduceMotion: reduceMotion),
+                value: showsPromise
+            )
+            .task {
+                await session.restoreIfNeeded()
+            }
+            .onOpenURL { url in
+                Task { await session.handleAuthCallback(url) }
+            }
         }
     }
 
-    private var needsOnboarding: Bool {
-        personalHueRawValue.isEmpty
-    }
-
-    private var isCovered: Bool {
-        needsOnboarding || showsSplash
-    }
-
-    private var todayKey: String {
-        let components = Calendar.current.dateComponents(
-            [.year, .month, .day],
-            from: Date()
-        )
-
-        return [
-            components.year,
-            components.month,
-            components.day
-        ]
-        .map { String($0 ?? 0) }
-        .joined(separator: "-")
+    private var showsPromise: Bool {
+        if ProcessInfo.processInfo.environment["WE_SKIP_PROMISE"] == "1" {
+            return false
+        }
+        return !hasSeenPromise || isReplayingPromise
     }
 }
