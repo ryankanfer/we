@@ -78,6 +78,34 @@ struct WESpaceView: View {
                                 .multilineTextAlignment(.center)
                         }
 
+                        if let code = session.snapshot?.couple?.joinCode,
+                           session.snapshot?.members.count == 1 {
+                            VStack(spacing: 8) {
+                                Text("INVITE YOUR PARTNER")
+                                    .font(.weCaption)
+                                    .foregroundStyle(.white.opacity(0.62))
+
+                                Text(code)
+                                    .font(.system(.title2, design: .monospaced))
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(.white)
+                                    .textSelection(.enabled)
+
+                                Text("Share this code with only your partner.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.white.opacity(0.62))
+                            }
+                            .padding(18)
+                            .frame(maxWidth: 340)
+                            .glassEffect(
+                                .regular,
+                                in: RoundedRectangle(
+                                    cornerRadius: 20,
+                                    style: .continuous
+                                )
+                            )
+                        }
+
                         GlassEffectContainer(spacing: 12) {
                             VStack(spacing: 12) {
                                 ForEach(WESpaceDestination.allCases) { destination in

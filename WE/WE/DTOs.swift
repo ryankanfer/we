@@ -113,3 +113,53 @@ nonisolated struct ReflectionDTO: Decodable, Sendable {
         case text
     }
 }
+
+nonisolated struct DismissalDTO: Decodable, Sendable {
+    let insightID: String
+    let profileID: String
+
+    enum CodingKeys: String, CodingKey {
+        case insightID = "insight_id"
+        case profileID = "profile_id"
+    }
+}
+
+nonisolated struct JoinCoupleParameters: Encodable, Sendable {
+    let code: String
+
+    enum CodingKeys: String, CodingKey {
+        case code = "p_code"
+    }
+}
+
+nonisolated struct InsightParameters: Encodable, Sendable {
+    let insightID: String
+
+    enum CodingKeys: String, CodingKey {
+        case insightID = "p_insight"
+    }
+}
+
+nonisolated struct SubmitResponseParameters: Encodable, Sendable {
+    let insightID: String
+    let choice: String
+    let note: String?
+
+    enum CodingKeys: String, CodingKey {
+        case insightID = "p_insight"
+        case choice = "p_choice"
+        case note = "p_note"
+    }
+}
+
+nonisolated struct ResolveInsightParameters: Encodable, Sendable {
+    let insightID: String
+    let type: String
+    let choice: String?
+
+    enum CodingKeys: String, CodingKey {
+        case insightID = "p_insight"
+        case type = "p_type"
+        case choice = "p_choice"
+    }
+}

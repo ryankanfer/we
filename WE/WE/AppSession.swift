@@ -20,6 +20,7 @@ final class AppSession: ObservableObject {
 
     private let repository: any Repository
     private var didRestore = false
+    private var changesTask: Task<Void, Never>?
 
     init(repository: any Repository) {
         self.repository = repository
@@ -27,6 +28,10 @@ final class AppSession: ObservableObject {
 
     var insights: [Insight] {
         snapshot?.insights.map(\.insight) ?? []
+    }
+
+    var insightRecords: [InsightRecord] {
+        snapshot?.insights ?? []
     }
 
     var isReady: Bool {
@@ -77,6 +82,8 @@ final class AppSession: ObservableObject {
         defer { isWorking = false }
 
         do {
+            changesTask?.cancel()
+            changesTask = nil
             try await repository.signOut()
             user = nil
             snapshot = nil
@@ -92,10 +99,140 @@ final class AppSession: ObservableObject {
         await restoreIfNeeded()
     }
 
+    func createCouple() async {
+        await perform {
+            try await self.repository.createCouple()
+        }
+    }
+
+    func joinCouple(code: String) async {
+        await perform {
+            try await self.repository.joinCouple(code: code)
+        }
+    }
+
+    func requestReveal(insightID: String) async {
+        await perform {
+            try await self.repository.requestReveal(insightID: insightID)
+        }
+    }
+
+    func acceptReveal(insightID: String) async {
+        await perform {
+            try await self.repository.acceptReveal(insightID: insightID)
+        }
+    }
+
+    func declineReveal(insightID: String) async {
+        await perform {
+            try await self.repository.declineReveal(insightID: insightID)
+        }
+    }
+
+    func withdrawReveal(insightID: String) async {
+        await perform {
+            try await self.repository.withdrawReveal(insightID: insightID)
+        }
+    }
+
+    func submitResponse(
+        insightID: String,
+        choice: String,
+        note: String? = nil
+    ) async {
+        await perform {
+            try await self.repository.submitResponse(
+                insightID: insightID,
+                choice: choice,
+                note: note
+            )
+        }
+    }
+
+    func resolveInsight(
+        insightID: String,
+        type: ResolutionType,
+        choice: String? = nil
+    ) async {
+        await perform {
+            try await self.repository.resolveInsight(
+                insightID: insightID,
+                type: type,
+                choice: choice
+            )
+        }
+    }
+
+    func dismissSuggestion(insightID: String) async {
+        await perform {
+            try await self.repository.dismissSuggestion(insightID: insightID)
+        }
+    }
+
+    func projection(for record: InsightRecord) -> TrustProjection? {
+        guard let user else { return nil }
+        let memberIDs = snapshot?.members.map(\.id) ?? [user.id]
+        return TrustCore.project(
+            record.trustState(memberIDs: memberIDs),
+            for: user.id
+        )
+    }
+
     private func load(user: AuthenticatedUser) async throws {
         let loaded = try await repository.loadRelationship(for: user)
         self.user = user
         snapshot = loaded
         state = loaded.membership == nil ? .needsCouple : .ready
+        if loaded.membership == nil {
+            changesTask?.cancel()
+            changesTask = nil
+        } else {
+            observeRelationship()
+        }
+    }
+
+    private func perform(
+        _ operation: () async throws -> Void
+    ) async {
+        guard let user else { return }
+        isWorking = true
+        errorMessage = nil
+        defer { isWorking = false }
+
+        do {
+            try await operation()
+            try await load(user: user)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func observeRelationship() {
+        guard changesTask == nil else { return }
+
+        changesTask = Task { [weak self] in
+            guard let self else { return }
+
+            do {
+                let changes = try await repository.relationshipChanges()
+                for await _ in changes {
+                    guard !Task.isCancelled, let user = self.user else {
+                        break
+                    }
+                    do {
+                        let loaded = try await repository.loadRelationship(
+                            for: user
+                        )
+                        snapshot = loaded
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
+                }
+            } catch {
+                if !Task.isCancelled {
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
     }
 }

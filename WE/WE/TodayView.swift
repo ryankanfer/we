@@ -24,21 +24,21 @@ struct TodayView: View {
                 LazyVStack(alignment: .leading, spacing: 22) {
                     greeting
 
-                    if let firstInsight = session.insights.first {
+                    if let firstInsight = visibleRecords.first {
                         AtmosphericInsightCard(
-                            insight: firstInsight,
+                            record: firstInsight,
                             featured: true
                         )
                     }
 
                     todayTogether
 
-                    if let secondInsight = session.insights.dropFirst().first {
+                    if let secondInsight = visibleRecords.dropFirst().first {
                         VStack(alignment: .leading, spacing: 10) {
                             WESectionLabel("STILL OPEN")
 
                             AtmosphericInsightCard(
-                                insight: secondInsight
+                                record: secondInsight
                             )
                         }
                     }
@@ -50,6 +50,15 @@ struct TodayView: View {
             .scrollIndicators(.hidden)
         }
         .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private var visibleRecords: [InsightRecord] {
+        session.insightRecords.filter {
+            guard let projection = session.projection(for: $0) else {
+                return false
+            }
+            return !projection.dismissed
+        }
     }
 
     private var greeting: some View {
@@ -170,7 +179,7 @@ struct TodayView: View {
 }
 
 private struct AtmosphericInsightCard: View {
-    let insight: Insight
+    let record: InsightRecord
     var featured = false
 
     @State private var showsDetail = false
@@ -179,6 +188,10 @@ private struct AtmosphericInsightCard: View {
 
     private var personalHue: WEHue {
         WEHue.stored(storedPersonalHue)
+    }
+
+    private var insight: Insight {
+        record.insight
     }
 
     var body: some View {
@@ -233,21 +246,30 @@ private struct AtmosphericInsightCard: View {
         )
         .sensoryFeedback(.impact(weight: .light), trigger: showsDetail)
         .sheet(isPresented: $showsDetail) {
-            NowInsightDetail(insight: insight)
+            NowInsightDetail(record: record)
         }
     }
 }
 
 private struct NowInsightDetail: View {
-    let insight: Insight
+    let record: InsightRecord
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var session: AppSession
     @State private var selectedOption: String?
     @AppStorage(WEHue.personalStorageKey)
     private var storedPersonalHue = ""
 
     private var personalHue: WEHue {
         WEHue.stored(storedPersonalHue)
+    }
+
+    private var insight: Insight {
+        record.insight
+    }
+
+    private var projection: TrustProjection? {
+        session.projection(for: record)
     }
 
     var body: some View {
@@ -262,35 +284,14 @@ private struct NowInsightDetail: View {
                         .font(.weBody)
                         .foregroundStyle(Color("WEFaint"))
 
-                    VStack(spacing: 10) {
-                        ForEach(insight.options, id: \.self) { option in
-                            Button {
-                                withAnimation(.weSettle(duration: 0.32)) {
-                                    selectedOption = option
-                                }
-                            } label: {
-                                HStack {
-                                    Text(option)
+                    if let projection {
+                        trustControls(projection)
+                    }
 
-                                    Spacer()
-
-                                    if selectedOption == option {
-                                        Image(systemName: "checkmark")
-                                            .transition(
-                                                .opacity.combined(
-                                                    with: .scale(scale: 0.6)
-                                                )
-                                            )
-                                    }
-                                }
-                                .frame(maxWidth: .infinity, minHeight: 44)
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(personalHue.controlColor)
-                            .fontWeight(
-                                selectedOption == option ? .semibold : .regular
-                            )
-                        }
+                    if let error = session.errorMessage {
+                        Text(error)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
                     }
                 }
                 .padding(20)
@@ -304,6 +305,237 @@ private struct NowInsightDetail: View {
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func trustControls(
+        _ projection: TrustProjection
+    ) -> some View {
+        switch projection.phase {
+        case .hidden:
+            EmptyView()
+        case .open:
+            status(
+                "Open this together?",
+                "Your partner will see the invitation, not your answer."
+            )
+
+            primaryButton("Ask to open together") {
+                await session.requestReveal(insightID: insight.id)
+            }
+
+            Button("Not for me") {
+                Task {
+                    await session.dismissSuggestion(insightID: insight.id)
+                    dismiss()
+                }
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color("WEFaint"))
+        case .waiting:
+            status(
+                "Waiting gently.",
+                "Your partner can accept when they are ready."
+            )
+
+            Button("Withdraw invitation") {
+                Task {
+                    await session.withdrawReveal(insightID: insight.id)
+                }
+            }
+            .buttonStyle(.bordered)
+        case .invited:
+            status(
+                "Your partner wants to open this together.",
+                "Declining stays private. They will only keep seeing "
+                    + "that the invitation is waiting."
+            )
+
+            primaryButton("Open together") {
+                await session.acceptReveal(insightID: insight.id)
+            }
+
+            Button("Not now") {
+                Task {
+                    await session.declineReveal(insightID: insight.id)
+                    dismiss()
+                }
+            }
+            .buttonStyle(.bordered)
+        case .answering:
+            status(
+                "Answer privately.",
+                "Neither answer appears until both of you submit."
+            )
+            optionPicker
+
+            primaryButton("Submit my answer") {
+                guard let selectedOption else { return }
+                await session.submitResponse(
+                    insightID: insight.id,
+                    choice: selectedOption
+                )
+            }
+            .disabled(selectedOption == nil || session.isWorking)
+        case .held:
+            status(
+                "Your answer is held safely.",
+                "It will reveal only after your partner submits too."
+            )
+        case .revealed:
+            revealedAnswers(projection)
+
+            primaryButton("Mark this settled") {
+                await session.resolveInsight(
+                    insightID: insight.id,
+                    type: .settled,
+                    choice: projection.matched == true
+                        ? projection.myResponse.choice
+                        : nil
+                )
+            }
+
+            HStack {
+                Button("Leave open") {
+                    Task {
+                        await session.resolveInsight(
+                            insightID: insight.id,
+                            type: .leftOpen
+                        )
+                    }
+                }
+                .buttonStyle(.bordered)
+
+                Button("Release it") {
+                    Task {
+                        await session.resolveInsight(
+                            insightID: insight.id,
+                            type: .released
+                        )
+                    }
+                }
+                .buttonStyle(.bordered)
+            }
+        case .resolved:
+            status(
+                "Held together.",
+                resolutionMessage(projection.resolution)
+            )
+        }
+    }
+
+    private var optionPicker: some View {
+        VStack(spacing: 10) {
+            ForEach(insight.options, id: \.self) { option in
+                Button {
+                    withAnimation(.weSettle(duration: 0.32)) {
+                        selectedOption = option
+                    }
+                } label: {
+                    HStack {
+                        Text(option)
+
+                        Spacer()
+
+                        if selectedOption == option {
+                            Image(systemName: "checkmark")
+                                .transition(
+                                    .opacity.combined(
+                                        with: .scale(scale: 0.6)
+                                    )
+                                )
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .tint(personalHue.controlColor)
+                .fontWeight(
+                    selectedOption == option ? .semibold : .regular
+                )
+            }
+        }
+    }
+
+    private func status(_ title: String, _ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.weHeadline)
+                .foregroundStyle(Color("WEInk"))
+
+            Text(message)
+                .font(.weBody)
+                .foregroundStyle(Color("WEFaint"))
+        }
+    }
+
+    private func primaryButton(
+        _ title: String,
+        action: @escaping () async -> Void
+    ) -> some View {
+        Button {
+            Task { await action() }
+        } label: {
+            Group {
+                if session.isWorking {
+                    ProgressView()
+                } else {
+                    Text(title)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(personalHue.controlColor)
+        .disabled(session.isWorking)
+    }
+
+    private func revealedAnswers(
+        _ projection: TrustProjection
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            status(
+                projection.matched == true
+                    ? "You chose the same thing."
+                    : "You see this differently.",
+                "Both answers arrived before either was revealed."
+            )
+
+            answerRow("You", projection.myResponse.choice)
+            answerRow("Your partner", projection.partnerResponse?.choice)
+        }
+    }
+
+    private func answerRow(_ person: String, _ answer: String?) -> some View {
+        HStack {
+            Text(person)
+                .foregroundStyle(Color("WEFaint"))
+            Spacer()
+            Text(answer ?? "No answer")
+                .fontWeight(.semibold)
+                .foregroundStyle(Color("WEInk"))
+        }
+        .font(.weBody)
+        .padding(14)
+        .background(
+            Color("WEInk").opacity(0.05),
+            in: RoundedRectangle(cornerRadius: 14)
+        )
+    }
+
+    private func resolutionMessage(
+        _ resolution: TrustResolution?
+    ) -> String {
+        switch resolution?.type {
+        case .settled:
+            "You marked this as settled."
+        case .released:
+            "You chose to release this."
+        case .leftOpen:
+            "You chose to leave this open."
+        case nil:
+            "This moment has been resolved."
         }
     }
 }

@@ -128,6 +128,7 @@ struct InsightRecord: Identifiable, Hashable, Sendable {
     let insight: Insight
     let consent: InsightConsent?
     let responses: [InsightResponse]
+    let dismissedBy: Set<String>
 
     var id: String { insight.id }
 }

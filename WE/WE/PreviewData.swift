@@ -63,7 +63,12 @@ enum PreviewData {
         couple: Couple(id: "preview-couple", joinCode: "WEDEMO"),
         members: members,
         insights: insights.map {
-            InsightRecord(insight: $0, consent: nil, responses: [])
+            InsightRecord(
+                insight: $0,
+                consent: nil,
+                responses: [],
+                dismissedBy: []
+            )
         },
         reflections: []
     )
