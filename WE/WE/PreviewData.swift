@@ -150,9 +150,22 @@ nonisolated enum PreviewData {
             couple: Couple(id: "preview-couple", joinCode: "WEDEMO"),
             members: members,
             insights: insights.map {
-                InsightRecord(
+                let isInvitation = $0.id == "august-trip"
+                return InsightRecord(
                     insight: $0,
-                    consent: nil,
+                    consent: isInvitation
+                        ? InsightConsent(
+                            insightID: $0.id,
+                            visibility: .shared,
+                            ownerID: nil,
+                            readiness: .requested,
+                            initiatorID: "dylan",
+                            requestedAt: "2026-07-24T20:00:00Z",
+                            acceptedAt: nil,
+                            resolutionType: nil,
+                            resolutionChoice: nil
+                        )
+                        : nil,
                     responses: [],
                     dismissedBy: [],
                     declinedBy: []

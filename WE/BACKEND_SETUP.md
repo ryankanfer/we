@@ -113,6 +113,19 @@ choosinghue
 The preview repository implements authentication, pairing, trust transitions, plans,
 responsibilities, archives, profile/hue changes, and account deletion without network access.
 
+### Paired test account
+
+Select the shared **WE Test Account** scheme in Xcode and run it on a simulator or device.
+The app opens directly into a complete paired relationship for Ryan and Dylan, so no invitation
+or second session is required. This scheme:
+
+- uses only `PreviewRepository` data,
+- never reads or writes the live Supabase project,
+- supports local plan, responsibility, profile, and trust-flow testing, and
+- resets to the paired preview fixture whenever the app is relaunched.
+
+Switch back to the **WE** scheme for live authentication, pairing, realtime, and backend tests.
+
 ## 7. Offline cache
 
 WE stores one versioned relationship snapshot per signed-in profile with iOS file protection.

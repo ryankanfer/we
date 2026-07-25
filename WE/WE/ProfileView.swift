@@ -12,6 +12,37 @@ struct ProfileView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("Your WE") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 12) {
+                            WEMark(
+                                style: .compact,
+                                showsWordmark: true,
+                                personalHue: personalHue,
+                                partnerHue: partnerHue,
+                                accessibilityText: "You and \(partnerName)"
+                            )
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("You and \(partnerName)")
+                                    .font(.weHeadline)
+                                Text("Shared context, held carefully.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .accessibilityElement(children: .combine)
+
+                        Divider()
+
+                        VStack(spacing: 10) {
+                            pulseMetric(label: "Settled insights", value: settledInsightCount)
+                            pulseMetric(label: "Active responsibilities", value: activeResponsibilityCount)
+                            pulseMetric(label: "Plans ahead", value: activePlanCount)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+
                 Section("Profile") {
                     TextField("Your name", text: $name)
                         .textContentType(.name)
@@ -84,6 +115,46 @@ struct ProfileView: View {
             .sheet(item: $selectedArchive) { RelationshipArchiveView(archive: $0) }
             .sheet(isPresented: $showsDelete) { DeleteAccountView() }
         }
+    }
+
+    private func pulseMetric(label: String, value: Int) -> some View {
+        HStack {
+            Text(label)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(value, format: .number)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Color("WEBurgundy"))
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var settledInsightCount: Int {
+        session.insightRecords.filter {
+            session.projection(for: $0)?.phase == .resolved
+        }.count
+    }
+
+    private var activeResponsibilityCount: Int {
+        session.responsibilities.filter { $0.status == .active }.count
+    }
+
+    private var activePlanCount: Int {
+        session.plans.filter { $0.status == .active }.count
+    }
+
+    private var personalHue: WEHue {
+        session.snapshot?.membership.map { WEHue($0.hue) } ?? .burgundy
+    }
+
+    private var partnerHue: WEHue {
+        guard let snapshot = session.snapshot,
+              let user = session.user,
+              let partner = snapshot.members.first(where: { $0.id != user.id }) else {
+            return .partnerDefault
+        }
+        return WEHue(partner.hue)
     }
 
     private var partnerName: String {
