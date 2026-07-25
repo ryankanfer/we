@@ -8,6 +8,8 @@
 import SwiftUI
 
 struct TodayView: View {
+    @EnvironmentObject private var session: AppSession
+
     let onOpenSpace: () -> Void
 
     init(onOpenSpace: @escaping () -> Void = {}) {
@@ -22,19 +24,23 @@ struct TodayView: View {
                 LazyVStack(alignment: .leading, spacing: 22) {
                     greeting
 
-                    AtmosphericInsightCard(
-                        insight: PreviewData.insights[0],
-                        featured: true
-                    )
+                    if let firstInsight = session.insights.first {
+                        AtmosphericInsightCard(
+                            insight: firstInsight,
+                            featured: true
+                        )
+                    }
 
                     todayTogether
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        WESectionLabel("STILL OPEN")
+                    if let secondInsight = session.insights.dropFirst().first {
+                        VStack(alignment: .leading, spacing: 10) {
+                            WESectionLabel("STILL OPEN")
 
-                        AtmosphericInsightCard(
-                            insight: PreviewData.insights[1]
-                        )
+                            AtmosphericInsightCard(
+                                insight: secondInsight
+                            )
+                        }
                     }
                 }
                 .padding(.horizontal, 20)
@@ -49,11 +55,11 @@ struct TodayView: View {
     private var greeting: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 5) {
-                Text("\(timeGreeting), Ryan.")
+                Text("\(timeGreeting), \(profileName).")
                     .font(.weTitle)
                     .foregroundStyle(.white)
 
-                Text("You and Dylan, right now.")
+                Text(partnershipLine)
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.68))
             }
@@ -71,6 +77,20 @@ struct TodayView: View {
             .accessibilityLabel("Open your WE space")
             .accessibilityHint("Opens your shared history and spaces")
         }
+    }
+
+    private var profileName: String {
+        session.snapshot?.profile.name ?? "You"
+    }
+
+    private var partnershipLine: String {
+        guard let snapshot = session.snapshot,
+              let partner = snapshot.members.first(
+                where: { $0.id != snapshot.profile.id }
+              ) else {
+            return "Your shared space, right now."
+        }
+        return "You and \(partner.name), right now."
     }
 
     private var timeGreeting: String {

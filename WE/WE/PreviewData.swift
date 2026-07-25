@@ -8,6 +8,11 @@
 import Foundation
 
 enum PreviewData {
+    static let user = AuthenticatedUser(
+        id: "ryan",
+        email: "ryan@example.com"
+    )
+
     static let members: [Member] = [
         Member(id: "ryan", name: "Ryan", hue: .burgundy),
         Member(id: "dylan", name: "Dylan", hue: .sage)
@@ -47,4 +52,19 @@ enum PreviewData {
             ]
         )
     ]
+
+    static let snapshot = RelationshipSnapshot(
+        profile: Profile(id: "ryan", name: "Ryan"),
+        membership: Membership(
+            coupleID: "preview-couple",
+            profileID: "ryan",
+            hue: .burgundy
+        ),
+        couple: Couple(id: "preview-couple", joinCode: "WEDEMO"),
+        members: members,
+        insights: insights.map {
+            InsightRecord(insight: $0, consent: nil, responses: [])
+        },
+        reflections: []
+    )
 }

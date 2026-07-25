@@ -11,6 +11,7 @@ import SwiftUI
 struct WEActionSheet: View {
     let action: WEAction
 
+    @EnvironmentObject private var session: AppSession
     @Environment(\.dismiss) private var dismiss
     @State private var draft = ""
     @State private var submitted = false
@@ -87,7 +88,13 @@ struct WEActionSheet: View {
             .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
         case .shape:
-            InsightCard(insight: PreviewData.insights[0])
+            if let insight = session.insights.first {
+                InsightCard(insight: insight)
+            } else {
+                Text("Nothing needs shaping right now.")
+                    .font(.weBody)
+                    .foregroundStyle(Color("WEFaint"))
+            }
 
         case .space:
             VStack(spacing: 0) {

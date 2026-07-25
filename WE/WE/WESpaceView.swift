@@ -34,8 +34,10 @@ enum WESpaceDestination: String, CaseIterable, Identifiable, Hashable {
 
 struct WESpaceView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var session: AppSession
 
     @State private var dismissed = false
+    @State private var signingOut = false
 
     @AppStorage(WEHue.personalStorageKey)
     private var storedPersonalHue = ""
@@ -84,6 +86,24 @@ struct WESpaceView: View {
                             }
                         }
                         .frame(maxWidth: 340)
+
+                        Button {
+                            signingOut = true
+                            Task {
+                                await session.signOut()
+                                dismiss()
+                            }
+                        } label: {
+                            if signingOut {
+                                ProgressView()
+                                    .tint(.white)
+                            } else {
+                                Text("Sign out")
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.white.opacity(0.68))
+                        .disabled(signingOut)
 
                         Spacer(minLength: 60)
                     }

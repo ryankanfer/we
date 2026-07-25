@@ -9,6 +9,8 @@ import SwiftUI
 
 @main
 struct WEApp: App {
+    @StateObject private var session: AppSession
+
     @AppStorage("lastExtendedWelcomeDay")
     private var lastExtendedWelcomeDay = ""
 
@@ -17,16 +19,25 @@ struct WEApp: App {
 
     @State private var showsSplash = true
 
+    init() {
+        _session = StateObject(
+            wrappedValue: AppSession(
+                repository: RepositoryFactory.make()
+            )
+        )
+    }
+
     var body: some Scene {
         WindowGroup {
             ZStack {
                 ContentView()
-                    .allowsHitTesting(!isCovered)
-                    .accessibilityHidden(isCovered)
+                    .environmentObject(session)
+                    .allowsHitTesting(!isCovered || !session.isReady)
+                    .accessibilityHidden(isCovered && session.isReady)
 
                 // First run asks for a color before anything else, so the
                 // splash that follows is already lit in the user's own hue.
-                if needsOnboarding {
+                if session.isReady && needsOnboarding {
                     HueOnboardingView { hue in
                         withAnimation(.easeInOut(duration: 0.55)) {
                             personalHueRawValue = hue.rawValue
@@ -36,7 +47,7 @@ struct WEApp: App {
                         .opacity.combined(with: .scale(scale: 1.02))
                     )
                     .zIndex(10)
-                } else if showsSplash {
+                } else if session.isReady && showsSplash {
                     SplashView(
                         extendedWelcome: lastExtendedWelcomeDay != todayKey
                     ) {
@@ -51,6 +62,9 @@ struct WEApp: App {
                 }
             }
             .animation(.easeInOut(duration: 0.45), value: needsOnboarding)
+            .task {
+                await session.restoreIfNeeded()
+            }
         }
     }
 
@@ -59,7 +73,7 @@ struct WEApp: App {
     }
 
     private var isCovered: Bool {
-        needsOnboarding || showsSplash
+        session.isReady && (needsOnboarding || showsSplash)
     }
 
     private var todayKey: String {
