@@ -30,6 +30,17 @@ extension Font {
 }
 
 extension Animation {
+    /// Immediate tactile feedback: button presses, selections, and small
+    /// control-state changes.
+    static var weQuick: Animation {
+        .timingCurve(0.25, 1, 0.5, 1, duration: 0.16)
+    }
+
+    /// The default state-change cadence for cards, badges, and controls.
+    static var weState: Animation {
+        .timingCurve(0.16, 1, 0.3, 1, duration: 0.28)
+    }
+
     /// The house easing — a long, settling decelerate used for every
     /// transition WE treats as meaningful (joining, revealing, choosing).
     static func weSettle(duration: Double = 0.5) -> Animation {
@@ -42,6 +53,51 @@ extension Animation {
         reduceMotion: Bool
     ) -> Animation? {
         reduceMotion ? nil : .weSettle(duration: duration)
+    }
+}
+
+private struct WEArrivalModifier: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hasArrived = false
+
+    let order: Int
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(hasArrived ? 1 : 0)
+            .offset(y: reduceMotion || hasArrived ? 0 : 12)
+            .animation(arrivalAnimation, value: hasArrived)
+            .onAppear { hasArrived = true }
+    }
+
+    private var arrivalAnimation: Animation {
+        if reduceMotion {
+            return .easeOut(duration: 0.16)
+        }
+
+        return .weSettle(duration: 0.5)
+            .delay(Double(min(max(order, 0), 6)) * 0.055)
+    }
+}
+
+extension View {
+    /// A restrained, capped entrance used to make each destination feel like
+    /// resuming a living place rather than loading a dashboard.
+    func weArrival(order: Int = 0) -> some View {
+        modifier(WEArrivalModifier(order: order))
+    }
+}
+
+struct WEPressableCardStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(
+                reduceMotion || !configuration.isPressed ? 1 : 0.992
+            )
+            .opacity(configuration.isPressed ? 0.94 : 1)
+            .animation(.weQuick, value: configuration.isPressed)
     }
 }
 
@@ -78,6 +134,6 @@ struct WEPrimaryButtonStyle: ButtonStyle {
                 in: RoundedRectangle(cornerRadius: 16, style: .continuous)
             )
             .scaleEffect(configuration.isPressed ? 0.985 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .animation(.weQuick, value: configuration.isPressed)
     }
 }

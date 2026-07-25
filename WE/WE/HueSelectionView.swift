@@ -440,34 +440,69 @@ private struct HueSelector: View {
     private let hues = WEHue.pickerOrder
 
     var body: some View {
-        HStack(spacing: 14) {
-            arrowButton(
-                symbol: "arrow.left",
-                label: "Previous color",
-                offset: -1
-            )
+        VStack(spacing: 16) {
+            HStack(spacing: 14) {
+                arrowButton(
+                    symbol: "arrow.left",
+                    label: "Previous color",
+                    offset: -1
+                )
 
-            VStack(spacing: 3) {
-                Text(selection.name)
-                    .font(.system(.title3, design: .serif, weight: .medium))
-                    .foregroundStyle(.white)
-                    .contentTransition(.opacity)
+                VStack(spacing: 3) {
+                    Text(selection.name)
+                        .font(.system(.title3, design: .serif, weight: .medium))
+                        .foregroundStyle(.white)
+                        .contentTransition(.opacity)
 
-                Text(positionLabel)
-                    .font(.system(.caption2, weight: .medium))
-                    .tracking(1)
-                    .foregroundStyle(.white.opacity(0.46))
+                    Text(positionLabel)
+                        .font(.system(.caption2, weight: .medium))
+                        .tracking(1)
+                        .foregroundStyle(.white.opacity(0.46))
+                }
+                .frame(width: 150)
+                .frame(minHeight: 52)
+                .id(selection)
+                .transition(.opacity)
+
+                arrowButton(
+                    symbol: "arrow.right",
+                    label: "Next color",
+                    offset: 1
+                )
             }
-            .frame(width: 150)
-            .frame(minHeight: 52)
-            .id(selection)
-            .transition(.opacity)
 
-            arrowButton(
-                symbol: "arrow.right",
-                label: "Next color",
-                offset: 1
-            )
+            HStack(spacing: 10) {
+                ForEach(Array(hues.enumerated()), id: \.element) { index, hue in
+                    Button {
+                        withAnimation(
+                            reduceMotion
+                                ? nil
+                                : .timingCurve(0.16, 1, 0.3, 1, duration: 0.5)
+                        ) {
+                            selection = hue
+                        }
+                    } label: {
+                        Circle()
+                            .fill(hue.color)
+                            .frame(width: 22, height: 22)
+                            .scaleEffect(selection == hue ? 1.25 : 1.0)
+                            .overlay(
+                                Circle()
+                                    .stroke(
+                                        .white.opacity(selection == hue ? 0.9 : 0.25),
+                                        lineWidth: selection == hue ? 2 : 1
+                                    )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .weArrival(order: index)
+                    .accessibilityLabel("\(hue.name) color")
+                    .accessibilityAddTraits(selection == hue ? [.isSelected] : [])
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.white.opacity(0.06), in: Capsule())
         }
         .animation(
             reduceMotion
