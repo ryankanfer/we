@@ -1,6 +1,11 @@
 import SwiftUI
 
 struct HueOnboardingView: View {
+    var personalName = "You"
+    var partnerName = "your partner"
+    var partnerHue: WEHue = .partnerDefault
+    var isWorking = false
+    var errorMessage: String?
     let onComplete: (WEHue) -> Void
 
     @State private var selection: WEHue = .burgundy
@@ -17,7 +22,10 @@ struct HueOnboardingView: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                HueAtmosphere(personalHue: selection)
+                HueAtmosphere(
+                    personalHue: selection,
+                    partnerHue: partnerHue
+                )
 
                 ScrollView {
                     VStack(spacing: 0) {
@@ -25,6 +33,7 @@ struct HueOnboardingView: View {
 
                         WEConfluenceForm(
                             personalHue: selection,
+                            partnerHue: partnerHue,
                             connection: phase == .personal ? 0.18 : 1
                         )
                         .frame(height: phase == .personal ? 330 : 390)
@@ -34,8 +43,8 @@ struct HueOnboardingView: View {
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(
                             phase == .personal
-                                ? "\(selection.name), Ryan’s selected color"
-                                : "Ryan and Dylan’s shared atmosphere"
+                                ? "\(selection.name), \(personalName)’s selected color"
+                                : "\(personalName) and \(partnerName)’s shared atmosphere"
                         )
 
                         editorialCopy
@@ -53,6 +62,18 @@ struct HueOnboardingView: View {
 
                         actionButton
                             .padding(.top, 26)
+
+                        if let errorMessage {
+                            Label(
+                                errorMessage,
+                                systemImage: "exclamationmark.circle"
+                            )
+                            .font(.footnote)
+                            .foregroundStyle(.white.opacity(0.86))
+                            .multilineTextAlignment(.center)
+                            .padding(.top, 12)
+                            .accessibilityAddTraits(.isStaticText)
+                        }
 
                         if phase == .personal {
                             Text("You can change this later in Appearance.")
@@ -111,13 +132,12 @@ struct HueOnboardingView: View {
             Text(
                 phase == .personal
                     ? "Choose yours."
-                    : "Yours. Dylan’s. Ours."
+                    : "Yours. \(partnerName)’s. Ours."
             )
-            .font(.system(size: 38, weight: .regular, design: .serif))
+            .font(.weLargeTitle)
             .foregroundStyle(.white)
             .multilineTextAlignment(.center)
-            .lineLimit(1)
-            .minimumScaleFactor(0.82)
+            .fixedSize(horizontal: false, vertical: true)
 
             Text(
                 phase == .personal
@@ -141,17 +161,17 @@ struct HueOnboardingView: View {
 
     private var sharedLegend: some View {
         HStack(spacing: 14) {
-            personLabel("RYAN", hue: selection)
+            personLabel(personalName.uppercased(), hue: selection)
 
             Image(systemName: "plus")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.white.opacity(0.36))
 
-            personLabel("DYLAN", hue: .partnerDefault)
+            personLabel(partnerName.uppercased(), hue: partnerHue)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
-            "Ryan’s \(selection.name) and Dylan’s \(WEHue.partnerDefault.name)"
+            "\(personalName)’s \(selection.name) and \(partnerName)’s \(partnerHue.name)"
         )
     }
 
@@ -202,11 +222,17 @@ struct HueOnboardingView: View {
             }
         } label: {
             HStack(spacing: 16) {
-                Text(
-                    phase == .personal
-                        ? "Make it mine"
-                        : "Enter WE"
-                )
+                if isWorking && phase == .shared {
+                    ProgressView()
+                        .tint(.white)
+                        .accessibilityLabel("Saving your color")
+                } else {
+                    Text(
+                        phase == .personal
+                            ? "Make it mine"
+                            : "Enter WE"
+                    )
+                }
 
                 Image(systemName: "arrow.right")
                     .font(.caption.weight(.bold))
@@ -220,9 +246,10 @@ struct HueOnboardingView: View {
         }
         .buttonStyle(.glassProminent)
         .tint(selection.controlColor)
+        .disabled(isWorking)
         .accessibilityHint(
             phase == .personal
-                ? "Reveals the atmosphere Ryan and Dylan create together"
+                ? "Reveals the atmosphere you and \(partnerName) create together"
                 : "Finishes appearance setup"
         )
     }
@@ -261,33 +288,54 @@ struct HueOnboardingView: View {
 }
 
 struct HueSettingsView: View {
-    @AppStorage(WEHue.personalStorageKey)
-    private var storedPersonalHue = WEHue.burgundy.rawValue
+    @EnvironmentObject private var session: AppSession
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pendingHue: WEHue?
 
-    @Environment(\.accessibilityReduceMotion)
-    private var reduceMotion
+    var personalName = "You"
+    var partnerName = "your partner"
 
     private var selection: Binding<WEHue> {
         Binding {
-            WEHue.stored(storedPersonalHue)
+            personalHue
         } set: { hue in
             withAnimation(
                 reduceMotion
                     ? nil
                     : .timingCurve(0.16, 1, 0.3, 1, duration: 0.5)
             ) {
-                storedPersonalHue = hue.rawValue
+                pendingHue = hue
+            }
+            Task {
+                await session.updateHue(hue.memberHue)
+                pendingHue = nil
             }
         }
     }
 
     private var personalHue: WEHue {
-        WEHue.stored(storedPersonalHue)
+        pendingHue
+            ?? session.snapshot?.membership.map { WEHue($0.hue) }
+            ?? .burgundy
+    }
+
+    private var partnerHue: WEHue {
+        guard let snapshot = session.snapshot,
+              let user = session.user,
+              let member = snapshot.members.first(
+                where: { $0.id != user.id }
+              ) else {
+            return .partnerDefault
+        }
+        return WEHue(member.hue)
     }
 
     var body: some View {
         ZStack {
-            HueAtmosphere(personalHue: personalHue)
+            HueAtmosphere(
+                personalHue: personalHue,
+                partnerHue: partnerHue
+            )
 
             ScrollView {
                 VStack(spacing: 0) {
@@ -299,6 +347,7 @@ struct HueSettingsView: View {
 
                     WEConfluenceForm(
                         personalHue: personalHue,
+                        partnerHue: partnerHue,
                         connection: 1
                     )
                     .frame(height: 360)
@@ -306,11 +355,11 @@ struct HueSettingsView: View {
                     .gesture(colorSwipe)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(
-                        "Ryan and Dylan’s shared atmosphere"
+                        "\(personalName) and \(partnerName)’s shared atmosphere"
                     )
 
                     Text("Your color.")
-                        .font(.system(size: 38, design: .serif))
+                        .font(.weLargeTitle)
                         .foregroundStyle(.white)
                         .padding(.top, -24)
 
@@ -321,6 +370,10 @@ struct HueSettingsView: View {
 
                     HueSelector(selection: selection)
                         .padding(.top, 24)
+                        .disabled(!session.canMutate || session.isWorking)
+
+                    SessionMessageView()
+                        .padding(.top, 14)
 
                     VStack(spacing: 8) {
                         Text("OUR ATMOSPHERE")
@@ -352,6 +405,9 @@ struct HueSettingsView: View {
     private var colorSwipe: some Gesture {
         DragGesture(minimumDistance: 18)
             .onEnded { value in
+                guard session.canMutate, !session.isWorking else {
+                    return
+                }
                 guard abs(value.translation.width) > 35 else { return }
 
                 moveSelection(
@@ -467,6 +523,8 @@ private struct HueSelector: View {
 
 private struct HueAtmosphere: View {
     let personalHue: WEHue
+    var partnerHue: WEHue = .partnerDefault
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -484,7 +542,7 @@ private struct HueAtmosphere: View {
 
             RadialGradient(
                 colors: [
-                    WEHue.partnerDefault.color.opacity(0.25),
+                    partnerHue.color.opacity(0.25),
                     .clear
                 ],
                 center: UnitPoint(x: 0.92, y: 0.82),
@@ -503,7 +561,9 @@ private struct HueAtmosphere: View {
             )
         }
         .animation(
-            .timingCurve(0.16, 1, 0.3, 1, duration: 0.72),
+            reduceMotion
+                ? nil
+                : .timingCurve(0.16, 1, 0.3, 1, duration: 0.72),
             value: personalHue
         )
         .ignoresSafeArea()

@@ -20,13 +20,13 @@ final class WEUITestsLaunchTests: XCTestCase {
     @MainActor
     func testLaunch() throws {
         let app = XCUIApplication()
+        app.launchEnvironment["WE_REPOSITORY"] = "preview"
+        app.launchEnvironment["WE_PREVIEW_SCENARIO"] = "ready"
+        app.launchEnvironment["WE_SKIP_PROMISE"] = "1"
         app.launch()
 
-        // Insert steps here to perform after app launch but before taking a screenshot,
-        // such as logging into a test account or navigating somewhere in the app
-
         let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "Launch Screen"
+        attachment.name = "WE Native Product"
         attachment.lifetime = .keepAlways
         add(attachment)
     }

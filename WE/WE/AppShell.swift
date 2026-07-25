@@ -1,36 +1,45 @@
-//
-//  AppShell.swift
-//  WE
-//
-//  Created by Ryan Kanfer on 7/24/26.
-//
-
-
 import SwiftUI
 
 struct AppShell: View {
-    @State private var presentedAction: WEAction?
-    @State private var showsWESpace = false
+    enum Destination: Hashable {
+        case we
+        case life
+        case ahead
+    }
+
+    @EnvironmentObject private var session: AppSession
+    @State private var selection: Destination = .we
+    @State private var showsProfile = false
+    let onReplayPromise: () -> Void
 
     var body: some View {
-        NavigationStack {
-            TodayView {
-                showsWESpace = true
+        TabView(selection: $selection) {
+            NavigationStack {
+                WEView { showsProfile = true }
             }
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            ActionDock { action in
-                presentedAction = action
+            .tabItem { Label("WE", systemImage: "person.2.fill") }
+            .tag(Destination.we)
+
+            NavigationStack {
+                LifeView { showsProfile = true }
             }
-        }
-        .sheet(item: $presentedAction) { action in
-            WEActionSheet(action: action)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
-        .fullScreenCover(isPresented: $showsWESpace) {
-            WESpaceView()
+            .tabItem { Label("Life", systemImage: "house.fill") }
+            .tag(Destination.life)
+
+            NavigationStack {
+                AheadView { showsProfile = true }
+            }
+            .tabItem { Label("Ahead", systemImage: "arrow.forward.circle.fill") }
+            .tag(Destination.ahead)
         }
         .tint(Color("WEBurgundy"))
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if session.connectionState != .online {
+                ConnectionBanner()
+            }
+        }
+        .sheet(isPresented: $showsProfile) {
+            ProfileView(onReplayPromise: onReplayPromise)
+        }
     }
 }

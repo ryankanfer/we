@@ -12,15 +12,35 @@ final class SupabaseRepository: Repository {
 
     func restoreSession() async throws -> AuthenticatedUser? {
         let client = try configuredClient()
-        guard client.auth.currentSession != nil else {
+        guard let storedSession = client.auth.currentSession else {
             return nil
         }
+        do {
+            let validatedSession = try await client.auth.session
+            return authenticatedUser(validatedSession.user)
+        } catch {
+            throw RepositoryError.invalidSession(
+                authenticatedUser(storedSession.user)
+            )
+        }
+    }
 
-        let session = try await client.auth.session
-        return AuthenticatedUser(
-            id: session.user.id.uuidString,
-            email: session.user.email ?? ""
+    func signUp(
+        name: String,
+        email: String,
+        password: String
+    ) async throws -> SignUpResult {
+        let normalizedEmail = normalized(email)
+        let response = try await configuredClient().auth.signUp(
+            email: normalizedEmail,
+            password: password,
+            data: ["name": .string(normalized(name))],
+            redirectTo: Self.emailConfirmationURL
         )
+        let user = authenticatedUser(response.user)
+        return response.session == nil
+            ? .verificationPending(email: normalizedEmail)
+            : .signedIn(user)
     }
 
     func signIn(
@@ -28,13 +48,36 @@ final class SupabaseRepository: Repository {
         password: String
     ) async throws -> AuthenticatedUser {
         let session = try await configuredClient().auth.signIn(
-            email: email.trimmingCharacters(in: .whitespacesAndNewlines),
+            email: normalized(email),
             password: password
         )
+        return authenticatedUser(session.user)
+    }
 
-        return AuthenticatedUser(
-            id: session.user.id.uuidString,
-            email: session.user.email ?? email
+    func sendPasswordReset(email: String) async throws {
+        try await configuredClient().auth.resetPasswordForEmail(
+            normalized(email),
+            redirectTo: Self.passwordRecoveryURL
+        )
+    }
+
+    func handleAuthCallback(_ url: URL) async throws
+        -> AuthCallbackResult {
+        guard url.scheme?.lowercased() == "we",
+              let host = url.host?.lowercased(),
+              ["email-confirmed", "password-recovery"].contains(host) else {
+            throw RepositoryError.invalidData("unrecognized sign-in link")
+        }
+        let session = try await configuredClient().auth.session(from: url)
+        let user = authenticatedUser(session.user)
+        return host == "password-recovery"
+            ? .passwordRecovery(user)
+            : .emailConfirmed(user)
+    }
+
+    func updatePassword(_ password: String) async throws {
+        _ = try await configuredClient().auth.update(
+            user: UserAttributes(password: password)
         )
     }
 
@@ -42,20 +85,163 @@ final class SupabaseRepository: Repository {
         try await configuredClient().auth.signOut()
     }
 
+    func deleteAccount(email: String, password: String) async throws {
+        let client = try configuredClient()
+        _ = try await client.auth.signIn(
+            email: normalized(email),
+            password: password
+        )
+        _ = try await client.rpc("delete_my_account").execute()
+        try? await client.auth.signOut(scope: .local)
+    }
+
     func createCouple() async throws {
-        _ = try await configuredClient()
-            .rpc("create_couple")
-            .execute()
+        _ = try await configuredClient().rpc("create_couple").execute()
     }
 
     func joinCouple(code: String) async throws {
         _ = try await configuredClient()
             .rpc(
                 "join_couple",
-                params: JoinCoupleParameters(
-                    code: code.trimmingCharacters(
-                        in: .whitespacesAndNewlines
-                    )
+                params: JoinCoupleParameters(code: normalized(code))
+            )
+            .execute()
+    }
+
+    func updateProfile(name: String, userID: String) async throws {
+        _ = try await configuredClient()
+            .from("profiles")
+            .update(ProfileUpdatePayload(name: normalized(name)))
+            .eq("id", value: userID)
+            .execute()
+    }
+
+    func updateHue(
+        _ hue: MemberHue,
+        membership: Membership
+    ) async throws {
+        _ = try await configuredClient()
+            .from("couple_members")
+            .update(
+                HueUpdatePayload(
+                    hue: hue.rawValue,
+                    hueChosenAt: Self.timestamp(Date())
+                )
+            )
+            .eq("couple_id", value: membership.coupleID)
+            .eq("profile_id", value: membership.profileID)
+            .execute()
+    }
+
+    func createPlan(_ input: PlanInput, coupleID: String) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "create_plan",
+                params: CreatePlanParameters(
+                    coupleID: coupleID,
+                    title: normalized(input.title),
+                    note: normalizedOptional(input.note),
+                    scheduledOn: input.scheduledOn
+                )
+            )
+            .execute()
+    }
+
+    func updatePlan(id: String, input: PlanInput) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "update_plan",
+                params: UpdatePlanParameters(
+                    id: id,
+                    title: normalized(input.title),
+                    note: normalizedOptional(input.note),
+                    scheduledOn: input.scheduledOn
+                )
+            )
+            .execute()
+    }
+
+    func setPlanStatus(
+        id: String,
+        status: SharedItemStatus
+    ) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "set_plan_status",
+                params: SharedItemStatusParameters(
+                    id: id,
+                    status: status.rawValue
+                )
+            )
+            .execute()
+    }
+
+    func createResponsibility(
+        _ input: ResponsibilityInput,
+        coupleID: String,
+        ownerID: String?
+    ) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "create_responsibility",
+                params: CreateResponsibilityParameters(
+                    coupleID: coupleID,
+                    title: normalized(input.title),
+                    note: normalizedOptional(input.note),
+                    ownerID: ownerID
+                )
+            )
+            .execute()
+    }
+
+    func updateResponsibility(
+        id: String,
+        input: ResponsibilityInput,
+        ownerID: String?
+    ) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "update_responsibility",
+                params: UpdateResponsibilityParameters(
+                    id: id,
+                    title: normalized(input.title),
+                    note: normalizedOptional(input.note),
+                    ownerID: ownerID
+                )
+            )
+            .execute()
+    }
+
+    func setResponsibilityStatus(
+        id: String,
+        status: SharedItemStatus
+    ) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "set_responsibility_status",
+                params: SharedItemStatusParameters(
+                    id: id,
+                    status: status.rawValue
+                )
+            )
+            .execute()
+    }
+
+    func saveReflection(
+        text: String,
+        domain: InsightDomain,
+        coupleID: String,
+        ownerID: String
+    ) async throws {
+        _ = try await configuredClient()
+            .from("reflections")
+            .insert(
+                ReflectionInsertPayload(
+                    coupleID: coupleID,
+                    ownerID: ownerID,
+                    domain: domain.rawValue,
+                    kind: ReflectionKind.reflection.rawValue,
+                    text: normalized(text)
                 )
             )
             .execute()
@@ -115,7 +301,8 @@ final class SupabaseRepository: Repository {
         try await runInsightRPC("dismiss_suggestion", insightID: insightID)
     }
 
-    func relationshipChanges() async throws -> AsyncStream<Void> {
+    func relationshipChanges() async throws
+        -> AsyncThrowingStream<Void, Error> {
         let client = try configuredClient()
         let channel = client.channel("we-couple")
         let tables = [
@@ -123,7 +310,11 @@ final class SupabaseRepository: Repository {
             "responses",
             "couple_members",
             "dismissals",
-            "reflections"
+            "insight_declines",
+            "reflections",
+            "plans",
+            "responsibilities",
+            "relationship_archives"
         ]
         let sourceStreams = tables.map {
             channel.postgresChange(
@@ -135,21 +326,30 @@ final class SupabaseRepository: Repository {
 
         try await channel.subscribeWithError()
 
-        let (stream, continuation) = AsyncStream<Void>.makeStream()
+        let (stream, continuation) = AsyncThrowingStream<
+            Void,
+            Error
+        >.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let completion = RealtimeSourceCompletion(
+            remaining: sourceStreams.count
+        )
         let tasks = sourceStreams.map { source in
             Task {
                 for await _ in source {
                     guard !Task.isCancelled else { break }
                     continuation.yield(())
                 }
+                if await completion.didFinishLastSource() {
+                    continuation.finish()
+                }
             }
         }
 
         continuation.onTermination = { _ in
             tasks.forEach { $0.cancel() }
-            Task {
-                await client.removeChannel(channel)
-            }
+            Task { await client.removeChannel(channel) }
         }
         return stream
     }
@@ -159,7 +359,7 @@ final class SupabaseRepository: Repository {
     ) async throws -> RelationshipSnapshot {
         let client = try configuredClient()
 
-        let profiles: [ProfileDTO] = try await client
+        async let profilesRequest: [ProfileDTO] = client
             .from("profiles")
             .select("id,name")
             .eq("id", value: user.id)
@@ -167,17 +367,30 @@ final class SupabaseRepository: Repository {
             .execute()
             .value
 
-        let profile = profiles.first.map {
-            Profile(id: $0.id, name: $0.name)
-        } ?? Profile(id: user.id, name: "You")
+        async let archivesRequest: [RelationshipArchiveDTO] = client
+            .from("relationship_archives")
+            .select("id,owner_id,ended_at,snapshot_version,snapshot")
+            .eq("owner_id", value: user.id)
+            .order("ended_at", ascending: false)
+            .execute()
+            .value
 
-        let memberships: [MembershipDTO] = try await client
+        async let membershipsRequest: [MembershipDTO] = client
             .from("couple_members")
-            .select("couple_id,profile_id,hue")
+            .select("couple_id,profile_id,hue,hue_chosen_at")
             .eq("profile_id", value: user.id)
             .limit(1)
             .execute()
             .value
+        let (profiles, archiveDTOs, memberships) = try await (
+            profilesRequest,
+            archivesRequest,
+            membershipsRequest
+        )
+        let profile = profiles.first.map {
+            Profile(id: $0.id, name: $0.name)
+        } ?? Profile(id: user.id, name: "You")
+        let archives = archiveDTOs.compactMap(archive)
 
         guard let membershipDTO = memberships.first else {
             return RelationshipSnapshot(
@@ -186,70 +399,107 @@ final class SupabaseRepository: Repository {
                 couple: nil,
                 members: [],
                 insights: [],
-                reflections: []
+                reflections: [],
+                plans: [],
+                responsibilities: [],
+                archives: archives,
+                syncedAt: Date()
             )
         }
 
         let membership = Membership(
             coupleID: membershipDTO.coupleID,
             profileID: membershipDTO.profileID,
-            hue: try memberHue(membershipDTO.hue)
+            hue: try memberHue(membershipDTO.hue),
+            hueChosenAt: membershipDTO.hueChosenAt
         )
 
-        let couples: [CoupleDTO] = try await client
+        async let couplesRequest: [CoupleDTO] = client
             .from("couples")
             .select("id,join_code")
             .eq("id", value: membership.coupleID)
             .limit(1)
             .execute()
             .value
-
-        let memberDTOs: [MemberDTO] = try await client
+        async let membersRequest: [MemberDTO] = client
             .from("couple_members")
             .select("profile_id,hue,profiles(name)")
             .eq("couple_id", value: membership.coupleID)
             .execute()
             .value
-
-        let insightDTOs: [InsightDTO] = try await client
+        async let insightsRequest: [InsightDTO] = client
             .from("insights")
-            .select(
-                "id,kind,domain,present,title,body,evidence,source,options,sort"
-            )
+            .select("id,kind,domain,present,title,body,evidence,source,options,sort")
             .eq("couple_id", value: membership.coupleID)
             .order("sort", ascending: true)
             .execute()
             .value
-
-        let consentDTOs: [ConsentDTO] = try await client
+        async let consentRequest: [ConsentDTO] = client
             .from("insight_consent")
             .select(
-                """
-                insight_id,visibility,owner_id,readiness,initiator_id,\
-                requested_at,accepted_at,resolution_type,resolution_choice
-                """
+                "insight_id,visibility,owner_id,readiness,initiator_id,requested_at,accepted_at,resolution_type,resolution_choice"
             )
             .execute()
             .value
-
-        let responseDTOs: [ResponseDTO] = try await client
+        async let responsesRequest: [ResponseDTO] = client
             .from("responses")
             .select("insight_id,profile_id,status,choice,note")
             .execute()
             .value
-
-        let reflectionDTOs: [ReflectionDTO] = try await client
+        async let reflectionsRequest: [ReflectionDTO] = client
             .from("reflections")
             .select("id,couple_id,owner_id,domain,kind,text")
             .eq("owner_id", value: user.id)
             .execute()
             .value
-
-        let dismissalDTOs: [DismissalDTO] = try await client
+        async let dismissalsRequest: [DismissalDTO] = client
             .from("dismissals")
             .select("insight_id,profile_id")
             .execute()
             .value
+        async let declinesRequest: [InsightDeclineDTO] = client
+            .from("insight_declines")
+            .select("insight_id,profile_id")
+            .execute()
+            .value
+        async let plansRequest: [PlanDTO] = client
+            .from("plans")
+            .select("id,couple_id,title,note,scheduled_on,status,completed_at,created_by,updated_by,created_at,updated_at")
+            .eq("couple_id", value: membership.coupleID)
+            .order("scheduled_on", ascending: true, nullsFirst: false)
+            .execute()
+            .value
+        async let responsibilitiesRequest: [ResponsibilityDTO] = client
+            .from("responsibilities")
+            .select("id,couple_id,title,note,owner_id,status,completed_at,created_by,updated_by,created_at,updated_at")
+            .eq("couple_id", value: membership.coupleID)
+            .order("created_at", ascending: true)
+            .execute()
+            .value
+
+        let (
+            coupleDTOs,
+            memberDTOs,
+            insightDTOs,
+            consentDTOs,
+            responseDTOs,
+            reflectionDTOs,
+            dismissalDTOs,
+            declineDTOs,
+            planDTOs,
+            responsibilityDTOs
+        ) = try await (
+            couplesRequest,
+            membersRequest,
+            insightsRequest,
+            consentRequest,
+            responsesRequest,
+            reflectionsRequest,
+            dismissalsRequest,
+            declinesRequest,
+            plansRequest,
+            responsibilitiesRequest
+        )
 
         let members = try memberDTOs.map {
             Member(
@@ -258,55 +508,58 @@ final class SupabaseRepository: Repository {
                 hue: try memberHue($0.hue)
             )
         }
-
         let consentByInsight = Dictionary(
             uniqueKeysWithValues: try consentDTOs.map {
                 ($0.insightID, try consent($0))
             }
         )
-
         let responsesByInsight = Dictionary(
             grouping: try responseDTOs.map(response),
             by: \.insightID
         )
-
         let dismissalsByInsight = Dictionary(
             grouping: dismissalDTOs,
             by: \.insightID
         )
-
+        let declinesByInsight = Dictionary(
+            grouping: declineDTOs,
+            by: \.insightID
+        )
         let insights = try insightDTOs.map { dto in
-            let insight = try insight(dto)
+            let value = try insight(dto)
             return InsightRecord(
-                insight: insight,
-                consent: consentByInsight[insight.id],
-                responses: responsesByInsight[insight.id] ?? [],
+                insight: value,
+                consent: consentByInsight[value.id],
+                responses: responsesByInsight[value.id] ?? [],
                 dismissedBy: Set(
-                    dismissalsByInsight[insight.id, default: []]
-                        .map(\.profileID)
+                    dismissalsByInsight[value.id, default: []].map(\.profileID)
+                ),
+                declinedBy: Set(
+                    declinesByInsight[value.id, default: []].map(\.profileID)
                 )
             )
-        }
-
-        let reflections = try reflectionDTOs.map(reflection)
-        let couple = couples.first.map {
-            Couple(id: $0.id, joinCode: $0.joinCode)
         }
 
         return RelationshipSnapshot(
             profile: profile,
             membership: membership,
-            couple: couple,
+            couple: coupleDTOs.first.map {
+                Couple(id: $0.id, joinCode: $0.joinCode)
+            },
             members: members,
             insights: insights,
-            reflections: reflections
+            reflections: try reflectionDTOs.map(reflection),
+            plans: try planDTOs.map(plan),
+            responsibilities: try responsibilityDTOs.map {
+                try responsibility($0, userID: user.id)
+            },
+            archives: archives,
+            syncedAt: Date()
         )
     }
 
     private func configuredClient() throws -> SupabaseClient {
-        guard let client else {
-            throw RepositoryError.missingConfiguration
-        }
+        guard let client else { throw RepositoryError.missingConfiguration }
         return client
     }
 
@@ -315,11 +568,50 @@ final class SupabaseRepository: Repository {
         insightID: String
     ) async throws {
         _ = try await configuredClient()
-            .rpc(
-                function,
-                params: InsightParameters(insightID: insightID)
-            )
+            .rpc(function, params: InsightParameters(insightID: insightID))
             .execute()
+    }
+
+    private func authenticatedUser(_ user: User) -> AuthenticatedUser {
+        AuthenticatedUser(
+            id: user.id.uuidString,
+            email: user.email ?? ""
+        )
+    }
+
+    private func planPayload(
+        _ input: PlanInput,
+        coupleID: String?
+    ) -> PlanWritePayload {
+        PlanWritePayload(
+            coupleID: coupleID,
+            title: normalized(input.title),
+            note: normalizedOptional(input.note),
+            scheduledOn: input.scheduledOn
+        )
+    }
+
+    private func responsibilityPayload(
+        _ input: ResponsibilityInput,
+        coupleID: String?,
+        ownerID: String?
+    ) -> ResponsibilityWritePayload {
+        ResponsibilityWritePayload(
+            coupleID: coupleID,
+            title: normalized(input.title),
+            note: normalizedOptional(input.note),
+            ownerID: ownerID
+        )
+    }
+
+    private func normalized(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func normalizedOptional(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let result = normalized(value)
+        return result.isEmpty ? nil : result
     }
 
     private func memberHue(_ rawValue: String) throws -> MemberHue {
@@ -329,12 +621,18 @@ final class SupabaseRepository: Repository {
         return value
     }
 
+    private func sharedStatus(_ rawValue: String) throws -> SharedItemStatus {
+        guard let value = SharedItemStatus(rawValue: rawValue) else {
+            throw RepositoryError.invalidData("unknown shared item status")
+        }
+        return value
+    }
+
     private func insight(_ dto: InsightDTO) throws -> Insight {
         guard let kind = InsightKind(rawValue: dto.kind),
               let domain = InsightDomain(rawValue: dto.domain) else {
             throw RepositoryError.invalidData("unknown insight kind or domain")
         }
-
         return Insight(
             id: dto.id,
             kind: kind,
@@ -344,28 +642,25 @@ final class SupabaseRepository: Repository {
             body: dto.body,
             evidence: dto.evidence,
             source: dto.source,
-            actionTitle: kind == .logistical
-                ? "Shape a plan"
-                : "Open together",
+            actionTitle: kind == .logistical ? "Shape a plan" : "Open together",
             options: dto.options
         )
     }
 
     private func consent(_ dto: ConsentDTO) throws -> InsightConsent {
-        guard let visibility = ConsentVisibility(
-            rawValue: dto.visibility
-        ),
-        let readiness = ConsentReadiness(rawValue: dto.readiness) else {
+        guard let visibility = ConsentVisibility(rawValue: dto.visibility),
+              let readiness = ConsentReadiness(rawValue: dto.readiness) else {
             throw RepositoryError.invalidData("unknown consent state")
         }
-
-        let resolutionType = try dto.resolutionType.map {
-            guard let value = ResolutionType(rawValue: $0) else {
-                throw RepositoryError.invalidData("unknown resolution type")
+        let resolution: ResolutionType?
+        if let raw = dto.resolutionType {
+            guard let value = ResolutionType(rawValue: raw) else {
+                throw RepositoryError.invalidData("unknown resolution")
             }
-            return value
+            resolution = value
+        } else {
+            resolution = nil
         }
-
         return InsightConsent(
             insightID: dto.insightID,
             visibility: visibility,
@@ -374,7 +669,7 @@ final class SupabaseRepository: Repository {
             initiatorID: dto.initiatorID,
             requestedAt: dto.requestedAt,
             acceptedAt: dto.acceptedAt,
-            resolutionType: resolutionType,
+            resolutionType: resolution,
             resolutionChoice: dto.resolutionChoice
         )
     }
@@ -383,7 +678,6 @@ final class SupabaseRepository: Repository {
         guard let status = ResponseStatus(rawValue: dto.status) else {
             throw RepositoryError.invalidData("unknown response status")
         }
-
         return InsightResponse(
             insightID: dto.insightID,
             profileID: dto.profileID,
@@ -396,11 +690,8 @@ final class SupabaseRepository: Repository {
     private func reflection(_ dto: ReflectionDTO) throws -> Reflection {
         guard let domain = InsightDomain(rawValue: dto.domain),
               let kind = ReflectionKind(rawValue: dto.kind) else {
-            throw RepositoryError.invalidData(
-                "unknown reflection kind or domain"
-            )
+            throw RepositoryError.invalidData("unknown reflection")
         }
-
         return Reflection(
             id: dto.id,
             coupleID: dto.coupleID,
@@ -409,5 +700,85 @@ final class SupabaseRepository: Repository {
             kind: kind,
             text: dto.text
         )
+    }
+
+    private func plan(_ dto: PlanDTO) throws -> PlanItem {
+        PlanItem(
+            id: dto.id,
+            coupleID: dto.coupleID,
+            title: dto.title,
+            note: dto.note,
+            scheduledOn: dto.scheduledOn,
+            status: try sharedStatus(dto.status),
+            completedAt: dto.completedAt,
+            createdBy: dto.createdBy,
+            updatedBy: dto.updatedBy,
+            createdAt: dto.createdAt,
+            updatedAt: dto.updatedAt
+        )
+    }
+
+    private func responsibility(
+        _ dto: ResponsibilityDTO,
+        userID: String
+    ) throws -> Responsibility {
+        let owner: ResponsibilityOwner = if dto.ownerID == nil {
+            .together
+        } else if dto.ownerID == userID {
+            .me
+        } else {
+            .partner
+        }
+        return Responsibility(
+            id: dto.id,
+            coupleID: dto.coupleID,
+            title: dto.title,
+            note: dto.note,
+            ownerID: dto.ownerID,
+            owner: owner,
+            status: try sharedStatus(dto.status),
+            completedAt: dto.completedAt,
+            createdBy: dto.createdBy,
+            updatedBy: dto.updatedBy,
+            createdAt: dto.createdAt,
+            updatedAt: dto.updatedAt
+        )
+    }
+
+    private func archive(
+        _ dto: RelationshipArchiveDTO
+    ) -> RelationshipArchive? {
+        guard let snapshot = dto.snapshot else { return nil }
+        return RelationshipArchive(
+            id: dto.id,
+            ownerID: dto.ownerID,
+            endedAt: dto.endedAt,
+            snapshotVersion: dto.snapshotVersion,
+            snapshot: snapshot
+        )
+    }
+
+    private static func timestamp(_ date: Date) -> String {
+        ISO8601DateFormatter().string(from: date)
+    }
+
+    private static let emailConfirmationURL = URL(
+        string: "we://email-confirmed"
+    )!
+    private static let passwordRecoveryURL = URL(
+        string: "we://password-recovery"
+    )!
+}
+
+private actor RealtimeSourceCompletion {
+    private var remaining: Int
+
+    init(remaining: Int) {
+        self.remaining = remaining
+    }
+
+    func didFinishLastSource() -> Bool {
+        remaining -= 1
+        return remaining == 0
     }
 }

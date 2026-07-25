@@ -1,56 +1,65 @@
-//
-//  Models.swift
-//  WE
-//
-//  Created by Ryan Kanfer on 7/24/26.
-//
-
 import Foundation
 
-struct AuthenticatedUser: Identifiable, Hashable, Sendable {
+nonisolated struct AuthenticatedUser: Identifiable, Codable, Hashable, Sendable {
     let id: String
     let email: String
 }
 
-struct Profile: Identifiable, Codable, Hashable, Sendable {
+nonisolated enum SignUpResult: Equatable, Sendable {
+    case signedIn(AuthenticatedUser)
+    case verificationPending(email: String)
+}
+
+nonisolated struct Profile: Identifiable, Codable, Hashable, Sendable {
     let id: String
     let name: String
 }
 
-struct Couple: Identifiable, Codable, Hashable, Sendable {
+nonisolated struct Couple: Identifiable, Codable, Hashable, Sendable {
     let id: String
     let joinCode: String
 }
 
-enum MemberHue: String, Codable, Sendable {
+nonisolated enum MemberHue: String, CaseIterable, Codable, Sendable {
     case burgundy
     case sage
+    case ember
+    case tide
+    case plum
+    case clay
+    case pearl
+    case mist
+    case blush
+    case celadon
 }
 
-struct Membership: Codable, Hashable, Sendable {
+nonisolated struct Membership: Codable, Hashable, Sendable {
     let coupleID: String
     let profileID: String
     let hue: MemberHue
+    let hueChosenAt: String?
+
+    var hasChosenHue: Bool { hueChosenAt != nil }
 }
 
-struct Member: Identifiable, Codable, Hashable, Sendable {
+nonisolated struct Member: Identifiable, Codable, Hashable, Sendable {
     let id: String
     let name: String
     let hue: MemberHue
 }
 
-enum InsightKind: String, Codable, Sendable {
+nonisolated enum InsightKind: String, Codable, Sendable {
     case logistical
     case relational
     case unresolved
 }
 
-enum InsightDomain: String, Codable, Sendable {
+nonisolated enum InsightDomain: String, Codable, Sendable {
     case life
     case us
 }
 
-struct Insight: Identifiable, Codable, Hashable, Sendable {
+nonisolated struct Insight: Identifiable, Codable, Hashable, Sendable {
     let id: String
     let kind: InsightKind
     let domain: InsightDomain
@@ -63,13 +72,13 @@ struct Insight: Identifiable, Codable, Hashable, Sendable {
     let options: [String]
 }
 
-enum ConsentVisibility: String, Codable, Sendable {
+nonisolated enum ConsentVisibility: String, Codable, Sendable {
     case `private`
     case shared
     case mutual
 }
 
-enum ConsentReadiness: String, Codable, Sendable {
+nonisolated enum ConsentReadiness: String, Codable, Sendable {
     case idle
     case requested
     case accepted
@@ -77,13 +86,13 @@ enum ConsentReadiness: String, Codable, Sendable {
     case withdrawn
 }
 
-enum ResolutionType: String, Codable, Sendable {
+nonisolated enum ResolutionType: String, Codable, Sendable {
     case settled
     case released
     case leftOpen
 }
 
-struct InsightConsent: Codable, Hashable, Sendable {
+nonisolated struct InsightConsent: Codable, Hashable, Sendable {
     let insightID: String
     let visibility: ConsentVisibility
     let ownerID: String?
@@ -95,14 +104,14 @@ struct InsightConsent: Codable, Hashable, Sendable {
     let resolutionChoice: String?
 }
 
-enum ResponseStatus: String, Codable, Sendable {
+nonisolated enum ResponseStatus: String, Codable, Sendable {
     case none
     case draft
     case submitted
     case revealed
 }
 
-struct InsightResponse: Codable, Hashable, Sendable {
+nonisolated struct InsightResponse: Codable, Hashable, Sendable {
     let insightID: String
     let profileID: String
     let status: ResponseStatus
@@ -110,12 +119,12 @@ struct InsightResponse: Codable, Hashable, Sendable {
     let note: String?
 }
 
-enum ReflectionKind: String, Codable, Sendable {
+nonisolated enum ReflectionKind: String, Codable, Sendable {
     case reflection
     case suggestion
 }
 
-struct Reflection: Identifiable, Codable, Hashable, Sendable {
+nonisolated struct Reflection: Identifiable, Codable, Hashable, Sendable {
     let id: String
     let coupleID: String
     let ownerID: String
@@ -124,20 +133,124 @@ struct Reflection: Identifiable, Codable, Hashable, Sendable {
     let text: String
 }
 
-struct InsightRecord: Identifiable, Hashable, Sendable {
+nonisolated struct InsightRecord: Identifiable, Codable, Hashable, Sendable {
     let insight: Insight
     let consent: InsightConsent?
     let responses: [InsightResponse]
     let dismissedBy: Set<String>
+    let declinedBy: Set<String>
 
     var id: String { insight.id }
 }
 
-struct RelationshipSnapshot: Hashable, Sendable {
+nonisolated enum SharedItemStatus: String, CaseIterable, Codable, Sendable {
+    case active
+    case completed
+    case archived
+}
+
+nonisolated struct PlanInput: Equatable, Sendable {
+    let title: String
+    let note: String?
+    let scheduledOn: String?
+}
+
+nonisolated struct PlanItem: Identifiable, Codable, Hashable, Sendable {
+    let id: String
+    let coupleID: String
+    let title: String
+    let note: String?
+    let scheduledOn: String?
+    let status: SharedItemStatus
+    let completedAt: String?
+    let createdBy: String?
+    let updatedBy: String?
+    let createdAt: String
+    let updatedAt: String
+}
+
+nonisolated enum ResponsibilityOwner: String, CaseIterable, Codable, Sendable {
+    case me
+    case partner
+    case together
+}
+
+nonisolated struct ResponsibilityInput: Equatable, Sendable {
+    let title: String
+    let note: String?
+    let owner: ResponsibilityOwner
+}
+
+nonisolated struct Responsibility: Identifiable, Codable, Hashable, Sendable {
+    let id: String
+    let coupleID: String
+    let title: String
+    let note: String?
+    let ownerID: String?
+    let owner: ResponsibilityOwner
+    let status: SharedItemStatus
+    let completedAt: String?
+    let createdBy: String?
+    let updatedBy: String?
+    let createdAt: String
+    let updatedAt: String
+}
+
+nonisolated struct ArchivedPlan: Identifiable, Codable, Hashable, Sendable {
+    let id: String
+    let title: String
+    let note: String?
+    let scheduledOn: String?
+    let status: SharedItemStatus
+    let completedAt: String?
+    let updatedAt: String
+}
+
+nonisolated struct ArchivedResponsibility: Identifiable, Codable, Hashable, Sendable {
+    let id: String
+    let title: String
+    let note: String?
+    let ownership: ResponsibilityOwner
+    let status: SharedItemStatus
+    let completedAt: String?
+    let updatedAt: String
+}
+
+nonisolated struct ArchivedResolution: Identifiable, Codable, Hashable, Sendable {
+    let insightID: String
+    let title: String
+    let resolutionType: ResolutionType
+    let resolutionChoice: String?
+    let resolvedAt: String
+
+    var id: String { insightID }
+}
+
+nonisolated struct RelationshipArchiveSnapshot: Codable, Hashable, Sendable {
+    static let currentVersion = 1
+
+    let plans: [ArchivedPlan]
+    let responsibilities: [ArchivedResponsibility]
+    let resolutions: [ArchivedResolution]
+}
+
+nonisolated struct RelationshipArchive: Identifiable, Codable, Hashable, Sendable {
+    let id: String
+    let ownerID: String
+    let endedAt: String
+    let snapshotVersion: Int
+    let snapshot: RelationshipArchiveSnapshot
+}
+
+nonisolated struct RelationshipSnapshot: Codable, Hashable, Sendable {
     let profile: Profile
     let membership: Membership?
     let couple: Couple?
     let members: [Member]
     let insights: [InsightRecord]
     let reflections: [Reflection]
+    let plans: [PlanItem]
+    let responsibilities: [Responsibility]
+    let archives: [RelationshipArchive]
+    let syncedAt: Date
 }

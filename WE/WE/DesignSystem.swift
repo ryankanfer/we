@@ -9,23 +9,23 @@ import SwiftUI
 
 extension Font {
     static var weLargeTitle: Font {
-        .system(size: 34, weight: .regular, design: .serif)
+        .system(.largeTitle, design: .serif, weight: .regular)
     }
 
     static var weTitle: Font {
-        .system(size: 24, weight: .regular, design: .serif)
+        .system(.title2, design: .serif, weight: .regular)
     }
 
     static var weHeadline: Font {
-        .system(size: 17, weight: .semibold)
+        .headline
     }
 
     static var weBody: Font {
-        .system(size: 16, weight: .regular)
+        .body
     }
 
     static var weCaption: Font {
-        .system(size: 12, weight: .medium)
+        .caption.weight(.medium)
     }
 }
 
@@ -49,6 +49,7 @@ extension Animation {
 /// separates one region of a surface from the next.
 struct WESectionLabel: View {
     let text: String
+    var color: Color = .white.opacity(0.62)
 
     init(_ text: String) {
         self.text = text
@@ -58,7 +59,25 @@ struct WESectionLabel: View {
         Text(text)
             .font(.weCaption)
             .tracking(1.4)
-            .foregroundStyle(.white.opacity(0.62))
+            .foregroundStyle(color)
             .accessibilityAddTraits(.isHeader)
+    }
+}
+
+struct WEPrimaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.body.weight(.semibold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .padding(.horizontal, 18)
+            .background(
+                Color("WEBurgundy").opacity(isEnabled ? 1 : 0.45),
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }

@@ -10,9 +10,31 @@ enum RepositoryMode: String, Sendable {
     case preview
 }
 
+enum PreviewScenario: String, Sendable {
+    case ready
+    case empty
+    case offline
+    case error
+    case waiting
+    case archived
+    case signedOut = "signedout"
+    case choosingHue = "choosinghue"
+
+    init(environmentValue: String?) {
+        let value = environmentValue?.lowercased() ?? ""
+        if value == "failure" {
+            self = .error
+        } else {
+            self = PreviewScenario(rawValue: value) ?? .ready
+        }
+    }
+}
+
 struct AppEnvironment: Sendable {
     let repositoryMode: RepositoryMode
     let supabase: SupabaseConfiguration?
+    let previewScenario: PreviewScenario
+    let previewDeletionPassword: String?
 
     static var current: AppEnvironment {
         let values = ProcessInfo.processInfo.environment
@@ -53,7 +75,13 @@ struct AppEnvironment: Sendable {
 
         return AppEnvironment(
             repositoryMode: mode,
-            supabase: configuration
+            supabase: configuration,
+            previewScenario: PreviewScenario(
+                environmentValue: values["WE_PREVIEW_SCENARIO"]
+            ),
+            previewDeletionPassword: values[
+                "WE_PREVIEW_DELETION_PASSWORD"
+            ]
         )
     }
 

@@ -12,12 +12,10 @@ struct WEMark: View {
     var showsWordmark = true
     var personalHue: WEHue?
     var partnerHue: WEHue = .partnerDefault
-
-    @AppStorage(WEHue.personalStorageKey)
-    private var storedPersonalHue = ""
+    var accessibilityText = "WE"
 
     private var resolvedPersonalHue: WEHue {
-        personalHue ?? WEHue.stored(storedPersonalHue)
+        personalHue ?? .burgundy
     }
 
     private var diameter: CGFloat {
@@ -85,6 +83,6 @@ struct WEMark: View {
             height: diameter
         )
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("WE, Ryan and Dylan together")
+        .accessibilityLabel(accessibilityText)
     }
 }

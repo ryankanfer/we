@@ -1,0 +1,2 @@
+-- Remote history marker for the original WE setup.
+-- The consolidated reproducible schema lives in 20260724015432_we_init.sql.

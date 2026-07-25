@@ -5,6 +5,7 @@
 //  Created by Ryan Kanfer on 7/24/26.
 //
 
+import Foundation
 import Testing
 @testable import WE
 
@@ -110,12 +111,16 @@ struct WETests {
 
         state = try TrustCore.declineReveal(state, by: "dylan")
         let after = TrustCore.project(state, for: "ry")
+        let invitee = TrustCore.project(state, for: "dylan")
 
         #expect(after?.phase == before?.phase)
         #expect(after?.phase == .waiting)
+        #expect(invitee?.phase == .declined)
+        #expect(state.declinedBy == ["dylan"])
 
         state = try TrustCore.acceptReveal(state, by: "dylan", at: 5)
         #expect(state.visibility == .mutual)
+        #expect(state.declinedBy.isEmpty)
     }
 
     @Test
@@ -175,5 +180,369 @@ struct WETests {
 
         #expect(TrustCore.project(state, for: "ry")?.dismissed == true)
         #expect(TrustCore.project(state, for: "dylan")?.dismissed == false)
+    }
+
+    @Test
+    func sessionRoutesEveryPreviewRelationshipState() async {
+        let cases: [(PreviewScenario, AppSession.State)] = [
+            (.ready, .ready),
+            (.empty, .ready),
+            (.waiting, .waitingForPartner),
+            (.archived, .needsCouple),
+            (.choosingHue, .choosingHue),
+            (.signedOut, .signedOut)
+        ]
+
+        for (scenario, expected) in cases {
+            let session = AppSession(
+                repository: PreviewRepository(scenario: scenario),
+                cache: InMemoryRelationshipCache(),
+                connectivity: ConnectivityMonitor(startImmediately: false)
+            )
+            await session.restoreIfNeeded()
+            #expect(session.state == expected)
+        }
+    }
+
+    @Test
+    func cachedSnapshotKeepsWEReadableWhenLoadingFails() async throws {
+        let cache = InMemoryRelationshipCache()
+        try await cache.save(
+            PreviewData.snapshot,
+            userID: PreviewData.user.id
+        )
+        let session = AppSession(
+            repository: PreviewRepository(
+                scenario: .error,
+                user: PreviewData.user
+            ),
+            cache: cache,
+            connectivity: ConnectivityMonitor(
+                startImmediately: false,
+                initiallyOnline: false
+            )
+        )
+
+        await session.restoreIfNeeded()
+
+        #expect(session.state == .ready)
+        #expect(session.connectionState == .offline)
+        #expect(session.snapshot == PreviewData.snapshot)
+        #expect(session.cachedAt != nil)
+        #expect(session.canMutate == false)
+    }
+
+    @Test
+    func onlineLoadFailureNeverFallsBackToCachedRelationshipData()
+        async throws {
+        let cache = InMemoryRelationshipCache()
+        try await cache.save(
+            PreviewData.snapshot,
+            userID: PreviewData.errorUser.id
+        )
+        let session = AppSession(
+            repository: PreviewRepository(
+                scenario: .error,
+                user: PreviewData.errorUser
+            ),
+            cache: cache,
+            connectivity: ConnectivityMonitor(
+                startImmediately: false,
+                initiallyOnline: true
+            )
+        )
+
+        await session.restoreIfNeeded()
+
+        guard case .failed = session.state else {
+            Issue.record("An online data failure must be shown as a failure")
+            return
+        }
+        #expect(session.snapshot == nil)
+        #expect(session.cachedAt == nil)
+    }
+
+    @Test
+    func connectionTransitionsFromOfflineBackToOnline() async throws {
+        let connectivity = ConnectivityMonitor(
+            startImmediately: false,
+            initiallyOnline: false
+        )
+        let session = AppSession(
+            repository: PreviewRepository(),
+            cache: InMemoryRelationshipCache(),
+            connectivity: connectivity
+        )
+
+        await session.restoreIfNeeded()
+        #expect(session.connectionState == .offline)
+
+        connectivity.setOnlineForTesting(true)
+        try await Task.sleep(for: .milliseconds(100))
+
+        #expect(session.connectionState == .online)
+        #expect(session.state == .ready)
+    }
+
+    @Test
+    func previewRepositorySupportsSharedItemLifecycle() async throws {
+        let repository = PreviewRepository(scenario: .empty)
+
+        try await repository.createPlan(
+            PlanInput(
+                title: "Meet at the museum",
+                note: "After lunch",
+                scheduledOn: "2026-08-09"
+            ),
+            coupleID: "preview-couple"
+        )
+        var snapshot = try await repository.loadRelationship(
+            for: PreviewData.user
+        )
+        let plan = try #require(snapshot.plans.first)
+        #expect(plan.title == "Meet at the museum")
+
+        try await repository.updatePlan(
+            id: plan.id,
+            input: PlanInput(
+                title: "Meet by the museum",
+                note: nil,
+                scheduledOn: nil
+            )
+        )
+        try await repository.setPlanStatus(id: plan.id, status: .completed)
+
+        try await repository.createResponsibility(
+            ResponsibilityInput(
+                title: "Call the landlord",
+                note: nil,
+                owner: .me
+            ),
+            coupleID: "preview-couple",
+            ownerID: PreviewData.user.id
+        )
+        snapshot = try await repository.loadRelationship(for: PreviewData.user)
+        let responsibility = try #require(snapshot.responsibilities.first)
+        try await repository.updateResponsibility(
+            id: responsibility.id,
+            input: ResponsibilityInput(
+                title: "Email the landlord",
+                note: "About the window",
+                owner: .together
+            ),
+            ownerID: nil
+        )
+        try await repository.setResponsibilityStatus(
+            id: responsibility.id,
+            status: .archived
+        )
+
+        snapshot = try await repository.loadRelationship(for: PreviewData.user)
+        #expect(snapshot.plans.first?.title == "Meet by the museum")
+        #expect(snapshot.plans.first?.status == .completed)
+        #expect(snapshot.responsibilities.first?.title == "Email the landlord")
+        #expect(snapshot.responsibilities.first?.owner == .together)
+        #expect(snapshot.responsibilities.first?.status == .archived)
+    }
+
+    @Test
+    func relationshipArchiveRoundTripsWithItsVersion() throws {
+        let data = try JSONEncoder().encode(PreviewData.archive)
+        let decoded = try JSONDecoder().decode(
+            RelationshipArchive.self,
+            from: data
+        )
+
+        #expect(decoded == PreviewData.archive)
+        #expect(decoded.snapshotVersion == 1)
+        #expect(decoded.snapshot.resolutions.count == 1)
+    }
+
+    @Test
+    func signUpRoutesToVerificationPending() async {
+        let pendingEmail = "held@example.com"
+        let session = AppSession(
+            repository: PreviewRepository(
+                scenario: .signedOut,
+                signUpResult: .verificationPending(email: pendingEmail)
+            ),
+            cache: InMemoryRelationshipCache(),
+            connectivity: ConnectivityMonitor(startImmediately: false)
+        )
+
+        await session.signUp(
+            name: "Held",
+            email: pendingEmail,
+            password: "a-secure-password"
+        )
+
+        #expect(session.state == .verificationPending(pendingEmail))
+        #expect(session.user == nil)
+        #expect(session.snapshot == nil)
+    }
+
+    @Test
+    func recoveryCallbackRequiresANewPasswordBeforeLoadingWE() async throws {
+        let session = AppSession(
+            repository: PreviewRepository(),
+            cache: InMemoryRelationshipCache(),
+            connectivity: ConnectivityMonitor(startImmediately: false)
+        )
+        let url = try #require(
+            URL(string: "we://password-recovery?code=preview")
+        )
+
+        await session.handleAuthCallback(url)
+        #expect(session.state == .resettingPassword)
+        #expect(session.user == PreviewData.user)
+        #expect(session.snapshot == nil)
+
+        await session.completePasswordRecovery("a-new-password")
+        #expect(session.state == .ready)
+        #expect(session.snapshot != nil)
+        #expect(session.noticeMessage == "Your password has been updated.")
+    }
+
+    @Test
+    func completedResolutionCannotBeOverwritten() throws {
+        var state = TrustCore.initialState()
+        state = try TrustCore.requestReveal(state, by: "ry", at: 0)
+        state = try TrustCore.acceptReveal(state, by: "dylan", at: 1)
+        state = try TrustCore.submitResponse(
+            state,
+            by: "ry",
+            choice: "Keep it"
+        )
+        state = try TrustCore.submitResponse(
+            state,
+            by: "dylan",
+            choice: "Keep it"
+        )
+        state = try TrustCore.resolve(
+            state,
+            type: .settled,
+            at: 2,
+            choice: "Keep it"
+        )
+
+        #expect(throws: TrustTransitionError.self) {
+            try TrustCore.resolve(
+                state,
+                type: .released,
+                at: 3
+            )
+        }
+    }
+
+    @Test
+    func previewRepositorySupportsTrustTransitions() async throws {
+        let repository = PreviewRepository()
+        let insightID = try #require(PreviewData.insights.first?.id)
+
+        try await repository.requestReveal(insightID: insightID)
+        var snapshot = try await repository.loadRelationship(
+            for: PreviewData.user
+        )
+        #expect(snapshot.insights.first?.consent?.readiness == .requested)
+
+        try await repository.withdrawReveal(insightID: insightID)
+        snapshot = try await repository.loadRelationship(
+            for: PreviewData.user
+        )
+        #expect(snapshot.insights.first?.consent?.readiness == .idle)
+        #expect(snapshot.insights.first?.consent?.initiatorID == nil)
+
+        try await repository.dismissSuggestion(insightID: insightID)
+        snapshot = try await repository.loadRelationship(
+            for: PreviewData.user
+        )
+        #expect(snapshot.insights.first?.dismissedBy == [PreviewData.user.id])
+    }
+
+    @Test
+    func fileCacheRoundTripsPurgesAndRejectsUnknownVersions() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = FileRelationshipCache(directory: directory)
+        let userID = "cache-user"
+
+        try await cache.save(PreviewData.snapshot, userID: userID)
+        let loaded = try await cache.load(userID: userID)
+        #expect(loaded?.version == CachedRelationship.currentVersion)
+        #expect(loaded?.snapshot.profile == PreviewData.snapshot.profile)
+        #expect(loaded?.snapshot.members == PreviewData.snapshot.members)
+        #expect(loaded?.snapshot.insights == PreviewData.snapshot.insights)
+        #expect(loaded?.snapshot.plans == PreviewData.snapshot.plans)
+        #expect(
+            loaded?.snapshot.responsibilities
+                == PreviewData.snapshot.responsibilities
+        )
+
+        let attributes = try FileManager.default.attributesOfItem(
+            atPath: directory
+                .appendingPathComponent("\(userID).json")
+                .path
+        )
+        if let protection = attributes[.protectionKey] as? FileProtectionType {
+            #expect(protection == .complete)
+        }
+
+        try await cache.remove(userID: userID)
+        #expect(try await cache.load(userID: userID) == nil)
+
+        try await cache.save(PreviewData.snapshot, userID: userID)
+        let invalid = CachedRelationship(
+            version: CachedRelationship.currentVersion + 1,
+            snapshot: PreviewData.snapshot,
+            savedAt: Date()
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(invalid).write(
+            to: directory.appendingPathComponent("\(userID).json"),
+            options: .atomic
+        )
+
+        #expect(try await cache.load(userID: userID) == nil)
+    }
+
+    @Test
+    func wrongDeletionPasswordKeepsTheSignedInSession() async throws {
+        let cache = InMemoryRelationshipCache()
+        let session = AppSession(
+            repository: PreviewRepository(
+                acceptedDeletionPassword: "correct-password"
+            ),
+            cache: cache,
+            connectivity: ConnectivityMonitor(startImmediately: false)
+        )
+
+        await session.restoreIfNeeded()
+        await session.deleteAccount(password: "wrong-password")
+
+        #expect(session.state == .ready)
+        #expect(session.user == PreviewData.user)
+        #expect(session.snapshot == PreviewData.snapshot)
+        #expect(session.errorMessage != nil)
+        #expect(try await cache.load(userID: PreviewData.user.id) == nil)
+    }
+
+    @Test
+    func signOutPurgesTheProtectedRelationshipCache() async throws {
+        let cache = InMemoryRelationshipCache()
+        let session = AppSession(
+            repository: PreviewRepository(),
+            cache: cache,
+            connectivity: ConnectivityMonitor(startImmediately: false)
+        )
+
+        await session.restoreIfNeeded()
+        #expect(try await cache.load(userID: PreviewData.user.id) != nil)
+
+        await session.signOut()
+
+        #expect(session.state == .signedOut)
+        #expect(try await cache.load(userID: PreviewData.user.id) == nil)
     }
 }

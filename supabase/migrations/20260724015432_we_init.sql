@@ -1,5 +1,9 @@
 -- WE — schema, row-level security, and the consent state machine.
 -- Applied to project "we-round1" (org "we"). This file is the reproducible source.
+-- The live project recorded the original setup across migration versions
+-- 20260724015432, 20260724015550, and 20260724015812. This first file contains
+-- the consolidated reproducible end state; the two companion markers preserve
+-- that existing remote history for safe future dry-runs.
 --
 -- The consent invariants live in the database, not just the UI:
 --   * a partner's private reflection is unreadable by the other person

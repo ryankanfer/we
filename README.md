@@ -1,73 +1,88 @@
 # WE
 
-A private intelligence layer that helps two people care for their relationship without turning
-the relationship into work.
+WE is a private relationship product for two people. It helps a couple hold what is personal,
+coordinate what they carry, and open sensitive things only by mutual consent—without becoming a
+score, chatbot, or task manager.
 
-This is the first vertical slice: it proves the emotional mechanism —
-**"What needs us?" → gentle insight → consent gate → mutual reveal** — before any calendars,
-integrations, or AI.
+The native SwiftUI app is the active product. The frozen web implementation remains reference
+material only; native development has no parity or maintenance obligation to it.
 
-## The mental model
+## Native product
 
-WE is **one continuity, addressed to both partners** — not two accounts with a shared folder.
-There are no ownership "rooms." A single shared home organizes the intelligence around three
-**lenses** — facets of one life, never boundaries:
+The iPhone app has three primary destinations:
 
-> **Today** — what needs the two of you now · **Life** — the life you're building and running ·
-> **Us** — time, closeness, attention.
+- **WE** — shared intelligence, private reflection, consent, and mutual reveal.
+- **Life** — responsibilities owned by Me, Partner, or Together.
+- **Ahead** — scheduled and unscheduled plans.
+- **Profile** — account, appearance, archives, privacy, and Promise replay, opened from the
+  avatar rather than a tab.
 
-Privacy is a **property, not a place**: a private reflection or an unopened reveal lives *inline*
-in the shared stream, gently marked and visible only to its owner, protected by the consent
-machine below — never behind a separate tab.
+First use follows:
 
-- A reveal request exposes the **topic and the sender** — nothing more.
-- Accepting means *"I'm ready to engage,"* not *"I consent to learn this exists."*
-- Each person answers **privately**; answers appear only after **both** submit, revealed together.
-- A decline is private: the initiator sees quiet waiting either way. "Not ready" is safe.
-- A withdrawal leaves **no trace** on the partner's side.
-- Disagreement is a first-class state: *"You're not in the same place yet. Nothing has been
-  decided."*
+> Living Confluence Promise → create account or sign in → pair → choose personal hue → enter WE
 
-The consent state machine lives in `lib/consent.ts` with three independent axes
-(`visibility`, `readiness`, `response`) and is covered by tests in `lib/consent.test.ts`.
+The Promise introduces three commitments: yours stays yours, nothing crosses without both, and
+what opens opens together. It is skippable, shown only on first use, replayable from Profile,
+linear under VoiceOver, and uses crossfades when Reduce Motion is enabled.
 
-## Two real people, one shared space
+## Trust model
 
-WE runs on a Supabase backend. Each partner makes their own email + password sign-in, then one
-**creates a shared space** (getting a 6-character join code) and the other **joins with the
-code** — two real devices, one continuity. Realtime keeps both sides in sync as the consent loop
-moves.
+Privacy is enforced in Supabase as well as Swift:
 
-The consent invariants are enforced in the **database**, not just the UI (see
-`supabase/migrations/0001_we_init.sql`): row-level security makes a partner's private reflection
-and un-revealed answer unreadable even with a raw API key, and every state transition runs
-through a `SECURITY DEFINER` function that mirrors `lib/consent.ts`.
+- A reveal request exposes the topic and sender, never an answer.
+- Each person answers privately; answers appear only after both submit.
+- A decline is owner-only. The initiator continues to see quiet waiting.
+- A withdrawal leaves no partner-side trace.
+- Completed mutual-reveal resolutions may enter a sanitized relationship archive.
+- Private reflections, unrevealed responses, pending requests, declines, and dismissals never
+  enter an archive.
 
-## Running it
+Protected database writes use server functions. Active-couple row-level security prevents
+outsiders and former members from reading or mutating live relationship data.
+
+## Native milestone status
+
+- [x] Build Ahead, Life, Profile, complete Auth, Promise, Pairing, WE, and Insight Detail.
+- [ ] Adapt information density for Mac — **deferred / N/A for this iPhone-first milestone**.
+- [x] Add loading, empty, offline, inline error/retry, partner-waiting, and
+  relationship-ended/archive states.
+- [x] Keep the frozen web tag for comparison only.
+
+Implementation and automated coverage are present. Before release, the remaining manual gates
+are local pgTAP execution, two authenticated sessions through the full lifecycle, the Supabase
+security-advisor review, small/large iPhone and accessibility passes, and five target-couple
+usability sessions.
+
+## Running the iPhone app
+
+Open `WE/WE.xcodeproj`, configure the local Supabase credentials, and run the `WE` scheme on an
+iPhone simulator or device. Full setup, migration, preview, callback, and verification guidance
+is in [`WE/BACKEND_SETUP.md`](WE/BACKEND_SETUP.md).
+
+For backend-free design and UI testing, set:
+
+```text
+WE_REPOSITORY=preview
+```
+
+`PreviewRepository` implements the complete repository surface and supports ready, empty,
+offline, error, waiting, archived, signed-out, and hue-selection scenarios.
+
+## Frozen web reference
+
+The original Next.js slice remains available for historical comparison:
 
 ```bash
 npm install
-cp .env.example .env.local   # fill in your Supabase URL + publishable key
-npm run dev                  # http://localhost:3000
-npm test                     # consent state machine + privacy invariants
+cp .env.example .env.local
+npm run dev
+npm test
 ```
 
-Launch runs a brief **splash** (two circles settling into one), then a three-beat **intro**
-(arrival → one shared place → the promise) on first run, then sign-in and pairing.
+It is not the source of truth for native navigation, presentation, or maintenance.
 
-**Preview without a backend:** add `?demo=1` to any URL (e.g. `localhost:3000/?demo=1`) to explore
-the whole app on sample data — no Supabase, no login. Use Profile → "Experience as" to flip
-between the two partners and feel both sides of a reveal.
+## Deliberate exclusions
 
-**PWA:** WE ships a manifest, icons, and a service worker, so it installs to the home screen and
-runs full-bleed (mobile bottom-nav, desktop sidebar — a true responsive layout, not a phone
-frame).
-
-> Note: the app talks to Supabase directly from the browser, so it must run somewhere that can
-> reach `*.supabase.co` (your machine, or a deployment). For the prototype, turn **off**
-> "Confirm email" in Supabase → Authentication → Providers → Email so password sign-up is instant.
-
-## What this slice deliberately excludes
-
-Calendars, tasks, finances, and real AI — those remain future. The intelligence is still seeded
-and rule-based (four insights per couple), organized under the Today / Life / Us lenses.
+AI chat, advertisements, A/B infrastructure, calendars, finance integrations, relationship
+scores, push notifications, recurrence, priorities, reminders, and Mac adaptation are outside
+this milestone.

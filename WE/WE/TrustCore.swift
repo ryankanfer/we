@@ -1,6 +1,6 @@
 import Foundation
 
-struct TrustResponse: Equatable, Sendable {
+nonisolated struct TrustResponse: Equatable, Sendable {
     var status: ResponseStatus
     var choice: String?
     var note: String?
@@ -8,13 +8,13 @@ struct TrustResponse: Equatable, Sendable {
     static let none = TrustResponse(status: .none)
 }
 
-struct TrustResolution: Equatable, Sendable {
+nonisolated struct TrustResolution: Equatable, Sendable {
     let type: ResolutionType
     let choice: String?
     let at: Int
 }
 
-struct TrustState: Equatable, Sendable {
+nonisolated struct TrustState: Equatable, Sendable {
     var visibility: ConsentVisibility
     var ownerID: String?
     var readiness: ConsentReadiness
@@ -23,21 +23,23 @@ struct TrustState: Equatable, Sendable {
     var acceptedAt: Int?
     var responses: [String: TrustResponse]
     var dismissedBy: Set<String>
+    var declinedBy: Set<String>
     var resolution: TrustResolution?
 }
 
-enum TrustPhase: Equatable, Sendable {
+nonisolated enum TrustPhase: Equatable, Sendable {
     case hidden
     case open
     case waiting
     case invited
+    case declined
     case answering
     case held
     case revealed
     case resolved
 }
 
-struct TrustProjection: Equatable, Sendable {
+nonisolated struct TrustProjection: Equatable, Sendable {
     let phase: TrustPhase
     let visibility: ConsentVisibility
     let initiatorID: String?
@@ -49,7 +51,7 @@ struct TrustProjection: Equatable, Sendable {
     let dismissed: Bool
 }
 
-enum TrustTransitionError: LocalizedError, Equatable {
+nonisolated enum TrustTransitionError: LocalizedError, Equatable {
     case invalid(String)
 
     var errorDescription: String? {
@@ -60,7 +62,7 @@ enum TrustTransitionError: LocalizedError, Equatable {
     }
 }
 
-enum TrustCore {
+nonisolated enum TrustCore {
     static func initialState(
         visibility: ConsentVisibility = .shared,
         ownerID: String? = nil,
@@ -73,7 +75,8 @@ enum TrustCore {
             responses: Dictionary(
                 uniqueKeysWithValues: memberIDs.map { ($0, .none) }
             ),
-            dismissedBy: []
+            dismissedBy: [],
+            declinedBy: []
         )
     }
 
@@ -102,6 +105,7 @@ enum TrustCore {
         next.readiness = .requested
         next.initiatorID = memberID
         next.requestedAt = at
+        next.declinedBy.removeAll()
         return next
     }
 
@@ -124,6 +128,7 @@ enum TrustCore {
         next.readiness = .accepted
         next.visibility = .mutual
         next.acceptedAt = at
+        next.declinedBy.remove(memberID)
         return next
     }
 
@@ -141,7 +146,7 @@ enum TrustCore {
         }
 
         var next = state
-        next.readiness = .declined
+        next.declinedBy.insert(memberID)
         return next
     }
 
@@ -160,9 +165,11 @@ enum TrustCore {
         }
 
         var next = state
-        next.readiness = .withdrawn
+        next.readiness = .idle
         next.initiatorID = nil
         next.requestedAt = nil
+        next.acceptedAt = nil
+        next.declinedBy.removeAll()
         return next
     }
 
@@ -237,6 +244,9 @@ enum TrustCore {
         at: Int,
         choice: String? = nil
     ) throws -> TrustState {
+        guard state.resolution == nil else {
+            throw TrustTransitionError.invalid("already resolved")
+        }
         let responses = Array(state.responses.values)
         guard responses.count >= 2,
               responses.allSatisfy({ $0.status == .revealed }) else {
@@ -287,7 +297,13 @@ enum TrustCore {
             phase = .resolved
         } else if state.readiness == .requested
                     || state.readiness == .declined {
-            phase = viewerID == state.initiatorID ? .waiting : .invited
+            if viewerID == state.initiatorID {
+                phase = .waiting
+            } else if state.declinedBy.contains(viewerID) {
+                phase = .declined
+            } else {
+                phase = .invited
+            }
         } else if state.visibility == .mutual {
             if mine.status == .revealed && theirs.status == .revealed {
                 phase = .revealed
@@ -322,7 +338,7 @@ enum TrustCore {
 }
 
 extension InsightRecord {
-    func trustState(memberIDs: [String]) -> TrustState {
+    nonisolated func trustState(memberIDs: [String]) -> TrustState {
         let consent = consent
         var mappedResponses = Dictionary(
             uniqueKeysWithValues: memberIDs.map { ($0, TrustResponse.none) }
@@ -353,6 +369,7 @@ extension InsightRecord {
             acceptedAt: consent?.acceptedAt == nil ? nil : 0,
             responses: mappedResponses,
             dismissedBy: dismissedBy,
+            declinedBy: declinedBy,
             resolution: resolution
         )
     }

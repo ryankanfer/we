@@ -12,7 +12,6 @@ enum WEHue: String, CaseIterable, Identifiable {
     case blush
     case celadon
 
-    static let personalStorageKey = "personalHue"
     static let partnerDefault: WEHue = .sage
     static let pickerOrder: [WEHue] = [
         .pearl,
@@ -100,8 +99,15 @@ enum WEHue: String, CaseIterable, Identifiable {
         }
     }
 
-    static func stored(_ rawValue: String) -> WEHue {
-        WEHue(rawValue: rawValue) ?? .burgundy
+}
+
+extension WEHue {
+    init(_ hue: MemberHue) {
+        self = WEHue(rawValue: hue.rawValue) ?? .burgundy
+    }
+
+    var memberHue: MemberHue {
+        MemberHue(rawValue: rawValue) ?? .burgundy
     }
 }
 
