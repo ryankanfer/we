@@ -22,15 +22,15 @@ nonisolated enum PreviewData {
             kind: .logistical,
             domain: .life,
             present: true,
-            title: "Saturday is filling up.",
-            body: "Three errands are pointing at the same morning.",
-            evidence: "The pharmacy, hardware return, and groceries all reference Saturday.",
+            title: "What kind of dinner fits tonight?",
+            body: "Choose separately. WE will surface only a mutual match.",
+            evidence: "Neither preference needs to become a rejection.",
             source: "Shared continuity",
-            actionTitle: "Shape a plan",
+            actionTitle: "Choose privately",
             options: [
-                "Make one efficient route",
-                "Split the errands",
-                "Protect part of the day"
+                "The little Thai place",
+                "Pasta at home",
+                "A walk and something casual"
             ]
         ),
         Insight(
@@ -77,6 +77,19 @@ nonisolated enum PreviewData {
             updatedBy: "dylan",
             createdAt: "2026-07-23T10:00:00Z",
             updatedAt: "2026-07-23T10:00:00Z"
+        ),
+        PlanItem(
+            id: "plan-river-coffee",
+            coupleID: "preview-couple",
+            title: "Morning coffee by the river",
+            note: "The day we left our phones in the bag.",
+            scheduledOn: "2026-07-19",
+            status: .completed,
+            completedAt: "2026-07-19T15:00:00Z",
+            createdBy: "dylan",
+            updatedBy: "ryan",
+            createdAt: "2026-07-16T10:00:00Z",
+            updatedAt: "2026-07-19T15:00:00Z"
         )
     ]
 
@@ -108,6 +121,20 @@ nonisolated enum PreviewData {
             updatedBy: "dylan",
             createdAt: "2026-07-19T09:00:00Z",
             updatedAt: "2026-07-19T09:00:00Z"
+        ),
+        Responsibility(
+            id: "responsibility-guest-room",
+            coupleID: "preview-couple",
+            title: "Make the guest room feel welcoming",
+            note: "Fresh sheets and the little reading lamp.",
+            ownerID: nil,
+            owner: .together,
+            status: .completed,
+            completedAt: "2026-07-21T18:30:00Z",
+            createdBy: "ryan",
+            updatedBy: "dylan",
+            createdAt: "2026-07-18T09:00:00Z",
+            updatedAt: "2026-07-21T18:30:00Z"
         )
     ]
 
@@ -150,11 +177,23 @@ nonisolated enum PreviewData {
             couple: Couple(id: "preview-couple", joinCode: "WEDEMO"),
             members: members,
             insights: insights.map {
+                let isPrivateChoice = $0.id == "saturday-plan"
                 let isInvitation = $0.id == "august-trip"
                 return InsightRecord(
                     insight: $0,
-                    consent: isInvitation
+                    consent: isPrivateChoice
                         ? InsightConsent(
+                            insightID: $0.id,
+                            visibility: .mutual,
+                            ownerID: nil,
+                            readiness: .accepted,
+                            initiatorID: "dylan",
+                            requestedAt: "2026-07-24T18:00:00Z",
+                            acceptedAt: "2026-07-24T18:05:00Z",
+                            resolutionType: nil,
+                            resolutionChoice: nil
+                        )
+                        : isInvitation ? InsightConsent(
                             insightID: $0.id,
                             visibility: .shared,
                             ownerID: nil,
@@ -166,7 +205,17 @@ nonisolated enum PreviewData {
                             resolutionChoice: nil
                         )
                         : nil,
-                    responses: [],
+                    responses: isPrivateChoice
+                        ? [
+                            InsightResponse(
+                                insightID: $0.id,
+                                profileID: "dylan",
+                                status: .submitted,
+                                choice: "The little Thai place",
+                                note: nil
+                            )
+                        ]
+                        : [],
                     dismissedBy: [],
                     declinedBy: []
                 )

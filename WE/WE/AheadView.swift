@@ -13,40 +13,41 @@ struct AheadView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 26) {
                     ProductHeader(
-                        eyebrow: "What is coming",
+                        eyebrow: "Shared horizons",
                         title: "Ahead",
                         profileName: session.snapshot?.profile.name ?? "You",
                         onProfile: onProfile
                     )
                     .weArrival()
 
+                    if let privateChoiceRecord {
+                        privateChoiceCard(privateChoiceRecord)
+                            .weArrival(order: 1)
+                    }
+
                     if active.isEmpty {
                         EditorialEmptyState(
-                            symbol: "arrow.forward.circle",
-                            title: "Nothing is waiting ahead.",
-                            message: "Add a plan with a date, or keep it unscheduled until the shape is clearer.",
-                            actionTitle: session.canMutate ? "Add a plan" : nil,
+                            symbol: "sun.horizon",
+                            title: "The horizon is open.",
+                            message: "Hold an intention with a day, or let its timing keep forming.",
+                            actionTitle: session.canMutate ? "Hold an intention" : nil,
                             action: { showsAdd = true }
                         )
-                        .weArrival(order: 1)
+                        .weArrival(order: 2)
                     } else {
                         if let nextPlan = scheduled.first {
                             nextMilestoneCard(nextPlan)
-                                .weArrival(order: 1)
+                                .weArrival(order: 2)
                         }
 
                         if !remainingScheduled.isEmpty {
-                            planSection("Later", plans: remainingScheduled)
-                                .weArrival(order: 2)
-                        }
-                        if !unscheduled.isEmpty {
-                            planSection("Unscheduled", plans: unscheduled)
+                            planSection("Further out", plans: remainingScheduled)
                                 .weArrival(order: 3)
                         }
-                    }
-                    if !completed.isEmpty {
-                        planSection("Completed", plans: completed)
-                            .weArrival(order: 4)
+                        if !unscheduled.isEmpty {
+                            planSection("Still forming", plans: unscheduled)
+                                .weArrival(order: 4)
+                        }
                     }
                     SessionMessageView()
                 }
@@ -61,7 +62,7 @@ struct AheadView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showsAdd = true } label: { Image(systemName: "plus") }
                     .disabled(!session.canMutate)
-                    .accessibilityLabel("Add plan")
+                    .accessibilityLabel("Hold a new intention")
             }
         }
         .sheet(isPresented: $showsAdd) { PlanEditor() }
@@ -76,7 +77,65 @@ struct AheadView: View {
     private var scheduled: [PlanItem] { active.filter { $0.scheduledOn != nil }.sorted { ($0.scheduledOn ?? "") < ($1.scheduledOn ?? "") } }
     private var remainingScheduled: [PlanItem] { Array(scheduled.dropFirst()) }
     private var unscheduled: [PlanItem] { active.filter { $0.scheduledOn == nil } }
-    private var completed: [PlanItem] { session.plans.filter { $0.status == .completed } }
+    private var privateChoiceRecord: InsightRecord? {
+        session.insightRecords.first {
+            $0.insight.kind == .logistical
+                && session.projection(for: $0)?.phase != .resolved
+        }
+    }
+
+    private var personalHue: WEHue {
+        session.snapshot?.membership.map { WEHue($0.hue) } ?? .burgundy
+    }
+
+    private func privateChoiceCard(_ record: InsightRecord) -> some View {
+        NavigationLink {
+            InsightDetailView(insightID: record.id)
+        } label: {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: "hand.tap.fill")
+                    .font(.title3)
+                    .foregroundStyle(personalHue.controlColor)
+                    .frame(width: 44, height: 44)
+                    .background(
+                        personalHue.color.opacity(0.12),
+                        in: Circle()
+                    )
+
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("CHOOSE PRIVATELY")
+                        .font(.weCaption)
+                        .tracking(1.2)
+                        .foregroundStyle(Color("WEBurgundy"))
+                    Text(record.insight.title)
+                        .font(.weHeadline)
+                        .foregroundStyle(Color("WEInk"))
+                    Text("WE opens only a mutual match. A preference that does not match stays unspoken.")
+                        .font(.subheadline)
+                        .foregroundStyle(Color("WEFaint"))
+                }
+
+                Spacer(minLength: 4)
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Color("WEFaint"))
+                    .frame(minHeight: 44)
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                Color("WECard"),
+                in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(personalHue.color.opacity(0.18), lineWidth: 1)
+            )
+        }
+        .buttonStyle(WEPressableCardStyle())
+        .accessibilityHint("Opens a private preference round")
+    }
 
     private func nextMilestoneCard(_ plan: PlanItem) -> some View {
         Button {
@@ -84,7 +143,7 @@ struct AheadView: View {
         } label: {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Label("NEXT UP", systemImage: "calendar.badge.clock")
+                    Label("COMING INTO VIEW", systemImage: "sun.horizon.fill")
                         .font(.weCaption)
                         .foregroundStyle(Color("WEBurgundy"))
                     Spacer()
@@ -123,7 +182,7 @@ struct AheadView: View {
             )
         }
         .buttonStyle(WEPressableCardStyle())
-        .accessibilityHint("Opens this plan for editing")
+        .accessibilityHint("Opens this intention for editing")
     }
 
     private func planSection(_ title: String, plans: [PlanItem]) -> some View {
@@ -159,25 +218,16 @@ private struct PlanRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
-            Button { onStatus(plan.status == .completed ? .active : .completed) } label: {
-                Image(systemName: plan.status == .completed ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(plan.status == .completed ? Color("WEBurgundy") : Color("WEFaint"))
-                    .frame(width: 44, height: 44)
-            }
-            .buttonStyle(.plain)
-            .disabled(!session.canMutate)
-            .accessibilityLabel(
-                plan.status == .completed
-                    ? "Mark \(plan.title) active"
-                    : "Mark \(plan.title) complete"
-            )
+            Image(systemName: plan.scheduledOn == nil ? "sparkles" : "sun.horizon.fill")
+                .font(.title3)
+                .foregroundStyle(personalHue.controlColor)
+                .frame(width: 44, height: 44)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(plan.title)
                     .font(.weHeadline)
-                    .strikethrough(plan.status == .completed)
-                    .foregroundStyle(plan.status == .completed ? Color("WEFaint") : Color("WEInk"))
+                    .foregroundStyle(Color("WEInk"))
 
                 if let note = plan.note, !note.isEmpty {
                     Text(note)
@@ -196,8 +246,8 @@ private struct PlanRow: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(personalHue.color.opacity(0.12), in: Capsule())
-                } else if plan.status == .active {
-                    Text("WHEN IT FITS")
+                } else {
+                    Text("TIMING STILL OPEN")
                         .font(.caption2.weight(.bold))
                         .tracking(1)
                         .foregroundStyle(Color("WEFaint"))
@@ -211,34 +261,39 @@ private struct PlanRow: View {
             Spacer(minLength: 4)
 
             Menu {
-                Button("Edit", systemImage: "pencil", action: onEdit)
-                Button("Archive", systemImage: "archivebox") { onStatus(.archived) }
+                Button("Shape this intention", systemImage: "pencil", action: onEdit)
+                Button("Move into the Life Stream", systemImage: "sparkles") {
+                    onStatus(.completed)
+                }
+                Button("Let it go", systemImage: "archivebox") {
+                    onStatus(.archived)
+                }
             } label: {
                 Image(systemName: "ellipsis")
                     .frame(width: 44, height: 44)
                     .foregroundStyle(Color("WEFaint"))
             }
             .disabled(!session.canMutate)
-            .accessibilityLabel("More actions for \(plan.title)")
+            .accessibilityLabel("Actions for \(plan.title)")
         }
         .padding(.horizontal, 8)
         .frame(minHeight: 64)
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             Button {
-                onStatus(plan.status == .completed ? .active : .completed)
+                onStatus(.completed)
             } label: {
                 Label(
-                    plan.status == .completed ? "Activate" : "Complete",
-                    systemImage: plan.status == .completed ? "arrow.uturn.backward" : "checkmark"
+                    "Move to Life Stream",
+                    systemImage: "sparkles"
                 )
             }
-            .tint(plan.status == .completed ? Color.gray : Color("WEBurgundy"))
+            .tint(Color("WEBurgundy"))
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) {
                 onStatus(.archived)
             } label: {
-                Label("Archive", systemImage: "archivebox")
+                Label("Let it go", systemImage: "archivebox")
             }
             .tint(.red)
 
@@ -292,7 +347,7 @@ private struct PlanEditor: View {
                         Text("WHAT IS AHEAD")
                             .font(.weCaption)
                             .foregroundStyle(Color("WEFaint"))
-                        Text(plan == nil ? "New plan" : "Edit plan")
+                        Text(plan == nil ? "New intention" : "Shape intention")
                             .font(.weTitle)
                             .foregroundStyle(Color("WEInk"))
                     }
@@ -311,20 +366,19 @@ private struct PlanEditor: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
-                        // Plan Details Card
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("PLAN DETAILS")
+                            Text("THE HORIZON")
                                 .font(.weCaption)
                                 .foregroundStyle(Color("WEFaint"))
 
                             VStack(alignment: .leading, spacing: 10) {
-                                TextField("What is ahead?", text: $title)
+                                TextField("What are you hoping toward?", text: $title)
                                     .font(.weHeadline)
                                     .foregroundStyle(Color("WEInk"))
 
                                 Divider()
 
-                                TextField("Optional note or detail…", text: $note, axis: .vertical)
+                                TextField("A feeling, possibility, or useful detail…", text: $note, axis: .vertical)
                                     .lineLimit(2...5)
                                     .font(.weBody)
                                     .foregroundStyle(Color("WEInk"))
@@ -340,7 +394,6 @@ private struct PlanEditor: View {
                             )
                         }
 
-                        // Timing Card
                         VStack(alignment: .leading, spacing: 12) {
                             Text("TIMING")
                                 .font(.weCaption)
@@ -349,10 +402,10 @@ private struct PlanEditor: View {
                             VStack(spacing: 14) {
                                 Toggle(isOn: $isScheduled) {
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text("Set a date")
+                                        Text("Hold a day")
                                             .font(.weHeadline)
                                             .foregroundStyle(Color("WEInk"))
-                                        Text(isScheduled ? "Scheduled ahead" : "When it fits")
+                                        Text(isScheduled ? "Coming into view" : "Let timing stay open")
                                             .font(.caption)
                                             .foregroundStyle(Color("WEFaint"))
                                     }
@@ -396,8 +449,9 @@ private struct PlanEditor: View {
 
                         SessionMessageView()
 
-                        // Action button at bottom for clear feedback
-                        Button("Save Plan") { save() }
+                        Button(plan == nil ? "Hold This Intention" : "Save Changes") {
+                            save()
+                        }
                             .buttonStyle(WEPrimaryButtonStyle())
                             .disabled(isSaveDisabled)
                             .padding(.top, 8)

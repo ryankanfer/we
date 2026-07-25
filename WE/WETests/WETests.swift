@@ -435,28 +435,37 @@ struct WETests {
     }
 
     @Test
-    func previewRepositorySupportsTrustTransitions() async throws {
+    func previewRepositorySupportsPrivateMatchTransition() async throws {
         let repository = PreviewRepository()
         let insightID = try #require(PreviewData.insights.first?.id)
 
-        try await repository.requestReveal(insightID: insightID)
+        try await repository.submitResponse(
+            insightID: insightID,
+            choice: "The little Thai place",
+            note: nil
+        )
         var snapshot = try await repository.loadRelationship(
             for: PreviewData.user
         )
-        #expect(snapshot.insights.first?.consent?.readiness == .requested)
+        let revealed = try #require(snapshot.insights.first)
+        #expect(
+            revealed.responses.allSatisfy {
+                $0.status == .revealed
+            }
+        )
 
-        try await repository.withdrawReveal(insightID: insightID)
+        try await repository.resolveInsight(
+            insightID: insightID,
+            type: .settled,
+            choice: "The little Thai place"
+        )
         snapshot = try await repository.loadRelationship(
             for: PreviewData.user
         )
-        #expect(snapshot.insights.first?.consent?.readiness == .idle)
-        #expect(snapshot.insights.first?.consent?.initiatorID == nil)
-
-        try await repository.dismissSuggestion(insightID: insightID)
-        snapshot = try await repository.loadRelationship(
-            for: PreviewData.user
+        #expect(
+            snapshot.insights.first?.consent?.resolutionChoice
+                == "The little Thai place"
         )
-        #expect(snapshot.insights.first?.dismissedBy == [PreviewData.user.id])
     }
 
     @Test

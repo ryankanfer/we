@@ -459,7 +459,8 @@ struct InsightDetailView: View {
         let projection = session.projection(for: record)
         return ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                if projection?.phase == .revealed || projection?.phase == .resolved {
+                if (projection?.phase == .revealed || projection?.phase == .resolved)
+                    && (record.insight.kind != .logistical || projection?.matched == true) {
                     WEConfluenceForm(
                         personalHue: hue,
                         partnerHue: relationshipPartnerHue(session),
@@ -565,27 +566,56 @@ struct InsightDetailView: View {
                 message: "It will reveal only after your partner submits too."
             )
         case .revealed:
-            statusCard(
-                title: projection.matched == true ? "You chose the same thing." : "You see this differently.",
-                message: "Both answers arrived before either was revealed."
-            )
-            answerCard("You", projection.myResponse.choice, note: projection.myResponse.note)
-            answerCard("Your partner", projection.partnerResponse?.choice, note: projection.partnerResponse?.note)
-            primary("Mark this settled") {
-                await session.resolveInsight(
-                    insightID: record.id,
-                    type: .settled,
-                    choice: projection.matched == true ? projection.myResponse.choice : nil
+            if record.insight.kind == .logistical {
+                if projection.matched == true {
+                    statusCard(
+                        title: "A mutual match.",
+                        message: "WE opened the choice only after both of you chose it."
+                    )
+                    matchCard(projection.myResponse.choice)
+                    primary("Let this become a shared intention") {
+                        await session.resolveInsight(
+                            insightID: record.id,
+                            type: .settled,
+                            choice: projection.myResponse.choice
+                        )
+                    }
+                } else {
+                    statusCard(
+                        title: "No mutual match this round.",
+                        message: "Neither preference is shown. There is nothing to explain or decline."
+                    )
+                    primary("Let this round rest") {
+                        await session.resolveInsight(
+                            insightID: record.id,
+                            type: .released,
+                            choice: nil
+                        )
+                    }
+                }
+            } else {
+                statusCard(
+                    title: projection.matched == true ? "You chose the same thing." : "You see this differently.",
+                    message: "Both answers arrived before either was revealed."
                 )
+                answerCard("You", projection.myResponse.choice, note: projection.myResponse.note)
+                answerCard("Your partner", projection.partnerResponse?.choice, note: projection.partnerResponse?.note)
+                primary("Mark this settled") {
+                    await session.resolveInsight(
+                        insightID: record.id,
+                        type: .settled,
+                        choice: projection.matched == true ? projection.myResponse.choice : nil
+                    )
+                }
+                HStack(spacing: 12) {
+                    Button("Leave open") { Task { await session.resolveInsight(insightID: record.id, type: .leftOpen) } }
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                    Button("Release it") { Task { await session.resolveInsight(insightID: record.id, type: .released) } }
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .disabled(!session.canMutate)
             }
-            HStack(spacing: 12) {
-                Button("Leave open") { Task { await session.resolveInsight(insightID: record.id, type: .leftOpen) } }
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                Button("Release it") { Task { await session.resolveInsight(insightID: record.id, type: .released) } }
-                    .frame(maxWidth: .infinity, minHeight: 44)
-            }
-            .buttonStyle(.bordered)
-            .disabled(!session.canMutate)
         case .resolved:
             statusCard(
                 title: "Held together.",
@@ -658,6 +688,29 @@ struct InsightDetailView: View {
         }
         .padding(14)
         .background(Color("WEInk").opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func matchCard(_ value: String?) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "heart.fill")
+                .foregroundStyle(Color("WEBurgundy"))
+                .frame(width: 44, height: 44)
+                .background(
+                    Color("WEBurgundy").opacity(0.1),
+                    in: Circle()
+                )
+                .accessibilityHidden(true)
+            Text(value ?? "A shared choice")
+                .font(.weHeadline)
+                .foregroundStyle(Color("WEInk"))
+            Spacer(minLength: 4)
+        }
+        .padding(14)
+        .background(
+            Color("WECard"),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
+        .accessibilityElement(children: .combine)
     }
 
     private func resolutionMessage(_ resolution: TrustResolution?) -> String {

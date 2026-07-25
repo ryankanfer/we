@@ -11,15 +11,17 @@ final class WEUITests: XCTestCase {
 
         XCTAssertTrue(app.tabBars.buttons["WE"].waitForExistence(timeout: 4))
         app.tabBars.buttons["Life"].tap()
-        XCTAssertTrue(app.staticTexts["Nothing is assigned yet."].exists)
-        app.buttons["Add a responsibility"].tap()
-        XCTAssertTrue(app.navigationBars["New responsibility"].exists)
+        XCTAssertTrue(
+            app.staticTexts["Nothing needs naming right now."].exists
+        )
+        app.navigationBars["Life"].buttons["Name some care"].tap()
+        XCTAssertTrue(app.staticTexts["THE CARE"].exists)
         app.buttons["Cancel"].tap()
 
         app.tabBars.buttons["Ahead"].tap()
-        XCTAssertTrue(app.staticTexts["Nothing is waiting ahead."].exists)
-        app.buttons["Add a plan"].tap()
-        XCTAssertTrue(app.navigationBars["New plan"].exists)
+        XCTAssertTrue(app.staticTexts["The horizon is open."].exists)
+        app.navigationBars["Ahead"].buttons["Hold a new intention"].tap()
+        XCTAssertTrue(app.staticTexts["THE HORIZON"].exists)
         app.buttons["Cancel"].tap()
 
         app.buttons["profileButton"].tap()
@@ -192,7 +194,7 @@ final class WEUITests: XCTestCase {
     @MainActor
     func testInsightDetailNavigation() throws {
         let app = launch(scenario: "ready")
-        let insight = app.staticTexts["Saturday is filling up."]
+        let insight = app.staticTexts["What kind of dinner fits tonight?"]
         XCTAssertTrue(insight.waitForExistence(timeout: 4))
         insight.tap()
 
@@ -200,14 +202,34 @@ final class WEUITests: XCTestCase {
             app.navigationBars["Insight"].waitForExistence(timeout: 3)
         )
         XCTAssertTrue(
-            app.staticTexts[
-                "The pharmacy, hardware return, and groceries all reference Saturday."
-            ].exists
+            app.staticTexts["Neither preference needs to become a rejection."]
+                .exists
         )
-        app.buttons["Ask to open together"].tap()
+        XCTAssertTrue(app.staticTexts["Answer privately."].exists)
+        app.buttons["The little Thai place"].tap()
+        app.buttons["Submit my answer"].tap()
         XCTAssertTrue(
-            app.staticTexts["Waiting gently."]
+            app.staticTexts["A mutual match."]
                 .waitForExistence(timeout: 3)
+        )
+    }
+
+    @MainActor
+    func testLifeStreamAndPrivateChoiceAreVisible() throws {
+        let app = launch(scenario: "ready")
+
+        app.tabBars.buttons["Life"].tap()
+        XCTAssertTrue(
+            app.staticTexts["LIFE STREAM"].waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(
+            app.staticTexts["Morning coffee by the river"].exists
+        )
+
+        app.tabBars.buttons["Ahead"].tap()
+        XCTAssertTrue(app.staticTexts["CHOOSE PRIVATELY"].exists)
+        XCTAssertTrue(
+            app.staticTexts["What kind of dinner fits tonight?"].exists
         )
     }
 

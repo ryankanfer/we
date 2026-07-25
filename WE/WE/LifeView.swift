@@ -24,7 +24,7 @@ struct LifeView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 22) {
                     ProductHeader(
-                        eyebrow: "What we carry",
+                        eyebrow: "Care made visible",
                         title: "Life",
                         profileName: session.snapshot?.profile.name ?? "You",
                         onProfile: onProfile
@@ -32,7 +32,7 @@ struct LifeView: View {
                     .weArrival()
 
                     if !active.isEmpty {
-                        carryDistributionBar
+                        carePromise
                             .weArrival(order: 1)
 
                         filterCapsuleBar
@@ -42,9 +42,9 @@ struct LifeView: View {
                     if active.isEmpty {
                         EditorialEmptyState(
                             symbol: "hands.and.sparkles",
-                            title: "Nothing is assigned yet.",
-                            message: "Add a responsibility when naming who carries it would make life feel lighter.",
-                            actionTitle: session.canMutate ? "Add a responsibility" : nil,
+                            title: "Nothing needs naming right now.",
+                            message: "Name a piece of care when making it visible would help life feel lighter.",
+                            actionTitle: session.canMutate ? "Name some care" : nil,
                             action: { showsAdd = true }
                         )
                         .weArrival(order: 3)
@@ -74,8 +74,8 @@ struct LifeView: View {
                         }
                     }
 
-                    if !completed.isEmpty && selectedFilter == .all {
-                        responsibilitySection("Completed", items: completed, completed: true)
+                    if !lifeStream.isEmpty && selectedFilter == .all {
+                        lifeStreamSection
                             .weArrival(order: 8)
                     }
                     SessionMessageView()
@@ -91,7 +91,7 @@ struct LifeView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showsAdd = true } label: { Image(systemName: "plus") }
                     .disabled(!session.canMutate)
-                    .accessibilityLabel("Add responsibility")
+                    .accessibilityLabel("Name some care")
             }
         }
         .sheet(isPresented: $showsAdd) { ResponsibilityEditor() }
@@ -103,7 +103,35 @@ struct LifeView: View {
     }
 
     private var active: [Responsibility] { session.responsibilities.filter { $0.status == .active } }
-    private var completed: [Responsibility] { session.responsibilities.filter { $0.status == .completed } }
+    private var completedCare: [Responsibility] {
+        session.responsibilities.filter { $0.status == .completed }
+    }
+
+    private var rememberedHorizons: [PlanItem] {
+        session.plans.filter { $0.status == .completed }
+    }
+
+    private var lifeStream: [LifeStreamEntry] {
+        let care = completedCare.map {
+            LifeStreamEntry(
+                id: "care-\($0.id)",
+                title: $0.title,
+                detail: "Care found its place",
+                symbol: "hands.sparkles.fill",
+                timestamp: $0.completedAt ?? $0.updatedAt
+            )
+        }
+        let horizons = rememberedHorizons.map {
+            LifeStreamEntry(
+                id: "horizon-\($0.id)",
+                title: $0.title,
+                detail: "A shared moment",
+                symbol: "sparkles",
+                timestamp: $0.completedAt ?? $0.updatedAt
+            )
+        }
+        return (care + horizons).sorted { $0.timestamp > $1.timestamp }
+    }
 
     private var filteredActive: [Responsibility] {
         switch selectedFilter {
@@ -144,108 +172,60 @@ struct LifeView: View {
         .sensoryFeedback(.selection, trigger: selectedFilter)
     }
 
-    private var carryDistributionBar: some View {
-        let total = Double(max(active.count, 1))
-        let meCount = Double(active.filter { $0.owner == .me }.count)
-        let partnerCount = Double(active.filter { $0.owner == .partner }.count)
-        let togetherCount = Double(active.filter { $0.owner == .together }.count)
+    private var carePromise: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "hands.and.sparkles.fill")
+                .font(.title3)
+                .foregroundStyle(Color("WEBurgundy"))
+                .frame(width: 44, height: 44)
+                .background(
+                    Color("WEBurgundy").opacity(0.1),
+                    in: Circle()
+                )
+                .accessibilityHidden(true)
 
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("HOW THE LOAD IS HELD")
+            VStack(alignment: .leading, spacing: 4) {
+                Text("CARE, NOT ASSIGNMENTS")
                     .font(.weCaption)
-                    .foregroundStyle(Color("WEFaint"))
-                Spacer()
-                Text("\(active.count) ACTIVE")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(Color("WEFaint"))
-            }
-
-            GeometryReader { geo in
-                HStack(spacing: 2) {
-                    if meCount > 0 {
-                        Rectangle()
-                            .fill(personalHue.controlColor)
-                            .frame(width: max((meCount / total) * geo.size.width - 1, 4))
-                    }
-                    if togetherCount > 0 {
-                        Rectangle()
-                            .fill(Color("WEBurgundy"))
-                            .frame(width: max((togetherCount / total) * geo.size.width - 1, 4))
-                    }
-                    if partnerCount > 0 {
-                        Rectangle()
-                            .fill(partnerHue.controlColor)
-                            .frame(width: max((partnerCount / total) * geo.size.width - 1, 4))
-                    }
-                }
-                .clipShape(Capsule())
-            }
-            .frame(height: 8)
-
-            HStack(spacing: 12) {
-                distributionKey("You", count: Int(meCount), color: personalHue.controlColor)
-                distributionKey("Together", count: Int(togetherCount), color: Color("WEBurgundy"))
-                distributionKey(partnerName, count: Int(partnerCount), color: partnerHue.controlColor)
+                    .tracking(1.1)
+                    .foregroundStyle(Color("WEBurgundy"))
+                Text("Naming care keeps it from becoming invisible. It is not a score of who does more.")
+                    .font(.subheadline)
+                    .foregroundStyle(Color("WEInk"))
             }
         }
-        .padding(14)
-        .background(Color("WECard"), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.black.opacity(0.04), lineWidth: 1)
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            Color("WECard"),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
         )
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("How the load is held")
-        .accessibilityValue(
-            "You \(Int(meCount)), together \(Int(togetherCount)), \(partnerName) \(Int(partnerCount))"
-        )
-    }
-
-    private func distributionKey(_ title: String, count: Int, color: Color) -> some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(color)
-                .frame(width: 7, height: 7)
-            Text("\(title) \(count)")
-                .font(.caption2)
-                .foregroundStyle(Color("WEFaint"))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
     }
 
     private func filterLabel(_ option: FilterOption) -> String {
-        option == .partner ? partnerName : option.rawValue
+        switch option {
+        case .all: "All care"
+        case .me: "My side"
+        case .partner: partnerName
+        case .together: "Together"
+        }
     }
 
     private var emptyFilterPhrase: String {
         switch selectedFilter {
         case .all: "here"
-        case .me: "carried by you"
-        case .partner: "carried by \(partnerName)"
-        case .together: "carried together"
+        case .me: "on your side"
+        case .partner: "on \(partnerName)’s side"
+        case .together: "held together"
         }
-    }
-
-    private var personalHue: WEHue {
-        session.snapshot?.membership.map { WEHue($0.hue) } ?? .burgundy
-    }
-
-    private var partnerHue: WEHue {
-        guard let snapshot = session.snapshot,
-              let user = session.user,
-              let partner = snapshot.members.first(where: { $0.id != user.id }) else {
-            return .partnerDefault
-        }
-        return WEHue(partner.hue)
     }
 
     private func ownerSectionTitle(_ owner: ResponsibilityOwner) -> String {
         switch owner {
-        case .me: "Carried by You"
-        case .partner: "Carried by \(partnerName)"
-        case .together: "Carried Together"
+        case .me: "On Your Side"
+        case .partner: "On \(partnerName)’s Side"
+        case .together: "Held Together"
         }
     }
 
@@ -258,9 +238,9 @@ struct LifeView: View {
         return partner.name
     }
 
-    private func responsibilitySection(_ title: String, items: [Responsibility], completed: Bool = false) -> some View {
+    private func responsibilitySection(_ title: String, items: [Responsibility]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            ProductSectionHeader(title: title, detail: "\(items.count)")
+            ProductSectionHeader(title: title)
             VStack(spacing: 0) {
                 ForEach(items) { item in
                     ResponsibilityRow(
@@ -281,6 +261,62 @@ struct LifeView: View {
             )
         }
     }
+
+    private var lifeStreamSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ProductSectionHeader(
+                title: "Life Stream",
+                detail: "What found its place"
+            )
+
+            VStack(spacing: 0) {
+                ForEach(lifeStream) { entry in
+                    HStack(alignment: .top, spacing: 14) {
+                        Image(systemName: entry.symbol)
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(Color("WEBurgundy"))
+                            .frame(width: 44, height: 44)
+                            .accessibilityHidden(true)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(entry.title)
+                                .font(.weHeadline)
+                                .foregroundStyle(Color("WEInk"))
+                            Text(entry.detail)
+                                .font(.subheadline)
+                                .foregroundStyle(Color("WEFaint"))
+                        }
+                        .padding(.vertical, 10)
+
+                        Spacer(minLength: 4)
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(minHeight: 64)
+                    .accessibilityElement(children: .combine)
+
+                    if entry.id != lifeStream.last?.id {
+                        Divider().padding(.leading, 62)
+                    }
+                }
+            }
+            .background(
+                Color("WECard"),
+                in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(Color.black.opacity(0.04), lineWidth: 1)
+            )
+        }
+    }
+}
+
+private struct LifeStreamEntry: Identifiable {
+    let id: String
+    let title: String
+    let detail: String
+    let symbol: String
+    let timestamp: String
 }
 
 private struct ResponsibilityRow: View {
@@ -291,27 +327,16 @@ private struct ResponsibilityRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
-            Button {
-                onStatus(item.status == .completed ? .active : .completed)
-            } label: {
-                Image(systemName: item.status == .completed ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(item.status == .completed ? Color("WEBurgundy") : Color("WEFaint"))
-                    .frame(width: 44, height: 44)
-            }
-            .buttonStyle(.plain)
-            .disabled(!session.canMutate)
-            .accessibilityLabel(
-                item.status == .completed
-                    ? "Mark \(item.title) active"
-                    : "Mark \(item.title) complete"
-            )
+            Image(systemName: "hands.sparkles.fill")
+                .font(.title3)
+                .foregroundStyle(Color("WEBurgundy"))
+                .frame(width: 44, height: 44)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(item.title)
                     .font(.weHeadline)
-                    .strikethrough(item.status == .completed)
-                    .foregroundStyle(item.status == .completed ? Color("WEFaint") : Color("WEInk"))
+                    .foregroundStyle(Color("WEInk"))
 
                 if let note = item.note, !note.isEmpty {
                     Text(note)
@@ -326,34 +351,39 @@ private struct ResponsibilityRow: View {
             Spacer(minLength: 4)
 
             Menu {
-                Button("Edit", systemImage: "pencil", action: onEdit)
-                Button("Archive", systemImage: "archivebox") { onStatus(.archived) }
+                Button("Shape this care", systemImage: "pencil", action: onEdit)
+                Button("Settle into the Life Stream", systemImage: "sparkles") {
+                    onStatus(.completed)
+                }
+                Button("Let it go", systemImage: "archivebox") {
+                    onStatus(.archived)
+                }
             } label: {
                 Image(systemName: "ellipsis")
                     .frame(width: 44, height: 44)
                     .foregroundStyle(Color("WEFaint"))
             }
             .disabled(!session.canMutate)
-            .accessibilityLabel("More actions for \(item.title)")
+            .accessibilityLabel("Actions for \(item.title)")
         }
         .padding(.horizontal, 8)
         .frame(minHeight: 64)
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             Button {
-                onStatus(item.status == .completed ? .active : .completed)
+                onStatus(.completed)
             } label: {
                 Label(
-                    item.status == .completed ? "Activate" : "Complete",
-                    systemImage: item.status == .completed ? "arrow.uturn.backward" : "checkmark"
+                    "Settle for now",
+                    systemImage: "sparkles"
                 )
             }
-            .tint(item.status == .completed ? Color.gray : Color("WEBurgundy"))
+            .tint(Color("WEBurgundy"))
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) {
                 onStatus(.archived)
             } label: {
-                Label("Archive", systemImage: "archivebox")
+                Label("Let it go", systemImage: "archivebox")
             }
             .tint(.red)
 
@@ -445,11 +475,11 @@ private struct ResponsibilityEditor: View {
     @State private var owner: ResponsibilityOwner
 
     private let suggestions = [
-        "Groceries",
-        "Bills & Utilities",
-        "Home Maintenance",
-        "Travel Booking",
-        "Dinner & Meals"
+        "Keep groceries flowing",
+        "Stay ahead of shared bills",
+        "Hold home maintenance",
+        "Shape the next trip",
+        "Make weeknight meals easier"
     ]
 
     init(responsibility: Responsibility? = nil) {
@@ -477,7 +507,7 @@ private struct ResponsibilityEditor: View {
                         Text("WHAT WE CARRY")
                             .font(.weCaption)
                             .foregroundStyle(Color("WEFaint"))
-                        Text(responsibility == nil ? "New responsibility" : "Edit responsibility")
+                        Text(responsibility == nil ? "Name some care" : "Shape this care")
                             .font(.weTitle)
                             .foregroundStyle(Color("WEInk"))
                     }
@@ -496,14 +526,13 @@ private struct ResponsibilityEditor: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
-                        // Title & Note Card
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("RESPONSIBILITY")
+                            Text("THE CARE")
                                 .font(.weCaption)
                                 .foregroundStyle(Color("WEFaint"))
 
                             VStack(alignment: .leading, spacing: 10) {
-                                TextField("What needs carrying?", text: $title)
+                                TextField("What would feel lighter if it were named?", text: $title)
                                     .font(.weHeadline)
                                     .foregroundStyle(Color("WEInk"))
 
@@ -525,7 +554,6 @@ private struct ResponsibilityEditor: View {
                             )
                         }
 
-                        // Quick Suggestions
                         if title.isEmpty {
                             VStack(alignment: .leading, spacing: 10) {
                                 Text("QUICK SUGGESTIONS")
@@ -552,7 +580,7 @@ private struct ResponsibilityEditor: View {
 
                         // Ownership Card
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("WHO CARRIES IT")
+                            Text("WHERE IT IS HELD")
                                 .font(.weCaption)
                                 .foregroundStyle(Color("WEFaint"))
 
@@ -581,8 +609,9 @@ private struct ResponsibilityEditor: View {
 
                         SessionMessageView()
 
-                        // Action Button
-                        Button("Save Responsibility") { save() }
+                        Button(responsibility == nil ? "Hold This Care" : "Save Changes") {
+                            save()
+                        }
                             .buttonStyle(WEPrimaryButtonStyle())
                             .disabled(isSaveDisabled)
                             .padding(.top, 8)
@@ -599,10 +628,19 @@ private struct ResponsibilityEditor: View {
 
     private var ownerDescription: String {
         switch owner {
-        case .me: "Carried primarily on your side. Visible to your partner."
-        case .partner: "Assigned to your partner. Visible on their Life list."
-        case .together: "Shared responsibility owned jointly by both of you."
+        case .me: "Held mainly on your side, with shared visibility."
+        case .partner: "Held mainly on \(partnerName)’s side, without turning it into an assignment."
+        case .together: "Held in the space you share."
         }
+    }
+
+    private var partnerName: String {
+        guard let snapshot = session.snapshot,
+              let user = session.user,
+              let partner = snapshot.members.first(where: { $0.id != user.id }) else {
+            return "your partner"
+        }
+        return partner.name
     }
 
     private func save() {
