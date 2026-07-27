@@ -13,28 +13,88 @@ nonisolated enum PreviewData {
 
     static let members: [Member] = [
         Member(id: "ryan", name: "Ryan", hue: .burgundy),
-        Member(id: "dylan", name: "Dylan", hue: .sage)
+        Member(id: "dylan", name: "Dylan", hue: .sage),
     ]
 
     static let insights: [Insight] = [
         Insight(
             id: "saturday-plan",
+            seedKey: "tonight-feel-preview",
             kind: .logistical,
             domain: .life,
             present: true,
-            title: "Saturday is filling up.",
-            body: "Three errands are pointing at the same morning.",
-            evidence: "The pharmacy, hardware return, and groceries all reference Saturday.",
-            source: "Shared continuity",
-            actionTitle: "Shape a plan",
+            title: "How should tonight feel?",
+            body: "Choose separately. WE will look for a shared direction without exposing either answer.",
+            evidence: "A small check-in for this evening.",
+            source: "A moment for tonight",
+            actionTitle: "Choose privately",
             options: [
-                "Make one efficient route",
-                "Split the errands",
-                "Protect part of the day"
+                "Quiet and close",
+                "Easy, with no decisions",
+                "Out of the house",
+                "Playful and spontaneous",
+                "Room to recharge",
+            ]
+        ),
+        Insight(
+            id: "weekend-shape",
+            seedKey: "weekend-2026-30",
+            kind: .logistical,
+            domain: .us,
+            present: true,
+            title: "What should this weekend hold?",
+            body: "Choose the shape you are quietly hoping for. WE will find the part that can belong to both of you.",
+            evidence: "A little intention before the calendar fills itself.",
+            source: "Your shared rhythm",
+            actionTitle: "Choose privately",
+            options: [
+                "Mostly rest",
+                "Something new",
+                "Clear one unfinished thing",
+                "See people we love",
+                "Keep it unplanned",
+            ]
+        ),
+        Insight(
+            id: "lighter-week",
+            seedKey: "load-2026-30",
+            kind: .logistical,
+            domain: .life,
+            present: true,
+            title: "What would make this week feel lighter?",
+            body: "Answer privately. WE will suggest one adjustment without turning care into a score.",
+            evidence: "Three active responsibilities are currently being carried.",
+            source: "Life · current shared load",
+            actionTitle: "Choose privately",
+            options: [
+                "I can take one thing",
+                "Let's do one thing together",
+                "Decide what can wait",
+                "Keep the roles as they are",
+                "Ask me directly where I have room",
+            ]
+        ),
+        Insight(
+            id: "plan-feeling",
+            seedKey: "plan-plan-cabin",
+            kind: .logistical,
+            domain: .us,
+            present: true,
+            title: "How should “A quiet weekend away” feel?",
+            body: "The plan already exists. This is about the quality you want to protect inside it.",
+            evidence: "Coming up on August 15.",
+            source: "Ahead · next shared plan",
+            actionTitle: "Choose privately",
+            options: [
+                "Calm and spacious",
+                "A little special",
+                "Simple and practical",
+                "Open to surprise",
             ]
         ),
         Insight(
             id: "august-trip",
+            seedKey: "august-trip",
             kind: .unresolved,
             domain: .us,
             present: true,
@@ -46,9 +106,9 @@ nonisolated enum PreviewData {
             options: [
                 "Choose a time to discuss it",
                 "Look at the saved ideas",
-                "Set it aside for now"
+                "Set it aside for now",
             ]
-        )
+        ),
     ]
 
     static let plans: [PlanItem] = [
@@ -77,7 +137,20 @@ nonisolated enum PreviewData {
             updatedBy: "dylan",
             createdAt: "2026-07-23T10:00:00Z",
             updatedAt: "2026-07-23T10:00:00Z"
-        )
+        ),
+        PlanItem(
+            id: "plan-river-coffee",
+            coupleID: "preview-couple",
+            title: "Morning coffee by the river",
+            note: "The day we left our phones in the bag.",
+            scheduledOn: "2026-07-19",
+            status: .completed,
+            completedAt: "2026-07-19T15:00:00Z",
+            createdBy: "dylan",
+            updatedBy: "ryan",
+            createdAt: "2026-07-16T10:00:00Z",
+            updatedAt: "2026-07-19T15:00:00Z"
+        ),
     ]
 
     static let responsibilities: [Responsibility] = [
@@ -108,7 +181,21 @@ nonisolated enum PreviewData {
             updatedBy: "dylan",
             createdAt: "2026-07-19T09:00:00Z",
             updatedAt: "2026-07-19T09:00:00Z"
-        )
+        ),
+        Responsibility(
+            id: "responsibility-guest-room",
+            coupleID: "preview-couple",
+            title: "Make the guest room feel welcoming",
+            note: "Fresh sheets and the little reading lamp.",
+            ownerID: nil,
+            owner: .together,
+            status: .completed,
+            completedAt: "2026-07-21T18:30:00Z",
+            createdBy: "ryan",
+            updatedBy: "dylan",
+            createdAt: "2026-07-18T09:00:00Z",
+            updatedAt: "2026-07-21T18:30:00Z"
+        ),
     ]
 
     static let archive = RelationshipArchive(
@@ -126,7 +213,7 @@ nonisolated enum PreviewData {
                     resolutionType: .settled,
                     resolutionChoice: "Wait until spring",
                     resolvedAt: "2025-10-10T18:00:00Z"
-                )
+                ),
             ]
         )
     )
@@ -150,11 +237,23 @@ nonisolated enum PreviewData {
             couple: Couple(id: "preview-couple", joinCode: "WEDEMO"),
             members: members,
             insights: insights.map {
+                let isPrivateChoice = $0.kind == .logistical
                 let isInvitation = $0.id == "august-trip"
                 return InsightRecord(
                     insight: $0,
-                    consent: isInvitation
+                    consent: isPrivateChoice
                         ? InsightConsent(
+                            insightID: $0.id,
+                            visibility: .mutual,
+                            ownerID: nil,
+                            readiness: .accepted,
+                            initiatorID: "dylan",
+                            requestedAt: "2026-07-24T18:00:00Z",
+                            acceptedAt: "2026-07-24T18:05:00Z",
+                            resolutionType: nil,
+                            resolutionChoice: nil
+                        )
+                        : isInvitation ? InsightConsent(
                             insightID: $0.id,
                             visibility: .shared,
                             ownerID: nil,
@@ -166,7 +265,18 @@ nonisolated enum PreviewData {
                             resolutionChoice: nil
                         )
                         : nil,
-                    responses: [],
+                    responses: isPrivateChoice
+                        && $0.id == "saturday-plan"
+                        ? [
+                            InsightResponse(
+                                insightID: $0.id,
+                                profileID: "dylan",
+                                status: .submitted,
+                                choice: "Out of the house",
+                                note: nil
+                            ),
+                        ]
+                        : [],
                     dismissedBy: [],
                     declinedBy: []
                 )

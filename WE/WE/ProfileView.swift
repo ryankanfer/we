@@ -12,7 +12,7 @@ struct ProfileView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Your WE") {
+                Section {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 12) {
                             WEMark(
@@ -25,25 +25,25 @@ struct ProfileView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("You and \(partnerName)")
                                     .font(.weHeadline)
-                                Text("Shared context, held carefully.")
+                                    .foregroundStyle(Color("WEInk"))
+                                Text("A private account inside a shared space.")
                                     .font(.subheadline)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(Color("WEFaint"))
                             }
                         }
                         .accessibilityElement(children: .combine)
 
                         Divider()
-
-                        VStack(spacing: 10) {
-                            pulseMetric(label: "Settled insights", value: settledInsightCount)
-                            pulseMetric(label: "Active responsibilities", value: activeResponsibilityCount)
-                            pulseMetric(label: "Plans ahead", value: activePlanCount)
-                        }
+                        Text("Only mutual moments cross the boundary. Your private reflections and unshared choices remain yours.")
+                            .font(.subheadline)
+                            .foregroundStyle(Color("WEFaint"))
                     }
                     .padding(.vertical, 4)
+                } header: {
+                    Text("Private and shared")
                 }
 
-                Section("Profile") {
+                Section("Identity") {
                     TextField("Your name", text: $name)
                         .textContentType(.name)
                     Button("Save name") {
@@ -55,7 +55,7 @@ struct ProfileView: View {
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !session.canMutate)
                 }
 
-                Section("Your WE") {
+                Section("Shared space") {
                     if session.snapshot?.membership != nil {
                         NavigationLink("Appearance") {
                             HueSettingsView(
@@ -76,7 +76,7 @@ struct ProfileView: View {
                 }
 
                 if !session.archives.isEmpty {
-                    Section("Read-only archives") {
+                    Section("Shared history") {
                         ForEach(session.archives) { archive in
                             Button {
                                 selectedArchive = archive
@@ -105,6 +105,9 @@ struct ProfileView: View {
 
                 SessionMessageView()
             }
+            .scrollContentBackground(.hidden)
+            .background(WarmEditorialBackground())
+            .tint(Color("WEBurgundy"))
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -115,33 +118,6 @@ struct ProfileView: View {
             .sheet(item: $selectedArchive) { RelationshipArchiveView(archive: $0) }
             .sheet(isPresented: $showsDelete) { DeleteAccountView() }
         }
-    }
-
-    private func pulseMetric(label: String, value: Int) -> some View {
-        HStack {
-            Text(label)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Text(value, format: .number)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(Color("WEBurgundy"))
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private var settledInsightCount: Int {
-        session.insightRecords.filter {
-            session.projection(for: $0)?.phase == .resolved
-        }.count
-    }
-
-    private var activeResponsibilityCount: Int {
-        session.responsibilities.filter { $0.status == .active }.count
-    }
-
-    private var activePlanCount: Int {
-        session.plans.filter { $0.status == .active }.count
     }
 
     private var personalHue: WEHue {

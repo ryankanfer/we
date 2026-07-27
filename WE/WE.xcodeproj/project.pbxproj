@@ -201,11 +201,11 @@
 			);
 			mainGroup = 79C3EB2C3013C00A00394313;
 			minimizedProjectReferenceProxies = 1;
-			preferredProjectObjectVersion = 77;
-			productRefGroup = 79C3EB363013C00A00394313 /* Products */;
 			packageReferences = (
 				C0DE00023013C00D00BACE01 /* XCRemoteSwiftPackageReference "supabase-swift" */,
 			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 79C3EB363013C00A00394313 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -409,7 +409,7 @@
 				DEVELOPMENT_TEAM = 2F28BDAM56;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = Config/WE-Info.plist;
+				INFOPLIST_FILE = "Config/WE-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -437,7 +437,7 @@
 				DEVELOPMENT_TEAM = 2F28BDAM56;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = Config/WE-Info.plist;
+				INFOPLIST_FILE = "Config/WE-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

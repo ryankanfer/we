@@ -200,6 +200,7 @@ nonisolated struct MemberDTO: Decodable, Sendable {
 
 nonisolated struct InsightDTO: Decodable, Sendable {
     let id: String
+    let seedKey: String
     let kind: String
     let domain: String
     let present: Bool
@@ -209,6 +210,20 @@ nonisolated struct InsightDTO: Decodable, Sendable {
     let source: String
     let options: [String]
     let sort: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case seedKey = "seed_key"
+        case kind
+        case domain
+        case present
+        case title
+        case body
+        case evidence
+        case source
+        case options
+        case sort
+    }
 }
 
 nonisolated struct ConsentDTO: Decodable, Sendable {
@@ -326,6 +341,14 @@ nonisolated struct ResolveInsightParameters: Encodable, Sendable {
         case insightID = "p_insight"
         case type = "p_type"
         case choice = "p_choice"
+    }
+}
+
+nonisolated struct RefreshSharedMomentsParameters: Encodable, Sendable {
+    let localDate: String
+
+    enum CodingKeys: String, CodingKey {
+        case localDate = "p_local_date"
     }
 }
 
