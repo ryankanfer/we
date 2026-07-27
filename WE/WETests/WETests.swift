@@ -190,7 +190,7 @@ struct WETests {
             (.waiting, .waitingForPartner),
             (.archived, .needsCouple),
             (.choosingHue, .choosingHue),
-            (.signedOut, .signedOut)
+            (.signedOut, .signedOut),
         ]
 
         for (scenario, expected) in cases {
@@ -234,7 +234,8 @@ struct WETests {
 
     @Test
     func onlineLoadFailureNeverFallsBackToCachedRelationshipData()
-        async throws {
+        async throws
+    {
         let cache = InMemoryRelationshipCache()
         try await cache.save(
             PreviewData.snapshot,
@@ -441,7 +442,7 @@ struct WETests {
 
         try await repository.submitResponse(
             insightID: insightID,
-            choice: "The little Thai place",
+            choice: "Out of the house",
             note: nil
         )
         var snapshot = try await repository.loadRelationship(
@@ -457,15 +458,46 @@ struct WETests {
         try await repository.resolveInsight(
             insightID: insightID,
             type: .settled,
-            choice: "The little Thai place"
+            choice: "Out of the house"
         )
         snapshot = try await repository.loadRelationship(
             for: PreviewData.user
         )
         #expect(
             snapshot.insights.first?.consent?.resolutionChoice
-                == "The little Thai place"
+                == "Out of the house"
         )
+    }
+
+    @Test
+    func sharedMomentFindsOverlapWithoutExposingEitherChoice() throws {
+        let insight = try #require(PreviewData.insights.first)
+        let result = try #require(
+            SharedMomentInterpreter.interpretation(
+                for: insight,
+                mine: "Easy, with no decisions",
+                partner: "Out of the house"
+            )
+        )
+
+        #expect(result.title == "A small change of scene")
+        #expect(!result.message.contains("Easy, with no decisions"))
+        #expect(!result.message.contains("Out of the house"))
+    }
+
+    @Test
+    func exactSharedMomentChoiceProducesClearYes() throws {
+        let insight = try #require(PreviewData.insights.first)
+        let result = try #require(
+            SharedMomentInterpreter.interpretation(
+                for: insight,
+                mine: "Quiet and close",
+                partner: "Quiet and close"
+            )
+        )
+
+        #expect(result.eyebrow == "A CLEAR YES")
+        #expect(result.title == "Quiet and close")
     }
 
     @Test

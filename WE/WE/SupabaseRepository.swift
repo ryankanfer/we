@@ -62,10 +62,12 @@ final class SupabaseRepository: Repository {
     }
 
     func handleAuthCallback(_ url: URL) async throws
-        -> AuthCallbackResult {
+        -> AuthCallbackResult
+    {
         guard url.scheme?.lowercased() == "we",
               let host = url.host?.lowercased(),
-              ["email-confirmed", "password-recovery"].contains(host) else {
+              ["email-confirmed", "password-recovery"].contains(host)
+        else {
             throw RepositoryError.invalidData("unrecognized sign-in link")
         }
         let session = try await configuredClient().auth.session(from: url)
@@ -302,7 +304,8 @@ final class SupabaseRepository: Repository {
     }
 
     func relationshipChanges() async throws
-        -> AsyncThrowingStream<Void, Error> {
+        -> AsyncThrowingStream<Void, Error>
+    {
         let client = try configuredClient()
         let channel = client.channel("we-couple")
         let tables = [
@@ -314,7 +317,7 @@ final class SupabaseRepository: Repository {
             "reflections",
             "plans",
             "responsibilities",
-            "relationship_archives"
+            "relationship_archives",
         ]
         let sourceStreams = tables.map {
             channel.postgresChange(
@@ -407,12 +410,31 @@ final class SupabaseRepository: Repository {
             )
         }
 
-        let membership = Membership(
+        let membership = try Membership(
             coupleID: membershipDTO.coupleID,
             profileID: membershipDTO.profileID,
-            hue: try memberHue(membershipDTO.hue),
+            hue: memberHue(membershipDTO.hue),
             hueChosenAt: membershipDTO.hueChosenAt
         )
+
+        let localDate = Calendar.current.dateComponents(
+            [.year, .month, .day],
+            from: Date()
+        )
+        let localDateValue = String(
+            format: "%04d-%02d-%02d",
+            localDate.year ?? 1970,
+            localDate.month ?? 1,
+            localDate.day ?? 1
+        )
+        _ = try? await client
+            .rpc(
+                "refresh_shared_moments",
+                params: RefreshSharedMomentsParameters(
+                    localDate: localDateValue
+                )
+            )
+            .execute()
 
         async let couplesRequest: [CoupleDTO] = client
             .from("couples")
@@ -429,7 +451,7 @@ final class SupabaseRepository: Repository {
             .value
         async let insightsRequest: [InsightDTO] = client
             .from("insights")
-            .select("id,kind,domain,present,title,body,evidence,source,options,sort")
+            .select("id,seed_key,kind,domain,present,title,body,evidence,source,options,sort")
             .eq("couple_id", value: membership.coupleID)
             .order("sort", ascending: true)
             .execute()
@@ -502,19 +524,19 @@ final class SupabaseRepository: Repository {
         )
 
         let members = try memberDTOs.map {
-            Member(
+            try Member(
                 id: $0.profileID,
                 name: $0.profiles?.name ?? "Partner",
-                hue: try memberHue($0.hue)
+                hue: memberHue($0.hue)
             )
         }
-        let consentByInsight = Dictionary(
-            uniqueKeysWithValues: try consentDTOs.map {
-                ($0.insightID, try consent($0))
+        let consentByInsight = try Dictionary(
+            uniqueKeysWithValues: consentDTOs.map {
+                try ($0.insightID, consent($0))
             }
         )
-        let responsesByInsight = Dictionary(
-            grouping: try responseDTOs.map(response),
+        let responsesByInsight = try Dictionary(
+            grouping: responseDTOs.map(response),
             by: \.insightID
         )
         let dismissalsByInsight = Dictionary(
@@ -540,7 +562,7 @@ final class SupabaseRepository: Repository {
             )
         }
 
-        return RelationshipSnapshot(
+        return try RelationshipSnapshot(
             profile: profile,
             membership: membership,
             couple: coupleDTOs.first.map {
@@ -548,9 +570,9 @@ final class SupabaseRepository: Repository {
             },
             members: members,
             insights: insights,
-            reflections: try reflectionDTOs.map(reflection),
-            plans: try planDTOs.map(plan),
-            responsibilities: try responsibilityDTOs.map {
+            reflections: reflectionDTOs.map(reflection),
+            plans: planDTOs.map(plan),
+            responsibilities: responsibilityDTOs.map {
                 try responsibility($0, userID: user.id)
             },
             archives: archives,
@@ -630,11 +652,13 @@ final class SupabaseRepository: Repository {
 
     private func insight(_ dto: InsightDTO) throws -> Insight {
         guard let kind = InsightKind(rawValue: dto.kind),
-              let domain = InsightDomain(rawValue: dto.domain) else {
+              let domain = InsightDomain(rawValue: dto.domain)
+        else {
             throw RepositoryError.invalidData("unknown insight kind or domain")
         }
         return Insight(
             id: dto.id,
+            seedKey: dto.seedKey,
             kind: kind,
             domain: domain,
             present: dto.present,
@@ -649,7 +673,8 @@ final class SupabaseRepository: Repository {
 
     private func consent(_ dto: ConsentDTO) throws -> InsightConsent {
         guard let visibility = ConsentVisibility(rawValue: dto.visibility),
-              let readiness = ConsentReadiness(rawValue: dto.readiness) else {
+              let readiness = ConsentReadiness(rawValue: dto.readiness)
+        else {
             throw RepositoryError.invalidData("unknown consent state")
         }
         let resolution: ResolutionType?
@@ -689,7 +714,8 @@ final class SupabaseRepository: Repository {
 
     private func reflection(_ dto: ReflectionDTO) throws -> Reflection {
         guard let domain = InsightDomain(rawValue: dto.domain),
-              let kind = ReflectionKind(rawValue: dto.kind) else {
+              let kind = ReflectionKind(rawValue: dto.kind)
+        else {
             throw RepositoryError.invalidData("unknown reflection")
         }
         return Reflection(
@@ -703,13 +729,13 @@ final class SupabaseRepository: Repository {
     }
 
     private func plan(_ dto: PlanDTO) throws -> PlanItem {
-        PlanItem(
+        try PlanItem(
             id: dto.id,
             coupleID: dto.coupleID,
             title: dto.title,
             note: dto.note,
             scheduledOn: dto.scheduledOn,
-            status: try sharedStatus(dto.status),
+            status: sharedStatus(dto.status),
             completedAt: dto.completedAt,
             createdBy: dto.createdBy,
             updatedBy: dto.updatedBy,
@@ -729,14 +755,14 @@ final class SupabaseRepository: Repository {
         } else {
             .partner
         }
-        return Responsibility(
+        return try Responsibility(
             id: dto.id,
             coupleID: dto.coupleID,
             title: dto.title,
             note: dto.note,
             ownerID: dto.ownerID,
             owner: owner,
-            status: try sharedStatus(dto.status),
+            status: sharedStatus(dto.status),
             completedAt: dto.completedAt,
             createdBy: dto.createdBy,
             updatedBy: dto.updatedBy,

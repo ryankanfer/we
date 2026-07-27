@@ -61,6 +61,7 @@ nonisolated enum InsightDomain: String, Codable, Sendable {
 
 nonisolated struct Insight: Identifiable, Codable, Hashable, Sendable {
     let id: String
+    let seedKey: String
     let kind: InsightKind
     let domain: InsightDomain
     let present: Bool
