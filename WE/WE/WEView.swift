@@ -6,6 +6,7 @@ struct WEView: View {
     @State private var holdsSomething = false
     @State private var passesPhone = false
     @State private var selectedMomentID = ""
+    @State private var swipeDirection: SwipeDirection = .forward
     let onProfile: () -> Void
 
     var body: some View {
@@ -258,17 +259,44 @@ struct WEView: View {
             VStack(spacing: 12) {
                 SharedMomentPage(record: selectedMoment)
                     .id(selectedMoment.id)
-                    .transition(.opacity)
+                    .transition(momentTransition)
+                    .gesture(momentSwipe)
 
                 if activeMoments.count > 1 {
                     momentIndex
                 }
             }
             .animation(
-                reduceMotion ? nil : .weState,
+                reduceMotion ? nil : .weSettle(duration: 0.34),
                 value: selectedMomentID
             )
         }
+    }
+
+    /// Moments slide in from the side they came from. Reduce Motion gets a
+    /// crossfade instead — the direction is not load-bearing.
+    private var momentTransition: AnyTransition {
+        guard !reduceMotion else { return .opacity }
+        return .asymmetric(
+            insertion: .push(from: swipeDirection == .forward ? .trailing : .leading),
+            removal: .opacity
+        )
+    }
+
+    private enum SwipeDirection { case forward, backward }
+
+    /// A horizontal drag on the card, deliberately requiring more sideways
+    /// travel than vertical so it never steals from the enclosing scroll.
+    private var momentSwipe: some Gesture {
+        DragGesture(minimumDistance: 24)
+            .onEnded { value in
+                let horizontal = value.translation.width
+                let vertical = value.translation.height
+                guard abs(horizontal) > abs(vertical) * 1.5,
+                      abs(horizontal) > 48
+                else { return }
+                selectMoment(offset: horizontal < 0 ? 1 : -1)
+            }
     }
 
     private var selectedMoment: InsightRecord? {
@@ -353,7 +381,7 @@ struct WEView: View {
             HStack(spacing: 7) {
                 ForEach(activeMoments) { record in
                     Button {
-                        selectedMomentID = record.id
+                        selectMoment(id: record.id)
                     } label: {
                         Capsule()
                             .fill(
@@ -404,12 +432,22 @@ struct WEView: View {
     }
 
     private func selectMoment(offset: Int) {
+        guard !activeMoments.isEmpty else { return }
         let currentIndex = max(selectedMomentNumber - 1, 0)
         let nextIndex = min(
             max(currentIndex + offset, 0),
             activeMoments.count - 1
         )
+        guard nextIndex != currentIndex else { return }
+        swipeDirection = offset > 0 ? .forward : .backward
         selectedMomentID = activeMoments[nextIndex].id
+    }
+
+    private func selectMoment(id: String) {
+        let current = max(selectedMomentNumber - 1, 0)
+        let target = activeMoments.firstIndex { $0.id == id } ?? current
+        swipeDirection = target >= current ? .forward : .backward
+        selectedMomentID = id
     }
 
     private func momentNumber(for record: InsightRecord) -> Int {
@@ -536,14 +574,18 @@ private struct SharedMomentPage: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // An opaque surface, not a 5.5% white veil. The card used to be
+        // translucent enough that the atmosphere read straight through the
+        // headline — the plate has to hold the type, not share it.
         .background(
-            .white.opacity(0.055),
+            Color.weSurface,
             in: RoundedRectangle(cornerRadius: 24, style: .continuous)
         )
         .overlay {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(.white.opacity(0.11), lineWidth: 1)
+                .stroke(Color.weHairline, lineWidth: 1)
         }
+        .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
         .animation(
             .weSettle(duration: 0.45, reduceMotion: reduceMotion),
             value: projection?.phase
@@ -1204,12 +1246,18 @@ private struct WEAtmosphere: View {
                 endRadius: 580
             )
 
+            // Mist, not two ovals. At 0.34 unblurred the shader's two lobes
+            // read as discrete pale shapes floating across the content. Scaled
+            // past the edges and heavily blurred, the same field becomes an
+            // atmosphere you cannot point at.
             WEConfluenceForm(
                 personalHue: hue,
                 partnerHue: partnerHue,
                 connection: connection
             )
-            .opacity(0.34)
+            .scaleEffect(1.5)
+            .blur(radius: 64)
+            .opacity(0.13)
             .blendMode(.screen)
             .animation(
                 .weSettle(duration: 0.9, reduceMotion: reduceMotion),

@@ -69,7 +69,9 @@ struct WarmEditorialBackground: View {
                 partnerHue: partnerHue,
                 connection: session.presenceMode == .together ? 1 : 0.72
             )
-            .opacity(0.34)
+            .scaleEffect(1.5)
+            .blur(radius: 64)
+            .opacity(0.13)
             .blendMode(.screen)
         }
         .ignoresSafeArea()
