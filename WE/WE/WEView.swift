@@ -1247,7 +1247,7 @@ private struct WEAtmosphere: View {
         let hue = session.snapshot?.membership.map { WEHue($0.hue) } ?? .burgundy
         let partnerHue = relationshipPartnerHue(session)
         ZStack {
-            Color("WECanvas")
+            Color.weCanvas
 
             // Two soft washes rather than a full-bleed hue. The hue used to
             // sit at 0.90 here, which put body copy between 3.26:1 and 4.91:1

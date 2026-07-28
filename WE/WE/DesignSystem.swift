@@ -7,36 +7,32 @@
 
 import SwiftUI
 
-/// The single surface and ink scale.
-///
-/// WE previously ran two palettes side by side: a semantic one
-/// (`WEInk`/`WEFaint`/`WECard`) used by Life, Ahead, Profile and the sheets,
-/// and a second cinematic one built from `weCinematicInk` plus ~129 literal
-/// `.white.opacity(…)` values used by WE, Thread and the Promise. The two
-/// dark canvases were not the same colour, so every sheet landed on a surface
-/// visibly darker than the one it came from.
-///
-/// These tokens replace both. Contrast is measured against `weSurface` and
-/// holds for all ten hues.
-extension Color {
-    /// The app canvas. One value, everywhere.
-    static let weCanvas = Color("WECanvas")
-    /// Cards and sheets. 1.18:1 above the canvas — a soft elevation step.
-    static let weSurface = Color("WESurface")
-    /// Nested surfaces inside a card.
-    static let weSurfaceRaised = Color("WESurfaceRaised")
-
-    /// Titles and primary body. 13.60:1 on `weSurface`.
-    static let weInk = Color("WEInk")
-    /// Body copy and descriptions. 8.79:1.
-    static let weInkSecondary = Color("WEInkSecondary")
-    /// Eyebrows, metadata, captions. 5.05:1 — clears AA at any size.
-    static let weInkTertiary = Color("WEInkTertiary")
-    /// Disclaimers at 18pt or larger only. 3.55:1 — AA-large, never body.
-    static let weInkFaint = Color("WEInkFaint")
-    /// Borders and dividers. Non-text.
-    static let weHairline = Color("WEHairline")
-}
+// MARK: - The single surface and ink scale
+//
+// WE previously ran two palettes side by side: a semantic one
+// (WEInk/WEFaint/WECard) used by Life, Ahead, Profile and the sheets, and a
+// second cinematic one built from weCinematicInk plus ~129 literal
+// .white.opacity(…) values used by WE, Thread and the Promise. The two dark
+// canvases were not the same colour, so every sheet landed on a surface
+// visibly darker than the one it came from.
+//
+// The tokens below replace both. They are NOT declared here — the target sets
+// ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES, so Xcode
+// generates `Color.weCanvas` and friends directly from the colour sets.
+// Declaring them by hand collides with the generated symbols.
+//
+// Contrast is measured against Color.weSurface and holds for all ten hues;
+// DesignTokenTests asserts it.
+//
+//   Color.weCanvas         #17140F  the app canvas, one value everywhere
+//   Color.weSurface        #26231E  cards and sheets, 1.18:1 above canvas
+//   Color.weSurfaceRaised  #322E29  nested surfaces inside a card
+//
+//   Color.weInk            #F4EFE5  titles and primary body, 13.60:1
+//   Color.weInkSecondary   #C7C2B8  body copy and descriptions, 8.79:1
+//   Color.weInkTertiary    #989289  eyebrows and metadata, 5.05:1
+//   Color.weInkFaint       #7D786F  3.55:1 — 18pt and larger only, never body
+//   Color.weHairline       #443E36  borders and dividers, non-text
 
 extension Font {
     static var weLargeTitle: Font {
