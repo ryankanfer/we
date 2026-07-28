@@ -1216,7 +1216,6 @@ struct InsightDetailView: View {
 
 private struct WEAtmosphere: View {
     @EnvironmentObject private var session: AppSession
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// How near the two fields sit — driven by the leading moment's trust
     /// phase, so the canvas itself reports how far something has travelled
@@ -1224,47 +1223,12 @@ private struct WEAtmosphere: View {
     var connection: CGFloat
 
     var body: some View {
-        let hue = session.snapshot?.membership.map { WEHue($0.hue) } ?? .burgundy
-        let partnerHue = relationshipPartnerHue(session)
-        ZStack {
-            Color.weCanvas
-
-            // Two soft washes rather than a full-bleed hue. The hue used to
-            // sit at 0.90 here, which put body copy between 3.26:1 and 4.91:1
-            // depending on which colour the user had chosen. Held to a wash,
-            // every ink token clears AA against all ten hues.
-            RadialGradient(
-                colors: [hue.atmosphereColor.opacity(0.22), .clear],
-                center: .init(x: 0.12, y: -0.10),
-                startRadius: 0,
-                endRadius: 620
-            )
-            RadialGradient(
-                colors: [partnerHue.atmosphereColor.opacity(0.16), .clear],
-                center: .init(x: 0.92, y: 0.10),
-                startRadius: 0,
-                endRadius: 580
-            )
-
-            // Mist, not two ovals. At 0.34 unblurred the shader's two lobes
-            // read as discrete pale shapes floating across the content. Scaled
-            // past the edges and heavily blurred, the same field becomes an
-            // atmosphere you cannot point at.
-            WEConfluenceForm(
-                personalHue: hue,
-                partnerHue: partnerHue,
-                connection: connection
-            )
-            .scaleEffect(1.5)
-            .blur(radius: 64)
-            .opacity(0.13)
-            .blendMode(.screen)
-            .animation(
-                .weSettle(duration: 0.9, reduceMotion: reduceMotion),
-                value: connection
-            )
-        }
-        .ignoresSafeArea()
+        WEAmbientField(
+            personalHue: session.snapshot?.membership
+                .map { WEHue($0.hue) } ?? .burgundy,
+            partnerHue: relationshipPartnerHue(session),
+            connection: connection
+        )
     }
 }
 
