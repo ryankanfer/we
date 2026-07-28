@@ -4,39 +4,52 @@ struct ContentView: View {
     @EnvironmentObject private var session: AppSession
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsProfile = false
+    @State private var showsPartnerArrival = false
     var onReplayPromise: () -> Void = {}
 
     var body: some View {
-        Group {
-            switch session.state {
-            case .loading:
-                loadingView
-            case .unconfigured:
-                BackendStateView(
-                    title: "Connect WE to Supabase.",
-                    message: "Add SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY to the WE scheme, or set WE_REPOSITORY to preview."
-                )
-            case .signedOut:
-                SignInView()
-            case .verificationPending(let email):
-                VerificationPendingView(email: email)
-            case .resettingPassword:
-                NewPasswordView()
-            case .needsCouple:
-                PairingView()
-            case .waitingForPartner:
-                PartnerWaitingView()
-            case .choosingHue:
-                hueOnboarding
-            case .ready:
-                AppShell(onReplayPromise: onReplayPromise)
-            case .failed(let message):
-                BackendStateView(
-                    title: "WE could not load.",
-                    message: message,
-                    retry: { Task { await session.retry() } },
-                    signOut: { Task { await session.signOut() } }
-                )
+        ZStack {
+            Group {
+                switch session.state {
+                case .loading:
+                    loadingView
+                case .unconfigured:
+                    BackendStateView(
+                        title: "Connect WE to Supabase.",
+                        message: "Add SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY to the WE scheme, or set WE_REPOSITORY to preview."
+                    )
+                case .signedOut:
+                    SignInView()
+                case .verificationPending(let email):
+                    VerificationPendingView(email: email)
+                case .resettingPassword:
+                    NewPasswordView()
+                case .needsCouple:
+                    PairingView()
+                case .waitingForPartner:
+                    PartnerWaitingView()
+                case .choosingHue:
+                    hueOnboarding
+                case .ready:
+                    AppShell(onReplayPromise: onReplayPromise)
+                case .failed(let message):
+                    BackendStateView(
+                        title: "WE could not load.",
+                        message: message,
+                        retry: { Task { await session.retry() } },
+                        signOut: { Task { await session.signOut() } }
+                    )
+                }
+            }
+            .accessibilityHidden(showsPartnerArrival)
+            .allowsHitTesting(!showsPartnerArrival)
+
+            if showsPartnerArrival {
+                PartnerArrivalCeremony {
+                    showsPartnerArrival = false
+                }
+                .transition(.opacity)
+                .zIndex(20)
             }
         }
         .animation(
@@ -66,6 +79,11 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showsProfile) {
             ProfileView(onReplayPromise: onReplayPromise)
+        }
+        .onChange(of: session.state) { oldState, newState in
+            if oldState == .waitingForPartner, newState == .ready {
+                showsPartnerArrival = true
+            }
         }
     }
 
@@ -116,6 +134,95 @@ struct ContentView: View {
             return .partnerDefault
         }
         return WEHue(partner.hue)
+    }
+}
+
+private struct PartnerArrivalCeremony: View {
+    @EnvironmentObject private var session: AppSession
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var joins = false
+    let onComplete: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.weCinematicInk.ignoresSafeArea()
+            WEConfluenceForm(
+                personalHue: personalHue,
+                partnerHue: relationshipPartnerHue(session),
+                connection: joins ? 1 : 0.32
+            )
+            .opacity(0.6)
+            .blur(radius: joins ? 8 : 18)
+            .ignoresSafeArea()
+            LinearGradient(
+                colors: [
+                    Color.weCinematicInk.opacity(0.65),
+                    .clear,
+                    Color.weCinematicInk.opacity(0.9),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 12) {
+                Spacer()
+                HStack(spacing: joins ? -8 : 54) {
+                    Circle()
+                        .fill(personalHue.color)
+                        .frame(width: 92, height: 92)
+                        .blur(radius: 8)
+                    Circle()
+                        .fill(relationshipPartnerHue(session).color)
+                        .frame(width: 92, height: 92)
+                        .blur(radius: 8)
+                }
+                .animation(
+                    reduceMotion ? nil : .weSettle(duration: 1.4),
+                    value: joins
+                )
+
+                Text("\(session.partnerName.uppercased()) CHOSE \(relationshipPartnerHue(session).name.uppercased())")
+                    .font(.weCaption)
+                    .tracking(1.8)
+                    .foregroundStyle(.white.opacity(0.5))
+                    .padding(.top, 10)
+                Text("The field is whole.")
+                    .font(.weLargeTitle)
+                    .foregroundStyle(.white)
+                Text("This is yours and \(session.partnerName)’s together. It will move with the two of you from now on.")
+                    .font(.weBody)
+                    .foregroundStyle(.white.opacity(0.62))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 320)
+
+                Button("Begin together", action: onComplete)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(minWidth: 180, minHeight: 52)
+                    .background(
+                        personalHue.controlColor,
+                        in: RoundedRectangle(cornerRadius: 17)
+                    )
+                    .padding(.top, 16)
+                Spacer()
+            }
+            .padding(28)
+        }
+        .preferredColorScheme(.dark)
+        .onAppear {
+            if reduceMotion {
+                joins = true
+            } else {
+                withAnimation(.weSettle(duration: 1.4)) {
+                    joins = true
+                }
+            }
+        }
+    }
+
+    private var personalHue: WEHue {
+        session.snapshot?.membership.map { WEHue($0.hue) } ?? .burgundy
     }
 }
 
