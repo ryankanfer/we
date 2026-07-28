@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ProfileView: View {
     @EnvironmentObject private var session: AppSession
+    @EnvironmentObject private var host: SessionHost
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var selectedArchive: RelationshipArchive?
@@ -71,6 +72,14 @@ struct ProfileView: View {
                     if let code = session.snapshot?.couple?.joinCode {
                         ShareLink(item: "Join me in WE with code \(code)") {
                             Label("Share our join code", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                    NavigationLink("How WE notices") {
+                        SignalConsentView()
+                    }
+                    if host.canUseSimulation {
+                        NavigationLink("Mode") {
+                            ModeSettingsView()
                         }
                     }
                 }
@@ -232,7 +241,59 @@ struct RelationshipArchiveView: View {
                         }
                     }
                 }
-                if archive.snapshot.plans.isEmpty && archive.snapshot.responsibilities.isEmpty && archive.snapshot.resolutions.isEmpty {
+                if !archive.snapshot.anchors.isEmpty {
+                    Section("Anchors") {
+                        ForEach(archive.snapshot.anchors) { anchor in
+                            ArchiveRow(
+                                title: anchor.title,
+                                detail: anchor.note
+                            )
+                        }
+                    }
+                }
+                if !archive.snapshot.events.isEmpty {
+                    Section("Thread") {
+                        ForEach(archive.snapshot.events) { event in
+                            ArchiveRow(
+                                title: event.title,
+                                detail: event.type.title
+                            )
+                        }
+                    }
+                }
+                if !archive.snapshot.seasons.isEmpty {
+                    Section("Seasons") {
+                        ForEach(archive.snapshot.seasons) { season in
+                            ArchiveRow(
+                                title: season.title,
+                                detail: season.summary
+                            )
+                        }
+                    }
+                }
+                if !archive.snapshot.handoffs.isEmpty {
+                    Section("Handoffs") {
+                        ForEach(archive.snapshot.handoffs) { handoff in
+                            ArchiveRow(
+                                title: responsibilityTitle(
+                                    handoff.responsibilityID
+                                ),
+                                detail: handoff.status.rawValue.capitalized
+                            )
+                        }
+                    }
+                }
+                if !archive.snapshot.approaches.isEmpty {
+                    Section("Opened approaches") {
+                        ForEach(archive.snapshot.approaches) { approach in
+                            ArchiveRow(
+                                title: planTitle(approach.planID),
+                                detail: approach.approach.title
+                            )
+                        }
+                    }
+                }
+                if isEmpty {
                     ContentUnavailableView("Nothing was archived", systemImage: "archivebox", description: Text("There were no completed shared records to retain."))
                 }
             }
@@ -240,6 +301,29 @@ struct RelationshipArchiveView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
+    }
+
+    private var isEmpty: Bool {
+        archive.snapshot.plans.isEmpty
+            && archive.snapshot.responsibilities.isEmpty
+            && archive.snapshot.resolutions.isEmpty
+            && archive.snapshot.anchors.isEmpty
+            && archive.snapshot.events.isEmpty
+            && archive.snapshot.seasons.isEmpty
+            && archive.snapshot.handoffs.isEmpty
+            && archive.snapshot.approaches.isEmpty
+    }
+
+    private func responsibilityTitle(_ id: String) -> String {
+        archive.snapshot.responsibilities.first {
+            $0.id == id
+        }?.title ?? "Shared care"
+    }
+
+    private func planTitle(_ id: String) -> String {
+        archive.snapshot.plans.first {
+            $0.id == id
+        }?.title ?? "Shared plan"
     }
 }
 
@@ -270,4 +354,14 @@ private extension ResolutionType {
 #Preview {
     ProfileView(onReplayPromise: {})
         .environmentObject(AppSession(repository: PreviewRepository()))
+        .environmentObject(
+            SessionHost(
+                environment: AppEnvironment(
+                    repositoryMode: .preview,
+                    supabase: nil,
+                    previewScenario: .ready,
+                    previewDeletionPassword: nil
+                )
+            )
+        )
 }

@@ -24,8 +24,19 @@ struct AppShell: View {
     }
 
     @EnvironmentObject private var session: AppSession
-    @State private var selection: Destination = .we
+    @EnvironmentObject private var host: SessionHost
+    @State private var selection: Destination = {
+        switch ProcessInfo.processInfo.environment["WE_START_DESTINATION"] {
+        case "life": .life
+        case "ahead": .ahead
+        default: .we
+        }
+    }()
     @State private var showsProfile = false
+    @State private var showsThread =
+        ProcessInfo.processInfo.environment[
+            "WE_START_DESTINATION"
+        ] == "thread"
     let onReplayPromise: () -> Void
 
     var body: some View {
@@ -52,29 +63,48 @@ struct AppShell: View {
             }
             .tag(Destination.life)
 
-            NavigationStack {
-                AheadView { showsProfile = true }
+            if session.hasUnlockedAhead {
+                NavigationStack {
+                    AheadView { showsProfile = true }
+                }
+                .tabItem {
+                    Label(
+                        Destination.ahead.title,
+                        systemImage: Destination.ahead.systemImage
+                    )
+                }
+                .tag(Destination.ahead)
             }
-            .tabItem {
-                Label(
-                    Destination.ahead.title,
-                    systemImage: Destination.ahead.systemImage
-                )
-            }
-            .tag(Destination.ahead)
+
         }
         .tint(personalHue.controlColor)
         .toolbarBackground(.visible, for: .tabBar)
         .toolbarBackground(.regularMaterial, for: .tabBar)
         .safeAreaInset(edge: .top, spacing: 0) {
-            if session.connectionState != .online {
-                ConnectionBanner()
+            VStack(spacing: 0) {
+                SimulationMarker()
+                if session.connectionState != .online {
+                    ConnectionBanner()
+                }
             }
         }
         .sheet(isPresented: $showsProfile) {
             ProfileView(onReplayPromise: onReplayPromise)
         }
+        .fullScreenCover(isPresented: $showsThread) {
+            NavigationStack {
+                ThreadView { showsThread = false }
+            }
+            .preferredColorScheme(.dark)
+        }
+        .overlay(alignment: .top) {
+            if session.hasUnlockedThread {
+                ThreadPullHandle { showsThread = true }
+                    .padding(.top, host.mode == .simulation ? 34 : 4)
+            }
+        }
         .sensoryFeedback(.selection, trigger: selection)
+        .preferredColorScheme(.dark)
     }
 
     private var personalHue: WEHue {

@@ -303,6 +303,157 @@ final class SupabaseRepository: Repository {
         try await runInsightRPC("dismiss_suggestion", insightID: insightID)
     }
 
+    func setPresence(_ mode: PresenceMode) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "set_relationship_presence",
+                params: PresenceParameters(mode: mode.rawValue)
+            )
+            .execute()
+    }
+
+    func setSignalConsent(
+        _ signal: SignalKind,
+        enabled: Bool
+    ) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "set_signal_consent",
+                params: SignalConsentParameters(
+                    signal: signal.rawValue,
+                    enabled: enabled
+                )
+            )
+            .execute()
+    }
+
+    func createAnchor(
+        _ input: AnchorInput,
+        coupleID: String
+    ) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "create_anchor",
+                params: CreateAnchorParameters(
+                    coupleID: coupleID,
+                    title: normalized(input.title),
+                    note: normalizedOptional(input.note),
+                    cadence: input.cadence.rawValue
+                )
+            )
+            .execute()
+    }
+
+    func setAnchorActive(id: String, isActive: Bool) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "set_anchor_active",
+                params: AnchorStatusParameters(
+                    anchorID: id,
+                    isActive: isActive
+                )
+            )
+            .execute()
+    }
+
+    func offerHandoff(
+        responsibilityID: String,
+        toProfileID: String
+    ) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "offer_responsibility_handoff",
+                params: OfferHandoffParameters(
+                    responsibilityID: responsibilityID,
+                    toProfileID: toProfileID
+                )
+            )
+            .execute()
+    }
+
+    func respondToHandoff(id: String, accept: Bool) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "respond_responsibility_handoff",
+                params: RespondHandoffParameters(
+                    handoffID: id,
+                    accept: accept
+                )
+            )
+            .execute()
+    }
+
+    func withdrawHandoff(id: String) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "withdraw_responsibility_handoff",
+                params: HandoffParameters(handoffID: id)
+            )
+            .execute()
+    }
+
+    func setApproach(
+        planID: String,
+        approach: ApproachKind,
+        note: String?
+    ) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "set_plan_approach",
+                params: ApproachParameters(
+                    planID: planID,
+                    approach: approach.rawValue,
+                    note: normalizedOptional(note)
+                )
+            )
+            .execute()
+    }
+
+    func refreshContextualSuggestions(localDate: String) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "refresh_contextual_suggestions",
+                params: RefreshSharedMomentsParameters(
+                    localDate: localDate
+                )
+            )
+            .execute()
+    }
+
+    func dismissContextualSuggestion(id: String) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "dismiss_contextual_suggestion",
+                params: ContextualSuggestionParameters(
+                    suggestionID: id
+                )
+            )
+            .execute()
+    }
+
+    func confirmContextualSuggestion(
+        _ confirmation: SuggestionConfirmation
+    ) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "confirm_contextual_suggestion",
+                params: ConfirmContextualSuggestionParameters(
+                    suggestionID: confirmation.suggestionID,
+                    title: normalized(confirmation.title),
+                    note: normalizedOptional(confirmation.note),
+                    ownerID: confirmation.ownerID,
+                    scheduledOn: confirmation.scheduledOn
+                )
+            )
+            .execute()
+    }
+
+    func createReadySeason() async throws {
+        _ = try await configuredClient()
+            .rpc("create_ready_season")
+            .execute()
+    }
+
     func relationshipChanges() async throws
         -> AsyncThrowingStream<Void, Error>
     {
@@ -318,6 +469,16 @@ final class SupabaseRepository: Repository {
             "plans",
             "responsibilities",
             "relationship_archives",
+            "relationship_presence",
+            "signal_consents",
+            "anchors",
+            "responsibility_handoffs",
+            "plan_approaches",
+            "relationship_events",
+            "seasons",
+            "contextual_suggestions",
+            "contextual_suggestion_dismissals",
+            "insight_grace",
         ]
         let sourceStreams = tables.map {
             channel.postgresChange(
@@ -435,6 +596,14 @@ final class SupabaseRepository: Repository {
                 )
             )
             .execute()
+        _ = try? await client
+            .rpc(
+                "refresh_contextual_suggestions",
+                params: RefreshSharedMomentsParameters(
+                    localDate: localDateValue
+                )
+            )
+            .execute()
 
         async let couplesRequest: [CoupleDTO] = client
             .from("couples")
@@ -484,6 +653,19 @@ final class SupabaseRepository: Repository {
             .select("insight_id,profile_id")
             .execute()
             .value
+        async let graceRequest: [DeclineGraceDTO] = client
+            .from("insight_grace")
+            .select(
+                "insight_id,profile_id,decline_count,suppress_until"
+            )
+            .eq("profile_id", value: user.id)
+            .execute()
+            .value
+        async let partnerAnswerStatusesRequest:
+            [PartnerAnswerStatusDTO] = client
+            .rpc("partner_answer_statuses")
+            .execute()
+            .value
         async let plansRequest: [PlanDTO] = client
             .from("plans")
             .select("id,couple_id,title,note,scheduled_on,status,completed_at,created_by,updated_by,created_at,updated_at")
@@ -493,9 +675,86 @@ final class SupabaseRepository: Repository {
             .value
         async let responsibilitiesRequest: [ResponsibilityDTO] = client
             .from("responsibilities")
-            .select("id,couple_id,title,note,owner_id,status,completed_at,created_by,updated_by,created_at,updated_at")
+            .select(
+                "id,couple_id,title,note,owner_id,scheduled_on,related_plan_id,suggestion_provenance,status,completed_at,created_by,updated_by,created_at,updated_at"
+            )
             .eq("couple_id", value: membership.coupleID)
             .order("created_at", ascending: true)
+            .execute()
+            .value
+        async let presenceRequest: [PresenceDTO] = client
+            .from("relationship_presence")
+            .select("couple_id,mode,changed_by,changed_at")
+            .eq("couple_id", value: membership.coupleID)
+            .limit(1)
+            .execute()
+            .value
+        async let signalConsentsRequest: [SignalConsentDTO] = client
+            .from("signal_consents")
+            .select("couple_id,profile_id,signal,enabled,updated_at")
+            .eq("profile_id", value: user.id)
+            .execute()
+            .value
+        async let anchorsRequest: [AnchorDTO] = client
+            .from("anchors")
+            .select(
+                "id,couple_id,title,note,cadence,is_active,created_by,created_at,updated_at"
+            )
+            .eq("couple_id", value: membership.coupleID)
+            .order("created_at", ascending: true)
+            .execute()
+            .value
+        async let handoffsRequest: [HandoffDTO] = client
+            .from("responsibility_handoffs")
+            .select(
+                "id,responsibility_id,couple_id,from_profile_id,to_profile_id,status,created_at,responded_at"
+            )
+            .eq("couple_id", value: membership.coupleID)
+            .order("created_at", ascending: false)
+            .execute()
+            .value
+        async let approachesRequest: [ApproachDTO] = client
+            .from("plan_approaches")
+            .select(
+                "id,plan_id,profile_id,approach,note,revealed_at,created_at"
+            )
+            .eq("couple_id", value: membership.coupleID)
+            .execute()
+            .value
+        async let eventsRequest: [RelationshipEventDTO] = client
+            .from("relationship_events")
+            .select(
+                "id,couple_id,event_type,source_id,title,occurred_at,provenance"
+            )
+            .eq("couple_id", value: membership.coupleID)
+            .order("occurred_at", ascending: true)
+            .execute()
+            .value
+        async let seasonsRequest: [SeasonDTO] = client
+            .from("seasons")
+            .select(
+                "id,couple_id,sequence,starts_at,cutoff_at,title,summary,event_ids,provenance,created_at"
+            )
+            .eq("couple_id", value: membership.coupleID)
+            .order("sequence", ascending: true)
+            .execute()
+            .value
+        async let suggestionsRequest: [ContextualSuggestionDTO] = client
+            .from("contextual_suggestions")
+            .select(
+                "id,couple_id,kind,related_plan_id,title,proposed_responsibility_title,proposed_scheduled_on,evidence,provenance,created_at,is_eligible,confirmed_responsibility_id"
+            )
+            .eq("couple_id", value: membership.coupleID)
+            .eq("is_eligible", value: true)
+            .is("confirmed_responsibility_id", value: nil)
+            .order("created_at", ascending: true)
+            .execute()
+            .value
+        async let suggestionDismissalsRequest:
+            [ContextualSuggestionDismissalDTO] = client
+            .from("contextual_suggestion_dismissals")
+            .select("suggestion_id")
+            .eq("profile_id", value: user.id)
             .execute()
             .value
 
@@ -523,6 +782,31 @@ final class SupabaseRepository: Repository {
             responsibilitiesRequest
         )
 
+        let (
+            presenceDTOs,
+            signalConsentDTOs,
+            anchorDTOs,
+            handoffDTOs,
+            approachDTOs,
+            eventDTOs,
+            seasonDTOs,
+            suggestionDTOs,
+            suggestionDismissalDTOs
+        ) = try await (
+            presenceRequest,
+            signalConsentsRequest,
+            anchorsRequest,
+            handoffsRequest,
+            approachesRequest,
+            eventsRequest,
+            seasonsRequest,
+            suggestionsRequest,
+            suggestionDismissalsRequest
+        )
+        let graceDTOs = try await graceRequest
+        let partnerAnswerStatusDTOs =
+            try await partnerAnswerStatusesRequest
+
         let members = try memberDTOs.map {
             try Member(
                 id: $0.profileID,
@@ -535,10 +819,26 @@ final class SupabaseRepository: Repository {
                 try ($0.insightID, consent($0))
             }
         )
-        let responsesByInsight = try Dictionary(
+        var responsesByInsight = try Dictionary(
             grouping: responseDTOs.map(response),
             by: \.insightID
         )
+        for status in partnerAnswerStatusDTOs where status.hasAnswered {
+            guard !responsesByInsight[
+                status.insightID,
+                default: []
+            ].contains(where: { $0.profileID == status.profileID })
+            else { continue }
+            responsesByInsight[status.insightID, default: []].append(
+                InsightResponse(
+                    insightID: status.insightID,
+                    profileID: status.profileID,
+                    status: .submitted,
+                    choice: nil,
+                    note: nil
+                )
+            )
+        }
         let dismissalsByInsight = Dictionary(
             grouping: dismissalDTOs,
             by: \.insightID
@@ -561,6 +861,9 @@ final class SupabaseRepository: Repository {
                 )
             )
         }
+        let dismissedSuggestionIDs = Set(
+            suggestionDismissalDTOs.map(\.suggestionID)
+        )
 
         return try RelationshipSnapshot(
             profile: profile,
@@ -576,7 +879,23 @@ final class SupabaseRepository: Repository {
                 try responsibility($0, userID: user.id)
             },
             archives: archives,
-            syncedAt: Date()
+            syncedAt: Date(),
+            v2: V2RelationshipState(
+                presence: try presenceDTOs.first.map(presence),
+                signalConsents: try signalConsentDTOs.map(signalConsent),
+                anchors: try anchorDTOs.map(anchor),
+                handoffs: try handoffDTOs.map(handoff),
+                approaches: try approachDTOs.map(approach),
+                events: try eventDTOs.map(relationshipEvent),
+                seasons: seasonDTOs.map(season),
+                suggestions: try suggestionDTOs.map {
+                    try contextualSuggestion(
+                        $0,
+                        dismissed: dismissedSuggestionIDs.contains($0.id)
+                    )
+                },
+                declineGrace: graceDTOs.map(declineGrace)
+            )
         )
     }
 
@@ -762,12 +1081,159 @@ final class SupabaseRepository: Repository {
             note: dto.note,
             ownerID: dto.ownerID,
             owner: owner,
+            scheduledOn: dto.scheduledOn,
+            relatedPlanID: dto.relatedPlanID,
+            suggestionProvenance: dto.suggestionProvenance,
             status: sharedStatus(dto.status),
             completedAt: dto.completedAt,
             createdBy: dto.createdBy,
             updatedBy: dto.updatedBy,
             createdAt: dto.createdAt,
             updatedAt: dto.updatedAt
+        )
+    }
+
+    private func presence(
+        _ dto: PresenceDTO
+    ) throws -> RelationshipPresence {
+        guard let mode = PresenceMode(rawValue: dto.mode) else {
+            throw RepositoryError.invalidData("unknown presence mode")
+        }
+        return RelationshipPresence(
+            coupleID: dto.coupleID,
+            mode: mode,
+            changedBy: dto.changedBy,
+            changedAt: dto.changedAt
+        )
+    }
+
+    private func signalConsent(
+        _ dto: SignalConsentDTO
+    ) throws -> SignalConsent {
+        guard let signal = SignalKind(rawValue: dto.signal) else {
+            throw RepositoryError.invalidData("unknown intelligence signal")
+        }
+        return SignalConsent(
+            coupleID: dto.coupleID,
+            profileID: dto.profileID,
+            signal: signal,
+            isEnabled: dto.enabled,
+            updatedAt: dto.updatedAt
+        )
+    }
+
+    private func anchor(_ dto: AnchorDTO) throws -> Anchor {
+        guard let cadence = AnchorCadence(rawValue: dto.cadence) else {
+            throw RepositoryError.invalidData("unknown anchor cadence")
+        }
+        return Anchor(
+            id: dto.id,
+            coupleID: dto.coupleID,
+            title: dto.title,
+            note: dto.note,
+            cadence: cadence,
+            isActive: dto.isActive,
+            createdBy: dto.createdBy,
+            createdAt: dto.createdAt,
+            updatedAt: dto.updatedAt
+        )
+    }
+
+    private func handoff(
+        _ dto: HandoffDTO
+    ) throws -> ResponsibilityHandoff {
+        guard let status = HandoffStatus(rawValue: dto.status) else {
+            throw RepositoryError.invalidData("unknown handoff status")
+        }
+        return ResponsibilityHandoff(
+            id: dto.id,
+            responsibilityID: dto.responsibilityID,
+            coupleID: dto.coupleID,
+            fromProfileID: dto.fromProfileID,
+            toProfileID: dto.toProfileID,
+            status: status,
+            createdAt: dto.createdAt,
+            respondedAt: dto.respondedAt
+        )
+    }
+
+    private func approach(_ dto: ApproachDTO) throws -> PlanApproach {
+        guard let value = ApproachKind(rawValue: dto.approach) else {
+            throw RepositoryError.invalidData("unknown plan approach")
+        }
+        return PlanApproach(
+            id: dto.id,
+            planID: dto.planID,
+            profileID: dto.profileID,
+            approach: value,
+            note: dto.note,
+            revealedAt: dto.revealedAt,
+            createdAt: dto.createdAt
+        )
+    }
+
+    private func relationshipEvent(
+        _ dto: RelationshipEventDTO
+    ) throws -> RelationshipEvent {
+        guard let type = RelationshipEventType(rawValue: dto.type) else {
+            throw RepositoryError.invalidData("unknown relationship event")
+        }
+        return RelationshipEvent(
+            id: dto.id,
+            coupleID: dto.coupleID,
+            type: type,
+            sourceID: dto.sourceID,
+            title: dto.title,
+            occurredAt: dto.occurredAt,
+            provenance: dto.provenance
+        )
+    }
+
+    private func season(_ dto: SeasonDTO) -> Season {
+        Season(
+            id: dto.id,
+            coupleID: dto.coupleID,
+            sequence: dto.sequence,
+            startsAt: dto.startsAt,
+            cutoffAt: dto.cutoffAt,
+            title: dto.title,
+            summary: dto.summary,
+            eventIDs: dto.eventIDs,
+            provenance: dto.provenance,
+            createdAt: dto.createdAt
+        )
+    }
+
+    private func contextualSuggestion(
+        _ dto: ContextualSuggestionDTO,
+        dismissed: Bool
+    ) throws -> ContextualSuggestion {
+        guard let kind = SuggestionKind(rawValue: dto.kind) else {
+            throw RepositoryError.invalidData("unknown suggestion kind")
+        }
+        return ContextualSuggestion(
+            id: dto.id,
+            coupleID: dto.coupleID,
+            kind: kind,
+            relatedPlanID: dto.relatedPlanID,
+            title: dto.title,
+            proposedResponsibilityTitle:
+                dto.proposedResponsibilityTitle,
+            proposedScheduledOn: dto.proposedScheduledOn,
+            evidence: dto.evidence,
+            provenance: dto.provenance,
+            createdAt: dto.createdAt,
+            confirmedResponsibilityID: dto.confirmedResponsibilityID,
+            dismissedForViewer: dismissed
+        )
+    }
+
+    private func declineGrace(_ dto: DeclineGraceDTO) -> DeclineGrace {
+        DeclineGrace(
+            insightID: dto.insightID,
+            profileID: dto.profileID,
+            declineCount: dto.declineCount,
+            suppressUntil: dto.suppressUntil
         )
     }
 

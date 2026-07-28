@@ -85,6 +85,93 @@ protocol Repository {
         choice: String?
     ) async throws
     func dismissSuggestion(insightID: String) async throws
+
+    func setPresence(_ mode: PresenceMode) async throws
+    func setSignalConsent(_ signal: SignalKind, enabled: Bool) async throws
+    func createAnchor(_ input: AnchorInput, coupleID: String) async throws
+    func setAnchorActive(id: String, isActive: Bool) async throws
+    func offerHandoff(
+        responsibilityID: String,
+        toProfileID: String
+    ) async throws
+    func respondToHandoff(id: String, accept: Bool) async throws
+    func withdrawHandoff(id: String) async throws
+    func setApproach(
+        planID: String,
+        approach: ApproachKind,
+        note: String?
+    ) async throws
+    func refreshContextualSuggestions(localDate: String) async throws
+    func dismissContextualSuggestion(id: String) async throws
+    func confirmContextualSuggestion(
+        _ confirmation: SuggestionConfirmation
+    ) async throws
+    func createReadySeason() async throws
+}
+
+extension Repository {
+    func setPresence(_ mode: PresenceMode) async throws {
+        throw RepositoryError.invalidData("presence is unavailable")
+    }
+
+    func setSignalConsent(
+        _ signal: SignalKind,
+        enabled: Bool
+    ) async throws {
+        throw RepositoryError.invalidData("signal consent is unavailable")
+    }
+
+    func createAnchor(
+        _ input: AnchorInput,
+        coupleID: String
+    ) async throws {
+        throw RepositoryError.invalidData("anchors are unavailable")
+    }
+
+    func setAnchorActive(id: String, isActive: Bool) async throws {
+        throw RepositoryError.invalidData("anchors are unavailable")
+    }
+
+    func offerHandoff(
+        responsibilityID: String,
+        toProfileID: String
+    ) async throws {
+        throw RepositoryError.invalidData("handoffs are unavailable")
+    }
+
+    func respondToHandoff(id: String, accept: Bool) async throws {
+        throw RepositoryError.invalidData("handoffs are unavailable")
+    }
+
+    func withdrawHandoff(id: String) async throws {
+        throw RepositoryError.invalidData("handoffs are unavailable")
+    }
+
+    func setApproach(
+        planID: String,
+        approach: ApproachKind,
+        note: String?
+    ) async throws {
+        throw RepositoryError.invalidData("approach is unavailable")
+    }
+
+    func refreshContextualSuggestions(localDate: String) async throws {
+        throw RepositoryError.invalidData("suggestions are unavailable")
+    }
+
+    func dismissContextualSuggestion(id: String) async throws {
+        throw RepositoryError.invalidData("suggestions are unavailable")
+    }
+
+    func confirmContextualSuggestion(
+        _ confirmation: SuggestionConfirmation
+    ) async throws {
+        throw RepositoryError.invalidData("suggestions are unavailable")
+    }
+
+    func createReadySeason() async throws {
+        throw RepositoryError.invalidData("a season is not ready")
+    }
 }
 
 enum AuthCallbackResult: Equatable, Sendable {

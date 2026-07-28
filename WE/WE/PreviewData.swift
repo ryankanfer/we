@@ -289,10 +289,25 @@ nonisolated enum PreviewData {
         )
     }
 
-    static let emptySnapshot = makeSnapshot(
-        plans: [],
-        responsibilities: []
-    )
+    static let emptySnapshot: RelationshipSnapshot = {
+        let base = makeSnapshot(
+            plans: [],
+            responsibilities: []
+        )
+        return RelationshipSnapshot(
+            profile: base.profile,
+            membership: base.membership,
+            couple: base.couple,
+            members: base.members,
+            insights: [],
+            reflections: [],
+            plans: [],
+            responsibilities: [],
+            archives: [],
+            syncedAt: base.syncedAt,
+            v2: .empty
+        )
+    }()
 
     static let waitingSnapshot = makeSnapshot(
         members: [members[0]],

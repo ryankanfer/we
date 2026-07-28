@@ -44,34 +44,43 @@ enum WEHue: String, CaseIterable, Identifiable {
     }
 
     var color: Color {
+        let components = colorComponents
+        return Color(
+            red: components.red,
+            green: components.green,
+            blue: components.blue
+        )
+    }
+
+    var colorComponents: (red: Double, green: Double, blue: Double) {
         switch self {
         case .burgundy:
-            Color(red: 0.49, green: 0.235, blue: 0.263)
+            (0.49, 0.235, 0.263)
         case .sage:
-            Color(red: 0.373, green: 0.42, blue: 0.322)
+            (0.373, 0.42, 0.322)
         case .ember:
-            Color(red: 0.78, green: 0.31, blue: 0.22)
+            (0.78, 0.31, 0.22)
         case .tide:
-            Color(red: 0.16, green: 0.48, blue: 0.58)
+            (0.16, 0.48, 0.58)
         case .plum:
-            Color(red: 0.49, green: 0.29, blue: 0.54)
+            (0.49, 0.29, 0.54)
         case .clay:
-            Color(red: 0.68, green: 0.45, blue: 0.34)
+            (0.68, 0.45, 0.34)
         case .pearl:
-            Color(red: 0.89, green: 0.84, blue: 0.74)
+            (0.89, 0.84, 0.74)
         case .mist:
-            Color(red: 0.66, green: 0.76, blue: 0.82)
+            (0.66, 0.76, 0.82)
         case .blush:
-            Color(red: 0.85, green: 0.62, blue: 0.64)
+            (0.85, 0.62, 0.64)
         case .celadon:
-            Color(red: 0.68, green: 0.78, blue: 0.68)
+            (0.68, 0.78, 0.68)
         }
     }
 
     /// Hues bright enough that white text placed over them stops being legible.
     var isLight: Bool {
         switch self {
-        case .pearl, .mist, .blush, .celadon:
+        case .clay, .pearl, .mist, .blush, .celadon:
             true
         default:
             false
@@ -85,17 +94,28 @@ enum WEHue: String, CaseIterable, Identifiable {
     }
 
     var controlColor: Color {
+        let components = controlComponents
+        return Color(
+            red: components.red,
+            green: components.green,
+            blue: components.blue
+        )
+    }
+
+    var controlComponents: (red: Double, green: Double, blue: Double) {
         switch self {
+        case .clay:
+            (0.56, 0.34, 0.25)
         case .pearl:
-            Color(red: 0.46, green: 0.38, blue: 0.27)
+            (0.46, 0.38, 0.27)
         case .mist:
-            Color(red: 0.31, green: 0.46, blue: 0.57)
+            (0.31, 0.46, 0.57)
         case .blush:
-            Color(red: 0.56, green: 0.32, blue: 0.36)
+            (0.56, 0.32, 0.36)
         case .celadon:
-            Color(red: 0.32, green: 0.47, blue: 0.36)
+            (0.32, 0.47, 0.36)
         default:
-            color
+            colorComponents
         }
     }
 

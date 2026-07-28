@@ -202,6 +202,9 @@ actor PreviewRepository: Repository {
             note: input.note,
             ownerID: ownerID,
             owner: input.owner,
+            scheduledOn: input.scheduledOn,
+            relatedPlanID: input.relatedPlanID,
+            suggestionProvenance: input.suggestionProvenance,
             status: .active,
             completedAt: nil,
             createdBy: currentUser?.id,
@@ -229,6 +232,9 @@ actor PreviewRepository: Repository {
                     note: input.note,
                     ownerID: ownerID,
                     owner: input.owner,
+                    scheduledOn: input.scheduledOn,
+                    relatedPlanID: input.relatedPlanID,
+                    suggestionProvenance: input.suggestionProvenance,
                     status: value.status,
                     completedAt: value.completedAt,
                     createdBy: value.createdBy,
@@ -254,6 +260,9 @@ actor PreviewRepository: Repository {
                     note: value.note,
                     ownerID: value.ownerID,
                     owner: value.owner,
+                    scheduledOn: value.scheduledOn,
+                    relatedPlanID: value.relatedPlanID,
+                    suggestionProvenance: value.suggestionProvenance,
                     status: status,
                     completedAt: status == .completed
                         ? ISO8601DateFormatter().string(from: Date()) : nil,
@@ -351,6 +360,309 @@ actor PreviewRepository: Repository {
         }
     }
 
+    func setPresence(_ mode: PresenceMode) async throws {
+        let current = snapshot.v2State
+        snapshot = replacing(
+            v2: replacingV2(
+                current,
+                presence: RelationshipPresence(
+                    coupleID: snapshot.couple?.id ?? "preview-couple",
+                    mode: mode,
+                    changedBy: currentUser?.id,
+                    changedAt: ISO8601DateFormatter.we.string(from: Date())
+                )
+            )
+        )
+    }
+
+    func setSignalConsent(
+        _ signal: SignalKind,
+        enabled: Bool
+    ) async throws {
+        guard !signal.isPermanentlyDisabled,
+              let userID = currentUser?.id else { return }
+        let current = snapshot.v2State
+        var values = current.signalConsents.filter {
+            !($0.profileID == userID && $0.signal == signal)
+        }
+        values.append(
+            SignalConsent(
+                coupleID: snapshot.couple?.id ?? "preview-couple",
+                profileID: userID,
+                signal: signal,
+                isEnabled: enabled,
+                updatedAt: ISO8601DateFormatter.we.string(from: Date())
+            )
+        )
+        snapshot = replacing(
+            v2: replacingV2(current, signalConsents: values)
+        )
+    }
+
+    func createAnchor(
+        _ input: AnchorInput,
+        coupleID: String
+    ) async throws {
+        let current = snapshot.v2State
+        let now = ISO8601DateFormatter.we.string(from: Date())
+        snapshot = replacing(
+            v2: replacingV2(
+                current,
+                anchors: current.anchors + [
+                    Anchor(
+                        id: UUID().uuidString,
+                        coupleID: coupleID,
+                        title: input.title,
+                        note: input.note,
+                        cadence: input.cadence,
+                        isActive: true,
+                        createdBy: currentUser?.id,
+                        createdAt: now,
+                        updatedAt: now
+                    ),
+                ]
+            )
+        )
+    }
+
+    func setAnchorActive(id: String, isActive: Bool) async throws {
+        let current = snapshot.v2State
+        snapshot = replacing(
+            v2: replacingV2(
+                current,
+                anchors: current.anchors.map { value in
+                    guard value.id == id else { return value }
+                    return Anchor(
+                        id: value.id,
+                        coupleID: value.coupleID,
+                        title: value.title,
+                        note: value.note,
+                        cadence: value.cadence,
+                        isActive: isActive,
+                        createdBy: value.createdBy,
+                        createdAt: value.createdAt,
+                        updatedAt: ISO8601DateFormatter.we.string(
+                            from: Date()
+                        )
+                    )
+                }
+            )
+        )
+    }
+
+    func setApproach(
+        planID: String,
+        approach: ApproachKind,
+        note: String?
+    ) async throws {
+        guard let userID = currentUser?.id else { return }
+        let current = snapshot.v2State
+        var values = current.approaches.filter {
+            !($0.planID == planID && $0.profileID == userID)
+        }
+        values.append(
+            PlanApproach(
+                id: "\(planID)-\(userID)",
+                planID: planID,
+                profileID: userID,
+                approach: approach,
+                note: note,
+                revealedAt: nil,
+                createdAt: ISO8601DateFormatter.we.string(from: Date())
+            )
+        )
+        if values.filter({ $0.planID == planID }).count == 2 {
+            let revealedAt = ISO8601DateFormatter.we.string(from: Date())
+            values = values.map { value in
+                guard value.planID == planID else { return value }
+                return PlanApproach(
+                    id: value.id,
+                    planID: value.planID,
+                    profileID: value.profileID,
+                    approach: value.approach,
+                    note: value.note,
+                    revealedAt: value.revealedAt ?? revealedAt,
+                    createdAt: value.createdAt
+                )
+            }
+        }
+        snapshot = replacing(v2: replacingV2(current, approaches: values))
+    }
+
+    func refreshContextualSuggestions(localDate: String) async throws {
+        let current = snapshot.v2State
+        snapshot = replacing(
+            v2: replacingV2(
+                current,
+                suggestions: ContextualSuggestionEngine.partyGroceries(
+                    plans: snapshot.plans,
+                    responsibilities: snapshot.responsibilities
+                )
+            )
+        )
+    }
+
+    func dismissContextualSuggestion(id: String) async throws {
+        let current = snapshot.v2State
+        let suggestions = availableSuggestions.map { value in
+            guard value.id == id else { return value }
+            return ContextualSuggestion(
+                id: value.id,
+                coupleID: value.coupleID,
+                kind: value.kind,
+                relatedPlanID: value.relatedPlanID,
+                title: value.title,
+                proposedResponsibilityTitle:
+                    value.proposedResponsibilityTitle,
+                proposedScheduledOn: value.proposedScheduledOn,
+                evidence: value.evidence,
+                provenance: value.provenance,
+                createdAt: value.createdAt,
+                confirmedResponsibilityID:
+                    value.confirmedResponsibilityID,
+                dismissedForViewer: true
+            )
+        }
+        snapshot = replacing(
+            v2: replacingV2(current, suggestions: suggestions)
+        )
+    }
+
+    func confirmContextualSuggestion(
+        _ confirmation: SuggestionConfirmation
+    ) async throws {
+        guard let suggestion = availableSuggestions.first(
+            where: { $0.id == confirmation.suggestionID }
+        ) else {
+            throw RepositoryError.invalidData("suggestion is no longer available")
+        }
+        try await createResponsibility(
+            ResponsibilityInput(
+                title: confirmation.title,
+                note: confirmation.note,
+                owner: confirmation.owner,
+                scheduledOn: confirmation.scheduledOn,
+                relatedPlanID: suggestion.relatedPlanID,
+                suggestionProvenance: suggestion.provenance
+            ),
+            coupleID: suggestion.coupleID,
+            ownerID: confirmation.owner == .me ? currentUser?.id : nil
+        )
+        snapshot = replacing(
+            v2: replacingV2(snapshot.v2State, suggestions: [])
+        )
+    }
+
+    func offerHandoff(
+        responsibilityID: String,
+        toProfileID: String
+    ) async throws {
+        guard let userID = currentUser?.id else { return }
+        let current = snapshot.v2State
+        snapshot = replacing(
+            v2: replacingV2(
+                current,
+                handoffs: current.handoffs + [
+                    ResponsibilityHandoff(
+                        id: UUID().uuidString,
+                        responsibilityID: responsibilityID,
+                        coupleID: snapshot.couple?.id ?? "preview-couple",
+                        fromProfileID: userID,
+                        toProfileID: toProfileID,
+                        status: .offered,
+                        createdAt: ISO8601DateFormatter.we.string(
+                            from: Date()
+                        ),
+                        respondedAt: nil
+                    ),
+                ]
+            )
+        )
+    }
+
+    func respondToHandoff(id: String, accept: Bool) async throws {
+        let current = snapshot.v2State
+        snapshot = replacing(
+            v2: replacingV2(
+                current,
+                handoffs: current.handoffs.map { value in
+                    guard value.id == id else { return value }
+                    return ResponsibilityHandoff(
+                        id: value.id,
+                        responsibilityID: value.responsibilityID,
+                        coupleID: value.coupleID,
+                        fromProfileID: value.fromProfileID,
+                        toProfileID: value.toProfileID,
+                        status: accept ? .accepted : .declined,
+                        createdAt: value.createdAt,
+                        respondedAt: ISO8601DateFormatter.we.string(
+                            from: Date()
+                        )
+                    )
+                }
+            )
+        )
+    }
+
+    func withdrawHandoff(id: String) async throws {
+        let current = snapshot.v2State
+        snapshot = replacing(
+            v2: replacingV2(
+                current,
+                handoffs: current.handoffs.map { value in
+                    guard value.id == id else { return value }
+                    return ResponsibilityHandoff(
+                        id: value.id,
+                        responsibilityID: value.responsibilityID,
+                        coupleID: value.coupleID,
+                        fromProfileID: value.fromProfileID,
+                        toProfileID: value.toProfileID,
+                        status: .withdrawn,
+                        createdAt: value.createdAt,
+                        respondedAt: ISO8601DateFormatter.we.string(
+                            from: Date()
+                        )
+                    )
+                }
+            )
+        )
+    }
+
+    func createReadySeason() async throws {
+        let current = snapshot.v2State
+        let cutoff = current.seasons.last.flatMap {
+            ISO8601DateFormatter.we.date(from: $0.cutoffAt)
+        }
+        guard case .ready(let eventIDs, let cutoffAt) =
+            SeasonReadiness.evaluate(
+                events: current.events,
+                after: cutoff,
+                now: Date()
+            )
+        else {
+            throw RepositoryError.invalidData("a season is not ready")
+        }
+        let eligible = current.events.filter { eventIDs.contains($0.id) }
+        let season = Season(
+            id: UUID().uuidString,
+            coupleID: snapshot.couple?.id ?? "preview-couple",
+            sequence: current.seasons.count + 1,
+            startsAt: eligible.map(\.occurredAt).min() ?? cutoffAt,
+            cutoffAt: cutoffAt,
+            title: "A season of showing up",
+            summary: "\(eligible.count) shared moments formed this season.",
+            eventIDs: eventIDs,
+            provenance: eligible.flatMap(\.provenance),
+            createdAt: ISO8601DateFormatter.we.string(from: Date())
+        )
+        snapshot = replacing(
+            v2: replacingV2(
+                current,
+                seasons: current.seasons + [season]
+            )
+        )
+    }
+
     private func updateInsight(
         _ insightID: String,
         transform: (TrustState, String) throws -> TrustState
@@ -412,7 +724,8 @@ actor PreviewRepository: Repository {
         insights: [InsightRecord]? = nil,
         reflections: [Reflection]? = nil,
         plans: [PlanItem]? = nil,
-        responsibilities: [Responsibility]? = nil
+        responsibilities: [Responsibility]? = nil,
+        v2: V2RelationshipState? = nil
     ) -> RelationshipSnapshot {
         RelationshipSnapshot(
             profile: profile ?? snapshot.profile,
@@ -424,7 +737,42 @@ actor PreviewRepository: Repository {
             plans: plans ?? snapshot.plans,
             responsibilities: responsibilities ?? snapshot.responsibilities,
             archives: snapshot.archives,
-            syncedAt: Date()
+            syncedAt: Date(),
+            v2: v2 ?? snapshot.v2
+        )
+    }
+
+    private var availableSuggestions: [ContextualSuggestion] {
+        let persisted = snapshot.v2State.suggestions
+        return persisted.isEmpty
+            ? ContextualSuggestionEngine.partyGroceries(
+                plans: snapshot.plans,
+                responsibilities: snapshot.responsibilities
+            )
+            : persisted
+    }
+
+    private func replacingV2(
+        _ current: V2RelationshipState,
+        presence: RelationshipPresence? = nil,
+        signalConsents: [SignalConsent]? = nil,
+        anchors: [Anchor]? = nil,
+        handoffs: [ResponsibilityHandoff]? = nil,
+        approaches: [PlanApproach]? = nil,
+        events: [RelationshipEvent]? = nil,
+        seasons: [Season]? = nil,
+        suggestions: [ContextualSuggestion]? = nil
+    ) -> V2RelationshipState {
+        V2RelationshipState(
+            presence: presence ?? current.presence,
+            signalConsents: signalConsents ?? current.signalConsents,
+            anchors: anchors ?? current.anchors,
+            handoffs: handoffs ?? current.handoffs,
+            approaches: approaches ?? current.approaches,
+            events: events ?? current.events,
+            seasons: seasons ?? current.seasons,
+            suggestions: suggestions ?? current.suggestions,
+            declineGrace: current.declineGrace
         )
     }
 }

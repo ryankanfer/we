@@ -57,6 +57,7 @@ struct WEMark: View {
                         in: Circle()
                     )
                     .offset(x: -separation)
+                    .accessibilityHidden(true)
 
                 Circle()
                     .fill(partnerHue.color.opacity(0.32))
@@ -66,6 +67,7 @@ struct WEMark: View {
                         in: Circle()
                     )
                     .offset(x: separation)
+                    .accessibilityHidden(true)
 
                 if showsWordmark {
                     Text("WE")
@@ -75,14 +77,16 @@ struct WEMark: View {
                                 : .system(.caption2, weight: .bold)
                         )
                         .foregroundStyle(.white)
+                        .accessibilityHidden(true)
                 }
             }
+            .accessibilityHidden(true)
         }
+        .accessibilityHidden(true)
         .frame(
             width: canvasWidth,
             height: diameter
         )
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityText)
+        .accessibilityHidden(true)
     }
 }

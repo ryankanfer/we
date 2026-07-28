@@ -3,7 +3,9 @@ import SwiftUI
 struct WEView: View {
     @EnvironmentObject private var session: AppSession
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var holdsSomething = false
+    @State private var passesPhone = false
     @State private var selectedMomentID = ""
     let onProfile: () -> Void
 
@@ -16,6 +18,11 @@ struct WEView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 10)
                     .weArrival()
+
+                PresenceControl()
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 6)
 
                 if activeMoments.isEmpty {
                     emptyState
@@ -41,6 +48,9 @@ struct WEView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $passesPhone) {
+            PassThePhoneView()
+        }
         .onChange(of: activeMoments.map(\.id), initial: true) { _, ids in
             guard !ids.contains(selectedMomentID) else { return }
             selectedMomentID = ids.first ?? ""
@@ -48,7 +58,8 @@ struct WEView: View {
     }
 
     private var activeMoments: [InsightRecord] {
-        session.insightRecords.enumerated()
+        guard session.presenceMode != .together else { return [] }
+        return session.insightRecords.enumerated()
             .compactMap { index, record -> (Int, Int, InsightRecord)? in
                 guard let projection = session.projection(for: record),
                       !projection.dismissed,
@@ -84,12 +95,20 @@ struct WEView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            WEMark(
-                style: .micro,
-                personalHue: personalHue,
-                partnerHue: relationshipPartnerHue(session),
-                accessibilityText: "WE"
-            )
+            ZStack {
+                Circle()
+                    .fill(personalHue.color.opacity(0.72))
+                    .frame(width: 16, height: 16)
+                    .offset(x: -3.5)
+                Circle()
+                    .fill(
+                        relationshipPartnerHue(session).color.opacity(0.72)
+                    )
+                    .frame(width: 16, height: 16)
+                    .offset(x: 3.5)
+            }
+            .frame(width: 28, height: 16)
+            .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text("WE")
@@ -98,7 +117,7 @@ struct WEView: View {
                 Text(partnershipLine)
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.68))
-                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer()
@@ -139,41 +158,97 @@ struct WEView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 20) {
-            Spacer()
+        ScrollView {
+            VStack(spacing: 20) {
+                WEMark(
+                    style: .display,
+                    personalHue: personalHue,
+                    partnerHue: relationshipPartnerHue(session),
+                    accessibilityText: "WE"
+                )
 
-            WEMark(
-                style: .display,
-                personalHue: personalHue,
-                partnerHue: relationshipPartnerHue(session),
-                accessibilityText: "WE"
-            )
-
-            VStack(spacing: 8) {
-                Text("Nothing needs an answer.")
+                VStack(spacing: 8) {
+                    Text(
+                        session.presenceMode == .together
+                            ? "Be here together."
+                            : "Nothing needs an answer."
+                    )
                     .font(.weLargeTitle)
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
-                Text("The next shared moment will appear when there is something useful to decide together.")
+
+                    Text(
+                        session.presenceMode == .together
+                            ? PresenceMode.together.detail
+                            : "The next shared moment will appear when there is something useful to decide together."
+                    )
                     .font(.weBody)
                     .foregroundStyle(.white.opacity(0.72))
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 360)
-            }
+                }
 
-            Button {
-                holdsSomething = true
-            } label: {
-                Label("Hold something privately", systemImage: "lock.fill")
-                    .frame(minHeight: 48)
-            }
-            .buttonStyle(.glass)
-            .tint(personalHue.color.opacity(0.24))
-            .disabled(!session.canMutate)
+                if session.presenceMode != .together {
+                    if let suggestion =
+                        session.contextualSuggestions.first {
+                        ContextualSuggestionCard(suggestion: suggestion)
+                    }
 
-            Spacer()
+                    if case .ready = session.seasonReadiness {
+                        SeasonReadyCard()
+                    }
+
+                    HorizonGlimpse()
+
+                    quietActionsLayout {
+                        Button {
+                            holdsSomething = true
+                        } label: {
+                            Label("Hold privately", systemImage: "lock.fill")
+                                .font(.body.weight(.semibold))
+                                .fixedSize(
+                                    horizontal: false,
+                                    vertical: true
+                                )
+                                .frame(
+                                    maxWidth: .infinity,
+                                    minHeight: 48
+                                )
+                        }
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
+                        .tint(personalHue.color.opacity(0.24))
+                        .disabled(!session.canMutate)
+
+                        Button {
+                            passesPhone = true
+                        } label: {
+                            Label(
+                                "Pass the phone",
+                                systemImage: "iphone.gen3"
+                            )
+                            .font(.body.weight(.semibold))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, minHeight: 48)
+                        }
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
+                        .tint(personalHue.color.opacity(0.24))
+                    }
+                }
+
+                Spacer(minLength: 24)
+            }
+            .padding(24)
         }
-        .padding(24)
+    }
+
+    private var quietActionsLayout: AnyLayout {
+        if dynamicTypeSize.isAccessibilitySize {
+            AnyLayout(VStackLayout(spacing: 12))
+        } else {
+            AnyLayout(HStackLayout(spacing: 12))
+        }
     }
 
     private var momentIndex: some View {
@@ -240,6 +315,32 @@ struct WEView: View {
     }
 }
 
+private struct InsightEvidenceDisclosure: View {
+    let insight: Insight
+
+    var body: some View {
+        DisclosureGroup("Why this surfaced") {
+            VStack(alignment: .leading, spacing: 9) {
+                Text(insight.evidence)
+                Label(insight.source, systemImage: "link")
+                Label(
+                    "Did not read private reflections or unrevealed answers",
+                    systemImage: "lock.shield"
+                )
+            }
+            .font(.subheadline)
+            .foregroundStyle(.white.opacity(0.72))
+            .padding(.top, 8)
+        }
+        .font(.body.weight(.semibold))
+        .foregroundStyle(.white.opacity(0.86))
+        .tint(.white.opacity(0.72))
+        .accessibilityHint(
+            "Shows the shared evidence and excluded private data"
+        )
+    }
+}
+
 private struct SharedMomentPage: View {
     @EnvironmentObject private var session: AppSession
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -273,8 +374,18 @@ private struct SharedMomentPage: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
+                    InsightEvidenceDisclosure(insight: record.insight)
+
                     if let projection {
                         momentControls(projection)
+                    }
+
+                    if projection?.phase == .waiting
+                        || projection?.phase == .held {
+                        HorizonGlimpse()
+                        if case .ready = session.seasonReadiness {
+                            SeasonReadyCard()
+                        }
                     }
 
                     SessionMessageView()
@@ -286,15 +397,22 @@ private struct SharedMomentPage: View {
             }
 
             if projection?.phase == .answering {
-                primary("Hold my answer") {
-                    guard let selectedOption else { return }
-                    await session.submitResponse(
-                        insightID: record.id,
-                        choice: selectedOption,
-                        note: nil
-                    )
+                let action = session.questionAction(for: record)
+                VStack(spacing: 8) {
+                    Text(action.explanation)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.68))
+                        .multilineTextAlignment(.center)
+                    primary(action.title) {
+                        guard let selectedOption else { return }
+                        await session.submitResponse(
+                            insightID: record.id,
+                            choice: selectedOption,
+                            note: nil
+                        )
+                    }
+                    .disabled(selectedOption == nil || !session.canMutate)
                 }
-                .disabled(selectedOption == nil || !session.canMutate)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
                 .background(.ultraThinMaterial.opacity(0.42))
@@ -723,6 +841,8 @@ struct InsightDetailView: View {
                         .foregroundStyle(Color("WEFaint"))
                 }
 
+                InsightEvidenceDisclosure(insight: record.insight)
+
                 if let projection {
                     trustControls(projection, record: record)
                 }
@@ -782,16 +902,17 @@ struct InsightDetailView: View {
                 await session.acceptReveal(insightID: record.id)
             }
         case .answering:
+            let action = session.questionAction(for: record)
             statusCard(
                 title: "Answer privately.",
-                message: "Neither answer appears until both of you submit."
+                message: action.explanation
             )
             optionPicker(record)
             TextField("Optional private note or reasoning…", text: $noteText, axis: .vertical)
                 .lineLimit(2 ... 4)
                 .padding(12)
                 .background(Color("WECard"), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            primary("Submit my answer") {
+            primary(action.title) {
                 guard let selectedOption else { return }
                 await session.submitResponse(
                     insightID: record.id,
@@ -1003,7 +1124,7 @@ private struct WEAtmosphere: View {
 }
 
 @MainActor
-private func relationshipPartnerHue(_ session: AppSession) -> WEHue {
+func relationshipPartnerHue(_ session: AppSession) -> WEHue {
     guard let snapshot = session.snapshot,
           let user = session.user,
           let partner = snapshot.members.first(

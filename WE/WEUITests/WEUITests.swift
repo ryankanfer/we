@@ -10,6 +10,18 @@ final class WEUITests: XCTestCase {
         let app = launch(scenario: "empty")
 
         XCTAssertTrue(app.tabBars.buttons["WE"].waitForExistence(timeout: 4))
+        XCTAssertFalse(app.tabBars.buttons["Ahead"].exists)
+        XCTAssertTrue(app.staticTexts["Something coming up?"].exists)
+        app.buttons["Add something ahead"].tap()
+        XCTAssertTrue(app.staticTexts["THE HORIZON"].exists)
+        app.textFields["What are you hoping toward?"].tap()
+        app.textFields["What are you hoping toward?"]
+            .typeText("Saturday's party")
+        app.buttons["Add Something Ahead"].tap()
+        XCTAssertTrue(
+            app.tabBars.buttons["Ahead"].waitForExistence(timeout: 3)
+        )
+
         app.tabBars.buttons["Life"].tap()
         XCTAssertTrue(
             app.staticTexts["Nothing needs naming right now."].exists
@@ -19,8 +31,7 @@ final class WEUITests: XCTestCase {
         app.buttons["Cancel"].tap()
 
         app.tabBars.buttons["Ahead"].tap()
-        XCTAssertTrue(app.staticTexts["The horizon is open."].exists)
-        app.navigationBars["Ahead"].buttons["Hold a new intention"].tap()
+        app.navigationBars["Ahead"].buttons["Add something ahead"].tap()
         XCTAssertTrue(app.staticTexts["THE HORIZON"].exists)
         app.buttons["Cancel"].tap()
 
@@ -56,13 +67,18 @@ final class WEUITests: XCTestCase {
         app.buttons["accountSubmitButton"].tap()
 
         XCTAssertTrue(
-            app.staticTexts["Make this space yours."]
+            app.staticTexts["Half the field is missing."]
                 .waitForExistence(timeout: 3)
         )
-        let createSpace = app.buttons["Create our space"]
+        let createSpace = app.buttons["Create and send the invitation"]
         createSpace.tap()
         XCTAssertTrue(
-            app.staticTexts["Your side is ready."]
+            app.staticTexts.matching(
+                NSPredicate(
+                    format: "label CONTAINS %@",
+                    "WE is holding one thing"
+                )
+            ).firstMatch
                 .waitForExistence(timeout: 3)
         )
 
@@ -96,7 +112,12 @@ final class WEUITests: XCTestCase {
         app.terminate()
         app = launch(scenario: "waiting")
         XCTAssertTrue(
-            app.staticTexts["Your side is ready."]
+            app.staticTexts.matching(
+                NSPredicate(
+                    format: "label CONTAINS %@",
+                    "WE is holding one thing"
+                )
+            ).firstMatch
                 .waitForExistence(timeout: 4)
         )
 
@@ -194,22 +215,16 @@ final class WEUITests: XCTestCase {
     @MainActor
     func testInsightDetailNavigation() throws {
         let app = launch(scenario: "ready")
-        let insight = app.staticTexts["What kind of dinner fits tonight?"]
+        let insight = app.staticTexts["How should tonight feel?"]
         XCTAssertTrue(insight.waitForExistence(timeout: 4))
-        insight.tap()
 
         XCTAssertTrue(
-            app.navigationBars["Insight"].waitForExistence(timeout: 3)
+            app.staticTexts["Choose what is true for you."].exists
         )
+        app.buttons["Out of the house"].tap()
+        app.buttons["Open together"].tap()
         XCTAssertTrue(
-            app.staticTexts["Neither preference needs to become a rejection."]
-                .exists
-        )
-        XCTAssertTrue(app.staticTexts["Answer privately."].exists)
-        app.buttons["The little Thai place"].tap()
-        app.buttons["Submit my answer"].tap()
-        XCTAssertTrue(
-            app.staticTexts["A mutual match."]
+            app.staticTexts["A CLEAR YES"]
                 .waitForExistence(timeout: 3)
         )
     }
@@ -229,7 +244,7 @@ final class WEUITests: XCTestCase {
         app.tabBars.buttons["Ahead"].tap()
         XCTAssertTrue(app.staticTexts["CHOOSE PRIVATELY"].exists)
         XCTAssertTrue(
-            app.staticTexts["What kind of dinner fits tonight?"].exists
+            app.staticTexts["How should tonight feel?"].exists
         )
     }
 

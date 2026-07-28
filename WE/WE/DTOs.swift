@@ -54,6 +54,9 @@ nonisolated struct ResponsibilityDTO: Decodable, Sendable {
     let title: String
     let note: String?
     let ownerID: String?
+    let scheduledOn: String?
+    let relatedPlanID: String?
+    let suggestionProvenance: SuggestionProvenance?
     let status: String
     let completedAt: String?
     let createdBy: String?
@@ -65,11 +68,207 @@ nonisolated struct ResponsibilityDTO: Decodable, Sendable {
         case id, title, note, status
         case coupleID = "couple_id"
         case ownerID = "owner_id"
+        case scheduledOn = "scheduled_on"
+        case relatedPlanID = "related_plan_id"
+        case suggestionProvenance = "suggestion_provenance"
         case completedAt = "completed_at"
         case createdBy = "created_by"
         case updatedBy = "updated_by"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+    }
+}
+
+nonisolated struct PresenceDTO: Decodable, Sendable {
+    let coupleID: String
+    let mode: String
+    let changedBy: String?
+    let changedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case mode
+        case coupleID = "couple_id"
+        case changedBy = "changed_by"
+        case changedAt = "changed_at"
+    }
+}
+
+nonisolated struct SignalConsentDTO: Decodable, Sendable {
+    let coupleID: String
+    let profileID: String
+    let signal: String
+    let enabled: Bool
+    let updatedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case signal, enabled
+        case coupleID = "couple_id"
+        case profileID = "profile_id"
+        case updatedAt = "updated_at"
+    }
+}
+
+nonisolated struct AnchorDTO: Decodable, Sendable {
+    let id: String
+    let coupleID: String
+    let title: String
+    let note: String?
+    let cadence: String
+    let isActive: Bool
+    let createdBy: String?
+    let createdAt: String
+    let updatedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, note, cadence
+        case coupleID = "couple_id"
+        case isActive = "is_active"
+        case createdBy = "created_by"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+nonisolated struct HandoffDTO: Decodable, Sendable {
+    let id: String
+    let responsibilityID: String
+    let coupleID: String
+    let fromProfileID: String
+    let toProfileID: String
+    let status: String
+    let createdAt: String
+    let respondedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, status
+        case responsibilityID = "responsibility_id"
+        case coupleID = "couple_id"
+        case fromProfileID = "from_profile_id"
+        case toProfileID = "to_profile_id"
+        case createdAt = "created_at"
+        case respondedAt = "responded_at"
+    }
+}
+
+nonisolated struct ApproachDTO: Decodable, Sendable {
+    let id: String
+    let planID: String
+    let profileID: String
+    let approach: String
+    let note: String?
+    let revealedAt: String?
+    let createdAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, approach, note
+        case planID = "plan_id"
+        case profileID = "profile_id"
+        case revealedAt = "revealed_at"
+        case createdAt = "created_at"
+    }
+}
+
+nonisolated struct RelationshipEventDTO: Decodable, Sendable {
+    let id: String
+    let coupleID: String
+    let type: String
+    let sourceID: String
+    let title: String
+    let occurredAt: String
+    let provenance: [ProvenanceReference]
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, provenance
+        case coupleID = "couple_id"
+        case type = "event_type"
+        case sourceID = "source_id"
+        case occurredAt = "occurred_at"
+    }
+}
+
+nonisolated struct SeasonDTO: Decodable, Sendable {
+    let id: String
+    let coupleID: String
+    let sequence: Int
+    let startsAt: String
+    let cutoffAt: String
+    let title: String
+    let summary: String
+    let eventIDs: [String]
+    let provenance: [ProvenanceReference]
+    let createdAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, sequence, title, summary, provenance
+        case coupleID = "couple_id"
+        case startsAt = "starts_at"
+        case cutoffAt = "cutoff_at"
+        case eventIDs = "event_ids"
+        case createdAt = "created_at"
+    }
+}
+
+nonisolated struct ContextualSuggestionDTO: Decodable, Sendable {
+    let id: String
+    let coupleID: String
+    let kind: String
+    let relatedPlanID: String
+    let title: String
+    let proposedResponsibilityTitle: String
+    let proposedScheduledOn: String?
+    let evidence: SuggestionEvidence
+    let provenance: SuggestionProvenance
+    let createdAt: String
+    let isEligible: Bool
+    let confirmedResponsibilityID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, kind, title, evidence, provenance
+        case coupleID = "couple_id"
+        case relatedPlanID = "related_plan_id"
+        case proposedResponsibilityTitle =
+            "proposed_responsibility_title"
+        case proposedScheduledOn = "proposed_scheduled_on"
+        case createdAt = "created_at"
+        case isEligible = "is_eligible"
+        case confirmedResponsibilityID = "confirmed_responsibility_id"
+    }
+}
+
+nonisolated struct ContextualSuggestionDismissalDTO:
+    Decodable,
+    Sendable
+{
+    let suggestionID: String
+
+    enum CodingKeys: String, CodingKey {
+        case suggestionID = "suggestion_id"
+    }
+}
+
+nonisolated struct DeclineGraceDTO: Decodable, Sendable {
+    let insightID: String
+    let profileID: String
+    let declineCount: Int
+    let suppressUntil: String?
+
+    enum CodingKeys: String, CodingKey {
+        case insightID = "insight_id"
+        case profileID = "profile_id"
+        case declineCount = "decline_count"
+        case suppressUntil = "suppress_until"
+    }
+}
+
+nonisolated struct PartnerAnswerStatusDTO: Decodable, Sendable {
+    let insightID: String
+    let profileID: String
+    let hasAnswered: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case insightID = "insight_id"
+        case profileID = "profile_id"
+        case hasAnswered = "has_answered"
     }
 }
 
@@ -93,7 +292,8 @@ nonisolated struct RelationshipArchiveDTO: Decodable, Sendable {
         ownerID = try values.decode(String.self, forKey: .ownerID)
         endedAt = try values.decode(String.self, forKey: .endedAt)
         snapshotVersion = try values.decode(Int.self, forKey: .snapshotVersion)
-        snapshot = snapshotVersion == RelationshipArchiveSnapshot.currentVersion
+        snapshot = (1...RelationshipArchiveSnapshot.currentVersion)
+            .contains(snapshotVersion)
             ? try values.decode(
                 RelationshipArchiveSnapshot.self,
                 forKey: .snapshot
@@ -401,6 +601,115 @@ nonisolated struct CreateResponsibilityParameters: Encodable, Sendable {
         case title = "p_title"
         case note = "p_note"
         case ownerID = "p_owner"
+    }
+}
+
+nonisolated struct PresenceParameters: Encodable, Sendable {
+    let mode: String
+
+    enum CodingKeys: String, CodingKey {
+        case mode = "p_mode"
+    }
+}
+
+nonisolated struct SignalConsentParameters: Encodable, Sendable {
+    let signal: String
+    let enabled: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case signal = "p_signal"
+        case enabled = "p_enabled"
+    }
+}
+
+nonisolated struct CreateAnchorParameters: Encodable, Sendable {
+    let coupleID: String
+    let title: String
+    let note: String?
+    let cadence: String
+
+    enum CodingKeys: String, CodingKey {
+        case coupleID = "p_couple"
+        case title = "p_title"
+        case note = "p_note"
+        case cadence = "p_cadence"
+    }
+}
+
+nonisolated struct AnchorStatusParameters: Encodable, Sendable {
+    let anchorID: String
+    let isActive: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case anchorID = "p_anchor"
+        case isActive = "p_active"
+    }
+}
+
+nonisolated struct ApproachParameters: Encodable, Sendable {
+    let planID: String
+    let approach: String
+    let note: String?
+
+    enum CodingKeys: String, CodingKey {
+        case planID = "p_plan"
+        case approach = "p_approach"
+        case note = "p_note"
+    }
+}
+
+nonisolated struct OfferHandoffParameters: Encodable, Sendable {
+    let responsibilityID: String
+    let toProfileID: String
+
+    enum CodingKeys: String, CodingKey {
+        case responsibilityID = "p_responsibility"
+        case toProfileID = "p_to_profile"
+    }
+}
+
+nonisolated struct RespondHandoffParameters: Encodable, Sendable {
+    let handoffID: String
+    let accept: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case handoffID = "p_handoff"
+        case accept = "p_accept"
+    }
+}
+
+nonisolated struct HandoffParameters: Encodable, Sendable {
+    let handoffID: String
+
+    enum CodingKeys: String, CodingKey {
+        case handoffID = "p_handoff"
+    }
+}
+
+nonisolated struct ContextualSuggestionParameters: Encodable, Sendable {
+    let suggestionID: String
+
+    enum CodingKeys: String, CodingKey {
+        case suggestionID = "p_suggestion"
+    }
+}
+
+nonisolated struct ConfirmContextualSuggestionParameters:
+    Encodable,
+    Sendable
+{
+    let suggestionID: String
+    let title: String
+    let note: String?
+    let ownerID: String?
+    let scheduledOn: String?
+
+    enum CodingKeys: String, CodingKey {
+        case suggestionID = "p_suggestion"
+        case title = "p_title"
+        case note = "p_note"
+        case ownerID = "p_owner"
+        case scheduledOn = "p_scheduled_on"
     }
 }
 

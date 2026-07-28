@@ -31,6 +31,12 @@ struct LifeView: View {
                     )
                     .weArrival()
 
+                    AnchorsSection()
+                        .weArrival(order: 1)
+
+                    HandoffInbox()
+                        .weArrival(order: 2)
+
                     if !active.isEmpty {
                         carePromise
                             .weArrival(order: 1)
@@ -352,6 +358,19 @@ private struct ResponsibilityRow: View {
 
             Menu {
                 Button("Shape this care", systemImage: "pencil", action: onEdit)
+                if let partnerID {
+                    Button(
+                        "Offer to \(session.partnerName)",
+                        systemImage: "arrow.right"
+                    ) {
+                        Task {
+                            await session.offerHandoff(
+                                responsibilityID: item.id,
+                                toProfileID: partnerID
+                            )
+                        }
+                    }
+                }
                 Button("Settle into the Life Stream", systemImage: "sparkles") {
                     onStatus(.completed)
                 }
@@ -394,6 +413,12 @@ private struct ResponsibilityRow: View {
         }
         .sensoryFeedback(.impact(weight: .light), trigger: item.status)
         .animation(.weState, value: item.status)
+    }
+
+    private var partnerID: String? {
+        session.snapshot?.members.first {
+            $0.id != session.user?.id
+        }?.id
     }
 }
 
