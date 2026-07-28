@@ -24,17 +24,28 @@ struct LivingConfluencePromise: View {
     var body: some View {
         ZStack {
             Color.weCinematicInk.ignoresSafeArea()
+            promiseField
+                .ignoresSafeArea()
+            LinearGradient(
+                colors: [
+                    Color.weCinematicInk.opacity(0.7),
+                    Color.weCinematicInk.opacity(0.18),
+                    Color.weCinematicInk.opacity(0.7),
+                    Color.weCinematicInk.opacity(0.98),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
 
             VStack(spacing: 0) {
                 topBar
-                Spacer(minLength: 12)
-                promiseField
-                    .frame(maxWidth: 520, maxHeight: 430)
+                Spacer(minLength: 180)
                 copyBlock
                 action
-                Spacer(minLength: 24)
             }
             .padding(.horizontal, 24)
+            .padding(.bottom, 28)
         }
         .preferredColorScheme(.dark)
         .sensoryFeedback(.impact(weight: .light), trigger: hapticTrigger)
@@ -67,7 +78,8 @@ struct LivingConfluencePromise: View {
                     partnerHue: .sage,
                     connection: connection
                 )
-                .opacity(0.9)
+                .opacity(0.78)
+                .scaleEffect(1.25)
                 .offset(
                     x: parallax.width + dragOffset.width * 0.12,
                     y: parallax.height + dragOffset.height * 0.12
@@ -76,7 +88,10 @@ struct LivingConfluencePromise: View {
                 if beat == 0 {
                     Circle()
                         .fill(.white.opacity(0.001))
-                        .frame(width: min(proxy.size.width, 250), height: 250)
+                        .frame(
+                            width: min(proxy.size.width, 300),
+                            height: 300
+                        )
                         .contentShape(Circle())
                         .offset(dragOffset)
                         .gesture(
@@ -92,13 +107,6 @@ struct LivingConfluencePromise: View {
                         .accessibilityHint("Drag to feel your private side respond")
                 }
             }
-            .mask(
-                RoundedRectangle(cornerRadius: 42, style: .continuous)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: 42, style: .continuous)
-                    .stroke(.white.opacity(0.12))
-            }
             .animation(promiseAnimation, value: connection)
         }
         .accessibilityElement(children: voiceOverEnabled ? .ignore : .contain)
@@ -106,20 +114,20 @@ struct LivingConfluencePromise: View {
     }
 
     private var copyBlock: some View {
-        VStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             Text(copy[beat].1)
                 .font(.weLargeTitle)
                 .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
+                .multilineTextAlignment(.leading)
             Text(copy[beat].2)
                 .font(.body)
                 .foregroundStyle(.white.opacity(0.66))
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 430)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: 330, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .id(beat)
         .transition(.opacity)
-        .padding(.top, 22)
     }
 
     @ViewBuilder
@@ -133,10 +141,13 @@ struct LivingConfluencePromise: View {
                         "Complete the promise",
                         systemImage: "checkmark"
                     )
-                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .frame(maxWidth: .infinity, minHeight: 54)
                 }
-                .buttonStyle(.glassProminent)
-                .tint(WEHue.burgundy.controlColor)
+                .buttonStyle(.plain)
+                .background(
+                    WEHue.burgundy.controlColor,
+                    in: RoundedRectangle(cornerRadius: 17)
+                )
                 .accessibilityHint(
                     "Opens WE after the Private, Shared, and Mutual promise"
                 )
@@ -158,10 +169,13 @@ struct LivingConfluencePromise: View {
                                 : "Hold to join",
                         systemImage: joined ? "checkmark" : "hand.tap"
                     )
-                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .frame(maxWidth: .infinity, minHeight: 54)
                 }
-                .buttonStyle(.glassProminent)
-                .tint(WEHue.burgundy.controlColor)
+                .buttonStyle(.plain)
+                .background(
+                    WEHue.burgundy.controlColor,
+                    in: RoundedRectangle(cornerRadius: 17)
+                )
                 .simultaneousGesture(
                     LongPressGesture(
                         minimumDuration: reduceMotion ? 0.25 : 1.2
@@ -183,10 +197,13 @@ struct LivingConfluencePromise: View {
                 }
             } label: {
                 Label("Continue", systemImage: "arrow.right")
-                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .frame(maxWidth: .infinity, minHeight: 54)
             }
-            .buttonStyle(.glassProminent)
-            .tint(WEHue.burgundy.controlColor)
+            .buttonStyle(.plain)
+            .background(
+                WEHue.burgundy.controlColor,
+                in: RoundedRectangle(cornerRadius: 17)
+            )
             .padding(.top, 26)
         }
     }

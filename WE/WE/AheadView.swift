@@ -5,6 +5,7 @@ struct AheadView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsAdd = false
     @State private var editing: PlanItem?
+    @State private var approaching: PlanItem?
     let onProfile: () -> Void
 
     var body: some View {
@@ -28,9 +29,9 @@ struct AheadView: View {
                     if active.isEmpty {
                         EditorialEmptyState(
                             symbol: "sun.horizon",
-                            title: "The horizon is open.",
-                            message: "Hold an intention with a day, or let its timing keep forming.",
-                            actionTitle: session.canMutate ? "Hold an intention" : nil,
+                            title: "Something coming up?",
+                            message: "A plan, possibility, or day you want to keep in view.",
+                            actionTitle: session.canMutate ? "Add something ahead" : nil,
                             action: { showsAdd = true }
                         )
                         .weArrival(order: 2)
@@ -38,15 +39,17 @@ struct AheadView: View {
                         if let nextPlan = scheduled.first {
                             nextMilestoneCard(nextPlan)
                                 .weArrival(order: 2)
+                            approachCard(nextPlan)
+                                .weArrival(order: 3)
                         }
 
                         if !remainingScheduled.isEmpty {
                             planSection("Further out", plans: remainingScheduled)
-                                .weArrival(order: 3)
+                                .weArrival(order: 4)
                         }
                         if !unscheduled.isEmpty {
                             planSection("Still forming", plans: unscheduled)
-                                .weArrival(order: 4)
+                                .weArrival(order: 5)
                         }
                     }
                     SessionMessageView()
@@ -62,11 +65,12 @@ struct AheadView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showsAdd = true } label: { Image(systemName: "plus") }
                     .disabled(!session.canMutate)
-                    .accessibilityLabel("Hold a new intention")
+                    .accessibilityLabel("Add something ahead")
             }
         }
         .sheet(isPresented: $showsAdd) { PlanEditor() }
         .sheet(item: $editing) { PlanEditor(plan: $0) }
+        .sheet(item: $approaching) { ApproachEditor(plan: $0) }
         .animation(
             reduceMotion ? .easeOut(duration: 0.16) : .weState,
             value: active.map(\.id)
@@ -182,7 +186,125 @@ struct AheadView: View {
             )
         }
         .buttonStyle(WEPressableCardStyle())
-        .accessibilityHint("Opens this intention for editing")
+        .accessibilityHint("Opens this plan for editing")
+    }
+
+    private func approachCard(_ plan: PlanItem) -> some View {
+        let approach = session.v2State.approaches.first {
+            $0.planID == plan.id && $0.profileID == session.user?.id
+        }
+        let hasAnswered = approach != nil
+
+        return VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("THE APPROACH")
+                    .font(.weCaption)
+                    .tracking(1.6)
+                    .foregroundStyle(personalHue.color)
+                Spacer()
+                Text(
+                    (
+                        PlanDate.relativeDescription(plan.scheduledOn)
+                            ?? "COMING UP"
+                    ).uppercased()
+                )
+                .font(.weCaption)
+                .tracking(1.1)
+                .foregroundStyle(.white.opacity(0.48))
+            }
+
+            Text(
+                hasAnswered
+                    ? "You have named how to approach \(plan.title.lowercased())."
+                    : "\(plan.title) is coming into view. WE is starting the approach."
+            )
+            .font(.weTitle)
+            .foregroundStyle(.white)
+
+            approachBeat(
+                active: true,
+                complete: hasAnswered,
+                title: "One private question, each of you",
+                detail: hasAnswered
+                    ? "Held. Waiting for the other side."
+                    : "Opens before the plan. Neither answer is visible."
+            )
+            approachBeat(
+                active: hasAnswered,
+                complete: false,
+                title: "WE finds what you both want to protect",
+                detail: "Runs only when both answers are held."
+            )
+            approachBeat(
+                active: false,
+                complete: false,
+                title: "On the day: one card, nothing else",
+                detail: "The quality you agreed to protect, without logistics."
+            )
+
+            Button(
+                hasAnswered
+                    ? "Review my approach"
+                    : "Begin the approach"
+            ) {
+                approaching = plan
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(personalHue.controlColor)
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .disabled(!session.canMutate)
+
+            Text("WE runs this once per plan. No countdowns, reminders, or nudges in between.")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.4))
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            .white.opacity(0.065),
+            in: RoundedRectangle(cornerRadius: 22)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 22)
+                .stroke(.white.opacity(0.14))
+        }
+    }
+
+    private func approachBeat(
+        active: Bool,
+        complete: Bool,
+        title: String,
+        detail: String
+    ) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                Circle()
+                    .stroke(
+                        active
+                            ? personalHue.color
+                            : .white.opacity(0.25),
+                        lineWidth: 1.5
+                    )
+                    .frame(width: 12, height: 12)
+                if complete {
+                    Circle()
+                        .fill(personalHue.color)
+                        .frame(width: 7, height: 7)
+                }
+            }
+            .padding(.top, 3)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(
+                        active ? .white : .white.opacity(0.46)
+                    )
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.46))
+            }
+        }
     }
 
     private func planSection(_ title: String, plans: [PlanItem]) -> some View {
@@ -212,6 +334,7 @@ struct AheadView: View {
 
 private struct PlanRow: View {
     @EnvironmentObject private var session: AppSession
+    @State private var showsApproach = false
     let plan: PlanItem
     let onEdit: () -> Void
     let onStatus: (SharedItemStatus) -> Void
@@ -261,7 +384,13 @@ private struct PlanRow: View {
             Spacer(minLength: 4)
 
             Menu {
-                Button("Shape this intention", systemImage: "pencil", action: onEdit)
+                Button("Edit this plan", systemImage: "pencil", action: onEdit)
+                Button(
+                    "Choose an approach",
+                    systemImage: "arrow.trianglehead.merge"
+                ) {
+                    showsApproach = true
+                }
                 Button("Move into the Life Stream", systemImage: "sparkles") {
                     onStatus(.completed)
                 }
@@ -304,6 +433,9 @@ private struct PlanRow: View {
         }
         .sensoryFeedback(.impact(weight: .light), trigger: plan.status)
         .animation(.weState, value: plan.status)
+        .sheet(isPresented: $showsApproach) {
+            ApproachEditor(plan: plan)
+        }
     }
 
     private var personalHue: WEHue {
@@ -311,7 +443,7 @@ private struct PlanRow: View {
     }
 }
 
-private struct PlanEditor: View {
+struct PlanEditor: View {
     @EnvironmentObject private var session: AppSession
     @Environment(\.dismiss) private var dismiss
     var plan: PlanItem?
@@ -347,7 +479,7 @@ private struct PlanEditor: View {
                         Text("WHAT IS AHEAD")
                             .font(.weCaption)
                             .foregroundStyle(Color("WEFaint"))
-                        Text(plan == nil ? "New intention" : "Shape intention")
+                        Text(plan == nil ? "Something ahead" : "Edit plan")
                             .font(.weTitle)
                             .foregroundStyle(Color("WEInk"))
                     }
@@ -402,7 +534,7 @@ private struct PlanEditor: View {
                             VStack(spacing: 14) {
                                 Toggle(isOn: $isScheduled) {
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text("Hold a day")
+                                        Text("Add a date")
                                             .font(.weHeadline)
                                             .foregroundStyle(Color("WEInk"))
                                         Text(isScheduled ? "Coming into view" : "Let timing stay open")
@@ -449,7 +581,7 @@ private struct PlanEditor: View {
 
                         SessionMessageView()
 
-                        Button(plan == nil ? "Hold This Intention" : "Save Changes") {
+                        Button(plan == nil ? "Add Something Ahead" : "Save Changes") {
                             save()
                         }
                             .buttonStyle(WEPrimaryButtonStyle())

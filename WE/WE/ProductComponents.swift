@@ -41,16 +41,37 @@ struct ProductHeader: View {
 }
 
 struct WarmEditorialBackground: View {
+    @EnvironmentObject private var session: AppSession
+
     var body: some View {
         ZStack {
-            Color("WEBackground")
+            Color.weCinematicInk
             LinearGradient(
-                colors: [Color("WEBurgundy").opacity(0.055), .clear],
+                colors: [
+                    personalHue.atmosphereColor.opacity(0.14),
+                    .clear,
+                    partnerHue.atmosphereColor.opacity(0.08),
+                ],
                 startPoint: .topLeading,
-                endPoint: .center
+                endPoint: .bottomTrailing
             )
+            WEConfluenceForm(
+                personalHue: personalHue,
+                partnerHue: partnerHue,
+                connection: session.presenceMode == .together ? 1 : 0.72
+            )
+            .opacity(0.12)
+            .blendMode(.screen)
         }
         .ignoresSafeArea()
+    }
+
+    private var personalHue: WEHue {
+        session.snapshot?.membership.map { WEHue($0.hue) } ?? .burgundy
+    }
+
+    private var partnerHue: WEHue {
+        relationshipPartnerHue(session)
     }
 }
 

@@ -180,6 +180,9 @@ nonisolated struct ResponsibilityInput: Equatable, Sendable {
     let title: String
     let note: String?
     let owner: ResponsibilityOwner
+    var scheduledOn: String? = nil
+    var relatedPlanID: String? = nil
+    var suggestionProvenance: SuggestionProvenance? = nil
 }
 
 nonisolated struct Responsibility: Identifiable, Codable, Hashable, Sendable {
@@ -189,6 +192,9 @@ nonisolated struct Responsibility: Identifiable, Codable, Hashable, Sendable {
     let note: String?
     let ownerID: String?
     let owner: ResponsibilityOwner
+    var scheduledOn: String? = nil
+    var relatedPlanID: String? = nil
+    var suggestionProvenance: SuggestionProvenance? = nil
     let status: SharedItemStatus
     let completedAt: String?
     let createdBy: String?
@@ -212,6 +218,9 @@ nonisolated struct ArchivedResponsibility: Identifiable, Codable, Hashable, Send
     let title: String
     let note: String?
     let ownership: ResponsibilityOwner
+    var scheduledOn: String? = nil
+    var relatedPlanID: String? = nil
+    var suggestionProvenance: SuggestionProvenance? = nil
     let status: SharedItemStatus
     let completedAt: String?
     let updatedAt: String
@@ -228,11 +237,77 @@ nonisolated struct ArchivedResolution: Identifiable, Codable, Hashable, Sendable
 }
 
 nonisolated struct RelationshipArchiveSnapshot: Codable, Hashable, Sendable {
-    static let currentVersion = 1
+    static let currentVersion = 2
 
     let plans: [ArchivedPlan]
     let responsibilities: [ArchivedResponsibility]
     let resolutions: [ArchivedResolution]
+    var anchors: [Anchor] = []
+    var events: [RelationshipEvent] = []
+    var seasons: [Season] = []
+    var handoffs: [ResponsibilityHandoff] = []
+    var approaches: [PlanApproach] = []
+
+    enum CodingKeys: String, CodingKey {
+        case plans, responsibilities, resolutions, anchors, events, seasons
+        case handoffs, approaches
+    }
+
+    init(
+        plans: [ArchivedPlan],
+        responsibilities: [ArchivedResponsibility],
+        resolutions: [ArchivedResolution],
+        anchors: [Anchor] = [],
+        events: [RelationshipEvent] = [],
+        seasons: [Season] = [],
+        handoffs: [ResponsibilityHandoff] = [],
+        approaches: [PlanApproach] = []
+    ) {
+        self.plans = plans
+        self.responsibilities = responsibilities
+        self.resolutions = resolutions
+        self.anchors = anchors
+        self.events = events
+        self.seasons = seasons
+        self.handoffs = handoffs
+        self.approaches = approaches
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        plans = try values.decodeIfPresent(
+            [ArchivedPlan].self,
+            forKey: .plans
+        ) ?? []
+        responsibilities = try values.decodeIfPresent(
+            [ArchivedResponsibility].self,
+            forKey: .responsibilities
+        ) ?? []
+        resolutions = try values.decodeIfPresent(
+            [ArchivedResolution].self,
+            forKey: .resolutions
+        ) ?? []
+        anchors = try values.decodeIfPresent(
+            [Anchor].self,
+            forKey: .anchors
+        ) ?? []
+        events = try values.decodeIfPresent(
+            [RelationshipEvent].self,
+            forKey: .events
+        ) ?? []
+        seasons = try values.decodeIfPresent(
+            [Season].self,
+            forKey: .seasons
+        ) ?? []
+        handoffs = try values.decodeIfPresent(
+            [ResponsibilityHandoff].self,
+            forKey: .handoffs
+        ) ?? []
+        approaches = try values.decodeIfPresent(
+            [PlanApproach].self,
+            forKey: .approaches
+        ) ?? []
+    }
 }
 
 nonisolated struct RelationshipArchive: Identifiable, Codable, Hashable, Sendable {
@@ -254,4 +329,7 @@ nonisolated struct RelationshipSnapshot: Codable, Hashable, Sendable {
     let responsibilities: [Responsibility]
     let archives: [RelationshipArchive]
     let syncedAt: Date
+    var v2: V2RelationshipState? = nil
+
+    var v2State: V2RelationshipState { v2 ?? .empty }
 }

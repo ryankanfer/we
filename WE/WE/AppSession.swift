@@ -77,6 +77,36 @@ final class AppSession: ObservableObject {
         snapshot?.responsibilities ?? []
     }
     var archives: [RelationshipArchive] { snapshot?.archives ?? [] }
+    var v2State: V2RelationshipState { snapshot?.v2State ?? .empty }
+    var presenceMode: PresenceMode {
+        v2State.presence?.mode ?? .apart
+    }
+    var anchors: [Anchor] { v2State.anchors }
+    var handoffs: [ResponsibilityHandoff] { v2State.handoffs }
+    var relationshipEvents: [RelationshipEvent] { v2State.events }
+    var seasons: [Season] { v2State.seasons }
+    var hasUnlockedAhead: Bool { !plans.isEmpty }
+    var hasUnlockedThread: Bool { !relationshipEvents.isEmpty }
+
+    var contextualSuggestions: [ContextualSuggestion] {
+        let persisted = v2State.suggestions.filter(\.isAvailable)
+        if !v2State.suggestions.isEmpty { return persisted }
+        return ContextualSuggestionEngine.partyGroceries(
+            plans: plans,
+            responsibilities: responsibilities
+        )
+    }
+
+    var seasonReadiness: SeasonReadiness {
+        let cutoff = seasons.last.flatMap {
+            ISO8601DateFormatter.we.date(from: $0.cutoffAt)
+        }
+        return SeasonReadiness.evaluate(
+            events: relationshipEvents,
+            after: cutoff,
+            now: Date()
+        )
+    }
 
     var isReady: Bool { state == .ready }
     var canMutate: Bool { connectionState == .online && !isWorking }
@@ -319,6 +349,109 @@ final class AppSession: ObservableObject {
         }
     }
 
+    func setPresence(_ mode: PresenceMode) async {
+        await perform { try await self.repository.setPresence(mode) }
+    }
+
+    func setSignalConsent(
+        _ signal: SignalKind,
+        enabled: Bool
+    ) async {
+        await perform {
+            try await self.repository.setSignalConsent(
+                signal,
+                enabled: enabled
+            )
+        }
+    }
+
+    func createAnchor(_ input: AnchorInput) async {
+        guard let coupleID = snapshot?.membership?.coupleID else { return }
+        await perform {
+            try await self.repository.createAnchor(input, coupleID: coupleID)
+        }
+    }
+
+    func setAnchorActive(id: String, isActive: Bool) async {
+        await perform {
+            try await self.repository.setAnchorActive(
+                id: id,
+                isActive: isActive
+            )
+        }
+    }
+
+    func offerHandoff(
+        responsibilityID: String,
+        toProfileID: String
+    ) async {
+        await perform {
+            try await self.repository.offerHandoff(
+                responsibilityID: responsibilityID,
+                toProfileID: toProfileID
+            )
+        }
+    }
+
+    func respondToHandoff(id: String, accept: Bool) async {
+        await perform {
+            try await self.repository.respondToHandoff(
+                id: id,
+                accept: accept
+            )
+        }
+    }
+
+    func withdrawHandoff(id: String) async {
+        await perform {
+            try await self.repository.withdrawHandoff(id: id)
+        }
+    }
+
+    func setApproach(
+        planID: String,
+        approach: ApproachKind,
+        note: String?
+    ) async {
+        await perform {
+            try await self.repository.setApproach(
+                planID: planID,
+                approach: approach,
+                note: note
+            )
+        }
+    }
+
+    func dismissContextualSuggestion(id: String) async {
+        await perform {
+            try await self.repository.dismissContextualSuggestion(id: id)
+        }
+        if errorMessage == nil {
+            noticeMessage = "“Not useful” stays private."
+        }
+    }
+
+    func confirmContextualSuggestion(
+        _ confirmation: SuggestionConfirmation
+    ) async {
+        await perform {
+            try await self.repository.confirmContextualSuggestion(
+                SuggestionConfirmation(
+                    suggestionID: confirmation.suggestionID,
+                    title: confirmation.title,
+                    note: confirmation.note,
+                    owner: confirmation.owner,
+                    scheduledOn: confirmation.scheduledOn,
+                    ownerID: self.ownerID(for: confirmation.owner)
+                )
+            )
+        }
+    }
+
+    func createReadySeason() async {
+        await perform { try await self.repository.createReadySeason() }
+    }
+
     func saveReflection(text: String) async {
         guard let user,
               let coupleID = snapshot?.membership?.coupleID else { return }
@@ -394,9 +527,26 @@ final class AppSession: ObservableObject {
         )
     }
 
+    func questionAction(for record: InsightRecord) -> QuestionPrimaryAction {
+        guard let user else {
+            return .hold(partnerName: "your partner")
+        }
+        let partnerHasAnswered = record.responses.contains {
+            $0.profileID != user.id
+                && ($0.status == .submitted || $0.status == .revealed)
+        }
+        return partnerHasAnswered
+            ? .openTogether(partnerName: partnerName)
+            : .hold(partnerName: partnerName)
+    }
+
     func clearMessages() {
         errorMessage = nil
         noticeMessage = nil
+    }
+
+    func suspend() {
+        stopObservingRelationship()
     }
 
     private func working(
@@ -517,6 +667,12 @@ final class AppSession: ObservableObject {
         case .together:
             nil
         }
+    }
+
+    var partnerName: String {
+        guard let user else { return "Your partner" }
+        return snapshot?.members.first { $0.id != user.id }?.name
+            ?? "Your partner"
     }
 
     private func observeRelationshipIfNeeded() {

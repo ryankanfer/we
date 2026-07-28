@@ -1,7 +1,7 @@
 import Foundation
 
 nonisolated struct CachedRelationship: Codable, Sendable {
-    static let currentVersion = 1
+    static let currentVersion = 2
 
     let version: Int
     let snapshot: RelationshipSnapshot

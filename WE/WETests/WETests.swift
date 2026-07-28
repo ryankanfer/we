@@ -586,4 +586,422 @@ struct WETests {
         #expect(session.state == .signedOut)
         #expect(try await cache.load(userID: PreviewData.user.id) == nil)
     }
+
+    @Test
+    func partySuggestionIsDeterministicAuditableAndDateAware() throws {
+        for term in ContextualSuggestionEngine.partyTerms {
+            let plan = testPlan(
+                id: "plan-\(term)",
+                title: "Saturday \(term)",
+                scheduledOn: "2026-08-09"
+            )
+            let suggestion = try #require(
+                ContextualSuggestionEngine.partyGroceries(
+                    plans: [plan],
+                    responsibilities: [],
+                    now: testDate("2026-07-27T12:00:00Z")
+                ).first
+            )
+
+            #expect(suggestion.title == "Add a grocery run to the shared list?")
+            #expect(suggestion.proposedResponsibilityTitle == "Grocery run")
+            #expect(suggestion.proposedScheduledOn == "2026-08-08")
+            #expect(suggestion.relatedPlanID == plan.id)
+            #expect(suggestion.evidence.context == "For \(plan.title)")
+            #expect(suggestion.evidence.sharedInputs == suggestion.provenance.references)
+            #expect(
+                suggestion.provenance.references.allSatisfy {
+                    $0.shared
+                }
+            )
+        }
+    }
+
+    @Test
+    func partySuggestionRespectsDismissalAndRelatedCare() {
+        let plan = testPlan(
+            id: "party-plan",
+            title: "A gathering at home",
+            scheduledOn: "2026-08-09"
+        )
+        let existing = Responsibility(
+            id: "care",
+            coupleID: "preview-couple",
+            title: "Pick up food",
+            note: nil,
+            ownerID: nil,
+            owner: .together,
+            relatedPlanID: plan.id,
+            status: .active,
+            completedAt: nil,
+            createdBy: "ryan",
+            updatedBy: "ryan",
+            createdAt: "2026-07-27T12:00:00Z",
+            updatedAt: "2026-07-27T12:00:00Z"
+        )
+
+        #expect(
+            ContextualSuggestionEngine.partyGroceries(
+                plans: [plan],
+                responsibilities: [existing]
+            ).isEmpty
+        )
+        #expect(
+            ContextualSuggestionEngine.partyGroceries(
+                plans: [plan],
+                responsibilities: [],
+                dismissedPlanIDs: [plan.id]
+            ).isEmpty
+        )
+    }
+
+    @Test
+    func questionActionsReflectBothAnswerOrders() async throws {
+        let session = AppSession(
+            repository: PreviewRepository(),
+            cache: InMemoryRelationshipCache(),
+            connectivity: ConnectivityMonitor(startImmediately: false)
+        )
+        await session.restoreIfNeeded()
+        let answered = try #require(
+            session.insightRecords.first {
+                $0.id == "saturday-plan"
+            }
+        )
+        let unanswered = InsightRecord(
+            insight: answered.insight,
+            consent: answered.consent,
+            responses: [],
+            dismissedBy: [],
+            declinedBy: []
+        )
+
+        #expect(
+            session.questionAction(for: unanswered)
+                == .hold(partnerName: "Dylan")
+        )
+        #expect(
+            session.questionAction(for: unanswered).title
+                == "Hold my answer"
+        )
+        #expect(
+            session.questionAction(for: unanswered).explanation
+                == "Your answer stays private until Dylan answers."
+        )
+        #expect(
+            session.questionAction(for: answered)
+                == .openTogether(partnerName: "Dylan")
+        )
+        #expect(
+            session.questionAction(for: answered).explanation
+                == "Dylan has answered. Continuing opens the shared result on both sides."
+        )
+    }
+
+    @Test
+    func seasonReadinessEnforcesEveryBoundary() throws {
+        let sixEvents = [
+            testEvent(1, at: "2026-02-06T12:00:00Z", type: .planCompleted),
+            testEvent(2, at: "2026-02-10T12:00:00Z", type: .planCompleted),
+            testEvent(3, at: "2026-02-15T12:00:00Z", type: .planCompleted),
+            testEvent(
+                4,
+                at: "2026-03-01T12:00:00Z",
+                type: .responsibilityCompleted
+            ),
+            testEvent(
+                5,
+                at: "2026-03-05T12:00:00Z",
+                type: .responsibilityCompleted
+            ),
+            testEvent(
+                6,
+                at: "2026-03-10T12:00:00Z",
+                type: .responsibilityCompleted
+            ),
+        ]
+
+        #expect(
+            SeasonReadiness.evaluate(
+                events: sixEvents,
+                after: nil,
+                now: testDate("2026-03-19T12:00:00Z")
+            ) == .needsTime(weeksRemaining: 1)
+        )
+        #expect(
+            SeasonReadiness.evaluate(
+                events: Array(sixEvents.prefix(5)),
+                after: nil,
+                now: testDate("2026-04-01T12:00:00Z")
+            ) == .needsEntries(countRemaining: 1)
+        )
+
+        let oneType = sixEvents.map {
+            testEvent(
+                Int($0.id.dropFirst()) ?? 0,
+                at: $0.occurredAt,
+                type: .planCompleted
+            )
+        }
+        #expect(
+            SeasonReadiness.evaluate(
+                events: oneType,
+                after: nil,
+                now: testDate("2026-04-01T12:00:00Z")
+            ) == .needsEventVariety(typesRemaining: 1)
+        )
+
+        let oneMonth = (1 ... 6).map {
+            testEvent(
+                $0,
+                at: "2026-02-\(String(format: "%02d", $0 + 1))T12:00:00Z",
+                type: $0.isMultiple(of: 2)
+                    ? .planCompleted
+                    : .responsibilityCompleted
+            )
+        }
+        #expect(
+            SeasonReadiness.evaluate(
+                events: oneMonth,
+                after: nil,
+                now: testDate("2026-04-01T12:00:00Z")
+            ) == .needsCalendarBreadth(monthsRemaining: 1)
+        )
+
+        guard case .ready(let eventIDs, _) = SeasonReadiness.evaluate(
+            events: sixEvents,
+            after: nil,
+            now: testDate("2026-03-20T12:00:00Z")
+        ) else {
+            Issue.record("Six weeks, entries, types, and months should be ready")
+            return
+        }
+        #expect(eventIDs == sixEvents.map(\.id))
+    }
+
+    @Test
+    func laterSeasonUsesOnlyEventsAfterPreviousCutoff() {
+        let older = (1 ... 6).map {
+            testEvent(
+                $0,
+                at: "2026-02-\(String(format: "%02d", $0 + 1))T12:00:00Z",
+                type: $0.isMultiple(of: 2)
+                    ? .planCompleted
+                    : .responsibilityCompleted
+            )
+        }
+        let newerDates = [
+            "2026-04-01T12:00:00Z",
+            "2026-04-08T12:00:00Z",
+            "2026-04-15T12:00:00Z",
+            "2026-05-01T12:00:00Z",
+            "2026-05-08T12:00:00Z",
+            "2026-05-12T12:00:00Z",
+        ]
+        let newer = newerDates.enumerated().map {
+            testEvent(
+                $0.offset + 10,
+                at: $0.element,
+                type: $0.offset.isMultiple(of: 2)
+                    ? .planCompleted
+                    : .mutualResolution
+            )
+        }
+
+        guard case .ready(let eventIDs, _) = SeasonReadiness.evaluate(
+            events: older + newer,
+            after: testDate("2026-03-01T12:00:00Z"),
+            now: testDate("2026-05-13T12:00:00Z")
+        ) else {
+            Issue.record("Post-cutoff events independently satisfy a season")
+            return
+        }
+        #expect(eventIDs == newer.map(\.id))
+    }
+
+    @Test
+    func simulationSharesStateButKeepsDismissalsPrivate() async throws {
+        let store = SimulationStore()
+        let initial = await store.load(viewer: .ryan)
+        let suggestion = try #require(initial.v2State.suggestions.first)
+        let heldPartnerAnswer = try #require(
+            initial.insights.first {
+                $0.id == "saturday-plan"
+            }?.responses.first {
+                $0.profileID == "dylan"
+            }
+        )
+        #expect(heldPartnerAnswer.status == .submitted)
+        #expect(heldPartnerAnswer.choice == nil)
+        #expect(heldPartnerAnswer.note == nil)
+
+        await store.dismissSuggestion(id: suggestion.id, viewer: .ryan)
+        let ryan = await store.load(viewer: .ryan)
+        let dylan = await store.load(viewer: .dylan)
+        #expect(
+            ryan.v2State.suggestions.first?.dismissedForViewer == true
+        )
+        #expect(
+            dylan.v2State.suggestions.first?.dismissedForViewer == false
+        )
+
+        await store.createPlan(
+            PlanInput(
+                title: "A day at the lake",
+                note: nil,
+                scheduledOn: nil
+            ),
+            viewer: .dylan
+        )
+        let seenByRyan = await store.load(viewer: .ryan)
+        #expect(
+            seenByRyan.plans.contains {
+                $0.title == "A day at the lake"
+            }
+        )
+
+        let planID = try #require(initial.plans.first?.id)
+        await store.setApproach(
+            planID: planID,
+            approach: .gently,
+            note: "Start softly",
+            viewer: .ryan
+        )
+        let privateForDylan = await store.load(viewer: .dylan)
+        #expect(
+            privateForDylan.v2State.approaches.allSatisfy {
+                $0.profileID != "ryan"
+            }
+        )
+        await store.setApproach(
+            planID: planID,
+            approach: .directly,
+            note: nil,
+            viewer: .dylan
+        )
+        let mutualForRyan = await store.load(viewer: .ryan)
+        #expect(
+            mutualForRyan.v2State.approaches.filter {
+                $0.planID == planID && $0.revealedAt != nil
+            }.count == 2
+        )
+    }
+
+    @Test
+    func dismissedSimulationSuggestionDoesNotReappearFromFallback()
+        async throws
+    {
+        let store = SimulationStore()
+        let session = AppSession(
+            repository: SimulationRepository(
+                store: store,
+                viewer: .ryan
+            ),
+            cache: InMemoryRelationshipCache(),
+            connectivity: ConnectivityMonitor(startImmediately: false)
+        )
+        await session.restoreIfNeeded()
+        let suggestion = try #require(session.contextualSuggestions.first)
+
+        await session.dismissContextualSuggestion(id: suggestion.id)
+
+        #expect(session.contextualSuggestions.isEmpty)
+        #expect(session.v2State.suggestions.first?.dismissedForViewer == true)
+    }
+
+    @Test
+    func allTenHueControlsKeepWhiteTextAtAAContrast() {
+        #expect(WEHue.allCases.count == 10)
+        for hue in WEHue.allCases {
+            #expect(
+                whiteContrastRatio(on: hue.controlComponents) >= 4.5,
+                Comment(
+                    rawValue:
+                        "\(hue.name) must remain contrast-safe for controls"
+                )
+            )
+        }
+    }
+
+    @Test
+    func protectedCacheRoundTripsV2RelationshipState() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = FileRelationshipCache(directory: directory)
+        let snapshot = await SimulationStore().load(viewer: .ryan)
+
+        try await cache.save(snapshot, userID: "simulation-cache")
+        let restored = try #require(
+            try await cache.load(userID: "simulation-cache")
+        )
+
+        #expect(restored.version == 2)
+        #expect(restored.snapshot.v2State == snapshot.v2State)
+        #expect(restored.snapshot.responsibilities == snapshot.responsibilities)
+    }
+
+    private func testPlan(
+        id: String,
+        title: String,
+        scheduledOn: String?
+    ) -> PlanItem {
+        PlanItem(
+            id: id,
+            coupleID: "preview-couple",
+            title: title,
+            note: nil,
+            scheduledOn: scheduledOn,
+            status: .active,
+            completedAt: nil,
+            createdBy: "ryan",
+            updatedBy: "ryan",
+            createdAt: "2026-07-27T12:00:00Z",
+            updatedAt: "2026-07-27T12:00:00Z"
+        )
+    }
+
+    private func testEvent(
+        _ number: Int,
+        at occurredAt: String,
+        type: RelationshipEventType
+    ) -> RelationshipEvent {
+        RelationshipEvent(
+            id: "e\(number)",
+            coupleID: "preview-couple",
+            type: type,
+            sourceID: "source-\(number)",
+            title: "Shared event \(number)",
+            occurredAt: occurredAt,
+            provenance: [
+                ProvenanceReference(
+                    kind: type == .responsibilityCompleted
+                        ? .responsibility
+                        : .plan,
+                    id: "source-\(number)",
+                    label: "Shared event \(number)",
+                    shared: true
+                ),
+            ]
+        )
+    }
+
+    private func testDate(_ value: String) -> Date {
+        ISO8601DateFormatter.we.date(from: value)!
+    }
+
+    private func whiteContrastRatio(
+        on rgb: (red: Double, green: Double, blue: Double)
+    ) -> Double {
+        let luminance = 0.2126 * linearized(rgb.red)
+            + 0.7152 * linearized(rgb.green)
+            + 0.0722 * linearized(rgb.blue)
+        return 1.05 / (luminance + 0.05)
+    }
+
+    private func linearized(_ value: Double) -> Double {
+        value <= 0.04045
+            ? value / 12.92
+            : pow((value + 0.055) / 1.055, 2.4)
+    }
 }

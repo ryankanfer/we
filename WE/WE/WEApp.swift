@@ -3,24 +3,13 @@ import SwiftUI
 @main
 struct WEApp: App {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @StateObject private var session: AppSession
+    @StateObject private var host: SessionHost
     @AppStorage("hasSeenLivingConfluencePromise")
     private var hasSeenPromise = false
     @State private var isReplayingPromise = false
 
     init() {
-        let environment = AppEnvironment.current
-        let isOfflinePreview = environment.repositoryMode == .preview
-            && environment.previewScenario == .offline
-        _session = StateObject(
-            wrappedValue: AppSession(
-                repository: RepositoryFactory.make(environment: environment),
-                connectivity: ConnectivityMonitor(
-                    startImmediately: !isOfflinePreview,
-                    initiallyOnline: !isOfflinePreview
-                )
-            )
-        )
+        _host = StateObject(wrappedValue: SessionHost())
     }
 
     var body: some Scene {
@@ -29,7 +18,8 @@ struct WEApp: App {
                 ContentView {
                     isReplayingPromise = true
                 }
-                .environmentObject(session)
+                .environmentObject(host.session)
+                .environmentObject(host)
                 .accessibilityHidden(showsPromise)
                 .allowsHitTesting(!showsPromise)
 
@@ -47,10 +37,10 @@ struct WEApp: App {
                 value: showsPromise
             )
             .task {
-                await session.restoreIfNeeded()
+                await host.restore()
             }
             .onOpenURL { url in
-                Task { await session.handleAuthCallback(url) }
+                Task { await host.session.handleAuthCallback(url) }
             }
         }
     }
