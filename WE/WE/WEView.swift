@@ -3,7 +3,6 @@ import SwiftUI
 struct WEView: View {
     @EnvironmentObject private var session: AppSession
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var holdsSomething = false
     @State private var passesPhone = false
     @State private var selectedMomentID = ""
@@ -13,33 +12,46 @@ struct WEView: View {
         ZStack {
             WEAtmosphere()
 
-            VStack(spacing: 0) {
-                header
-                    .padding(.horizontal, 20)
-                    .padding(.top, 10)
-                    .weArrival()
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 24) {
+                    header
+                        .weArrival()
 
-                PresenceControl()
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 6)
-
-                if activeMoments.isEmpty {
-                    emptyState
+                    PresenceControl()
                         .weArrival(order: 1)
-                } else {
-                    TabView(selection: $selectedMomentID) {
-                        ForEach(activeMoments) { record in
-                            SharedMomentPage(record: record)
-                                .tag(record.id)
-                        }
-                    }
-                    .tabViewStyle(.page(indexDisplayMode: .never))
 
-                    momentIndex
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 10)
+                    if session.presenceMode == .together {
+                        togetherStateCard
+                            .weArrival(order: 2)
+                    } else if session.presenceMode == .away {
+                        awayStateCard
+                            .weArrival(order: 2)
+                    } else if activeMoments.isEmpty {
+                        emptyState
+                            .weArrival(order: 2)
+                    } else {
+                        activeMomentsSection
+                            .weArrival(order: 2)
+                    }
+
+                    if session.presenceMode != .together {
+                        if let suggestion =
+                            session.contextualSuggestions.first {
+                            ContextualSuggestionCard(suggestion: suggestion)
+                        }
+
+                        if case .ready = session.seasonReadiness {
+                            SeasonReadyCard()
+                        }
+
+                        HorizonGlimpse()
+
+                        quietActions
+                    }
                 }
+                .padding(.horizontal, 20)
+                .padding(.top, 14)
+                .padding(.bottom, 32)
             }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -94,52 +106,30 @@ struct WEView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(personalHue.color.opacity(0.72))
-                    .frame(width: 16, height: 16)
-                    .offset(x: -3.5)
-                Circle()
-                    .fill(
-                        relationshipPartnerHue(session).color.opacity(0.72)
-                    )
-                    .frame(width: 16, height: 16)
-                    .offset(x: 3.5)
-            }
-            .frame(width: 28, height: 16)
-            .accessibilityHidden(true)
+        HStack(spacing: 14) {
+            WEMark(
+                style: .compact,
+                showsWordmark: false,
+                personalHue: personalHue,
+                partnerHue: relationshipPartnerHue(session)
+            )
 
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text("WE")
-                    .font(.headline)
+                    .font(.weTitle)
                     .foregroundStyle(.white)
                 Text(partnershipLine)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.68))
+                    .font(.weSubheadline)
+                    .foregroundStyle(.white.opacity(0.64))
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer()
 
-            Button {
-                holdsSomething = true
-            } label: {
-                Image(systemName: "lock.fill")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(.white.opacity(0.08), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!session.canMutate)
-            .accessibilityLabel("Hold something privately")
-            .accessibilityHint("Starts a reflection that stays on your side")
-
             Button(action: onProfile) {
                 ZStack {
                     Circle()
-                        .fill(personalHue.atmosphereColor)
+                        .fill(personalHue.atmosphereColor.opacity(0.9))
                         .frame(width: 44, height: 44)
                         .overlay(
                             Circle()
@@ -157,130 +147,260 @@ struct WEView: View {
         }
     }
 
-    private var emptyState: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                WEMark(
-                    style: .display,
-                    personalHue: personalHue,
-                    partnerHue: relationshipPartnerHue(session),
-                    accessibilityText: "WE"
-                )
+    private var togetherStateCard: some View {
+        VStack(spacing: 14) {
+            WEMark(
+                style: .display,
+                personalHue: personalHue,
+                partnerHue: relationshipPartnerHue(session),
+                accessibilityText: "Together"
+            )
 
-                VStack(spacing: 8) {
-                    Text(
-                        session.presenceMode == .together
-                            ? "Be here together."
-                            : "Nothing needs an answer."
-                    )
-                    .font(.weLargeTitle)
+            VStack(spacing: 6) {
+                Text("Be here together.")
+                    .font(.weTitle)
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
 
-                    Text(
-                        session.presenceMode == .together
-                            ? PresenceMode.together.detail
-                            : "The next shared moment will appear when there is something useful to decide together."
-                    )
-                    .font(.weBody)
-                    .foregroundStyle(.white.opacity(0.72))
+                Text("WE goes quiet and holds everything for later. No active prompts or decisions will interrupt your time together.")
+                    .font(.weSubheadline)
+                    .foregroundStyle(.white.opacity(0.76))
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: 360)
-                }
-
-                if session.presenceMode != .together {
-                    if let suggestion =
-                        session.contextualSuggestions.first {
-                        ContextualSuggestionCard(suggestion: suggestion)
-                    }
-
-                    if case .ready = session.seasonReadiness {
-                        SeasonReadyCard()
-                    }
-
-                    HorizonGlimpse()
-
-                    quietActionsLayout {
-                        Button {
-                            holdsSomething = true
-                        } label: {
-                            Label("Hold privately", systemImage: "lock.fill")
-                                .fixedSize(
-                                    horizontal: false,
-                                    vertical: true
-                                )
-                                .frame(
-                                    maxWidth: .infinity,
-                                    minHeight: 48
-                                )
-                        }
-                        .buttonStyle(WESecondaryButtonStyle(tintColor: personalHue.atmosphereColor))
-                        .disabled(!session.canMutate)
-
-                        Button {
-                            passesPhone = true
-                        } label: {
-                            Label(
-                                "Pass the phone",
-                                systemImage: "iphone.gen3"
-                            )
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, minHeight: 48)
-                        }
-                        .buttonStyle(WESecondaryButtonStyle(tintColor: personalHue.atmosphereColor))
-                    }
-                }
-
-                Spacer(minLength: 24)
+                    .frame(maxWidth: 320)
             }
-            .padding(24)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity)
+        .background(
+            .white.opacity(0.06),
+            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(personalHue.atmosphereColor.opacity(0.3), lineWidth: 1)
+        )
+    }
+
+    private var awayStateCard: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "airplane")
+                .font(.title2.weight(.medium))
+                .foregroundStyle(personalHue.atmosphereColor)
+                .frame(width: 44, height: 44)
+                .background(.white.opacity(0.08), in: Circle())
+
+            VStack(spacing: 6) {
+                Text("One of you is away.")
+                    .font(.weTitle)
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+
+                Text("Timing widens gently while you are apart. Shared moments wait safely until you reconnect.")
+                    .font(.weSubheadline)
+                    .foregroundStyle(.white.opacity(0.76))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 320)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity)
+        .background(
+            .white.opacity(0.06),
+            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(.white.opacity(0.12), lineWidth: 1)
+        )
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 14) {
+            WEMark(
+                style: .display,
+                personalHue: personalHue,
+                partnerHue: relationshipPartnerHue(session),
+                accessibilityText: "WE"
+            )
+
+            VStack(spacing: 6) {
+                Text("Nothing needs an answer.")
+                    .font(.weTitle)
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+
+                Text("The next shared moment will appear when there is something useful to decide together.")
+                    .font(.weSubheadline)
+                    .foregroundStyle(.white.opacity(0.76))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 320)
+            }
+        }
+        .padding(.vertical, 14)
+    }
+
+    @ViewBuilder
+    private var activeMomentsSection: some View {
+        if let selectedMoment {
+            VStack(spacing: 12) {
+                SharedMomentPage(record: selectedMoment)
+                    .id(selectedMoment.id)
+                    .transition(.opacity)
+
+                if activeMoments.count > 1 {
+                    momentIndex
+                }
+            }
+            .animation(
+                reduceMotion ? nil : .weState,
+                value: selectedMomentID
+            )
         }
     }
 
-    private var quietActionsLayout: AnyLayout {
-        if dynamicTypeSize.isAccessibilitySize {
-            AnyLayout(VStackLayout(spacing: 12))
-        } else {
-            AnyLayout(HStackLayout(spacing: 12))
+    private var selectedMoment: InsightRecord? {
+        activeMoments.first { $0.id == selectedMomentID }
+            ?? activeMoments.first
+    }
+
+    private var quietActions: some View {
+        VStack(spacing: 10) {
+            quietAction(
+                title: "Hold privately",
+                detail: "Stays on your side",
+                systemImage: "lock.fill"
+            ) {
+                holdsSomething = true
+            }
+            .disabled(!session.canMutate)
+
+            quietAction(
+                title: "Pass the phone",
+                detail: "Share this screen",
+                systemImage: "iphone.gen3"
+            ) {
+                passesPhone = true
+            }
         }
+        .weArrival(order: 4)
+    }
+
+    private func quietAction(
+        title: String,
+        detail: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 11) {
+                Image(systemName: systemImage)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(personalHue.atmosphereColor)
+                    .frame(width: 34, height: 34)
+                    .background(.white.opacity(0.06), in: Circle())
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                    Text(detail)
+                        .font(.weMeta)
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: 58)
+            .background(
+                .white.opacity(0.045),
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(.white.opacity(0.08), lineWidth: 1)
+            }
+        }
+        .buttonStyle(WEPressableCardStyle())
     }
 
     private var momentIndex: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
+            Button {
+                selectMoment(offset: -1)
+            } label: {
+                Image(systemName: "chevron.left")
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.white.opacity(selectedMomentNumber > 1 ? 0.8 : 0.24))
+            .disabled(selectedMomentNumber <= 1)
+            .accessibilityLabel("Previous shared moment")
+
             HStack(spacing: 7) {
                 ForEach(activeMoments) { record in
-                    Capsule()
-                        .fill(
-                            record.id == selectedMomentID
-                                ? .white
-                                : .white.opacity(0.28)
-                        )
-                        .frame(
-                            width: record.id == selectedMomentID ? 22 : 7,
-                            height: 7
-                        )
-                        .animation(
-                            reduceMotion ? nil : .weState,
-                            value: selectedMomentID
-                        )
+                    Button {
+                        selectedMomentID = record.id
+                    } label: {
+                        Capsule()
+                            .fill(
+                                record.id == selectedMomentID
+                                    ? .white
+                                    : .white.opacity(0.28)
+                            )
+                            .frame(
+                                width: record.id == selectedMomentID ? 22 : 7,
+                                height: 7
+                            )
+                            .frame(minWidth: 16, minHeight: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        "Shared moment \(momentNumber(for: record))"
+                    )
+                    .accessibilityAddTraits(
+                        record.id == selectedMomentID ? .isSelected : []
+                    )
                 }
             }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Shared moments")
-            .accessibilityValue(
-                "\(selectedMomentNumber) of \(activeMoments.count)"
-            )
 
             Spacer()
 
-            if activeMoments.count > 1 {
-                Text("\(activeMoments.count) moments")
-                    .font(.weMeta)
-                    .tracking(0.8)
-                    .foregroundStyle(.white.opacity(0.62))
+            Text("\(selectedMomentNumber) of \(activeMoments.count)")
+                .font(.weMeta)
+                .tracking(0.8)
+                .foregroundStyle(.white.opacity(0.58))
+
+            Button {
+                selectMoment(offset: 1)
+            } label: {
+                Image(systemName: "chevron.right")
+                    .frame(width: 44, height: 44)
             }
+            .buttonStyle(.plain)
+            .foregroundStyle(
+                .white.opacity(
+                    selectedMomentNumber < activeMoments.count ? 0.8 : 0.24
+                )
+            )
+            .disabled(selectedMomentNumber >= activeMoments.count)
+            .accessibilityLabel("Next shared moment")
         }
-        .frame(minHeight: 28)
+        .frame(minHeight: 44)
+        .sensoryFeedback(.selection, trigger: selectedMomentID)
+    }
+
+    private func selectMoment(offset: Int) {
+        let currentIndex = max(selectedMomentNumber - 1, 0)
+        let nextIndex = min(
+            max(currentIndex + offset, 0),
+            activeMoments.count - 1
+        )
+        selectedMomentID = activeMoments[nextIndex].id
+    }
+
+    private func momentNumber(for record: InsightRecord) -> Int {
+        (activeMoments.firstIndex { $0.id == record.id } ?? 0) + 1
     }
 
     private var selectedMomentNumber: Int {
@@ -314,7 +434,7 @@ private struct InsightEvidenceDisclosure: View {
     let insight: Insight
 
     var body: some View {
-        DisclosureGroup("Why this surfaced") {
+        DisclosureGroup {
             VStack(alignment: .leading, spacing: 9) {
                 Text(insight.evidence)
                 Label(insight.source, systemImage: "link")
@@ -326,9 +446,11 @@ private struct InsightEvidenceDisclosure: View {
             .font(.weSubheadline)
             .foregroundStyle(.white.opacity(0.72))
             .padding(.top, 8)
+        } label: {
+            Label("Why this surfaced", systemImage: "info.circle")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white.opacity(0.78))
         }
-        .font(.weHeadline)
-        .foregroundStyle(.white.opacity(0.86))
         .tint(.white.opacity(0.72))
         .accessibilityHint(
             "Shows the shared evidence and excluded private data"
@@ -343,59 +465,46 @@ private struct SharedMomentPage: View {
     let record: InsightRecord
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    Spacer(minLength: 12)
-
-                    HStack {
-                        Text(eyebrow)
-                            .font(.weCaption)
-                            .tracking(1.5)
-                            .foregroundStyle(.white.opacity(0.66))
-                        Spacer()
-                        privacyLabel
-                    }
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(record.insight.title)
-                            .font(.weLargeTitle)
-                            .foregroundStyle(.white)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        Text(record.insight.body)
-                            .font(.weBody)
-                            .foregroundStyle(.white.opacity(0.76))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    InsightEvidenceDisclosure(insight: record.insight)
-
-                    if let projection {
-                        momentControls(projection)
-                    }
-
-                    if projection?.phase == .waiting
-                        || projection?.phase == .held {
-                        HorizonGlimpse()
-                        if case .ready = session.seasonReadiness {
-                            SeasonReadyCard()
-                        }
-                    }
-
-                    SessionMessageView()
-                    Spacer(minLength: 18)
+        VStack(alignment: .leading, spacing: 18) {
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    eyebrowLabel
+                    Spacer()
+                    privacyLabel
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
-                .padding(.bottom, 12)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    eyebrowLabel
+                    privacyLabel
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(record.insight.title)
+                    .font(.system(.title2, design: .serif, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(record.insight.body)
+                    .font(.weSubheadline)
+                    .foregroundStyle(.white.opacity(0.72))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            InsightEvidenceDisclosure(insight: record.insight)
+
+            if let projection {
+                momentControls(projection)
             }
 
             if projection?.phase == .answering {
                 let action = session.questionAction(for: record)
+                Divider()
+                    .overlay(.white.opacity(0.1))
+
                 VStack(spacing: 8) {
                     Text(action.explanation)
-                        .font(.caption)
+                        .font(.weMeta)
                         .foregroundStyle(.white.opacity(0.68))
                         .multilineTextAlignment(.center)
                     primary(action.title) {
@@ -408,18 +517,33 @@ private struct SharedMomentPage: View {
                     }
                     .disabled(selectedOption == nil || !session.canMutate)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 8)
-                .background(.ultraThinMaterial.opacity(0.42))
             }
+
+            SessionMessageView()
         }
-        .scrollIndicators(projection?.phase == .answering ? .visible : .hidden)
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            .white.opacity(0.055),
+            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(.white.opacity(0.11), lineWidth: 1)
+        }
         .animation(
             .weSettle(duration: 0.45, reduceMotion: reduceMotion),
             value: projection?.phase
         )
         .sensoryFeedback(.selection, trigger: selectedOption)
         .sensoryFeedback(.success, trigger: projection?.phase == .revealed)
+    }
+
+    private var eyebrowLabel: some View {
+        Text(eyebrow)
+            .font(.weMeta)
+            .tracking(1.4)
+            .foregroundStyle(.white.opacity(0.6))
     }
 
     private var projection: TrustProjection? {
@@ -517,7 +641,7 @@ private struct SharedMomentPage: View {
                 } label: {
                     HStack(spacing: 12) {
                         Text(option)
-                            .font(.body.weight(.semibold))
+                            .font(.body.weight(.medium))
                             .multilineTextAlignment(.leading)
                         Spacer(minLength: 8)
                         Image(
@@ -529,15 +653,32 @@ private struct SharedMomentPage: View {
                     }
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16)
-                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .background(
+                        selectedOption == option
+                            ? personalHue.color.opacity(0.3)
+                            : .white.opacity(0.045),
+                        in: RoundedRectangle(
+                            cornerRadius: 16,
+                            style: .continuous
+                        )
+                    )
+                    .overlay {
+                        RoundedRectangle(
+                            cornerRadius: 16,
+                            style: .continuous
+                        )
+                        .stroke(
+                            selectedOption == option
+                                ? personalHue.atmosphereColor.opacity(0.62)
+                                : .white.opacity(0.09),
+                            lineWidth: 1
+                        )
+                    }
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.glass)
-                .tint(
-                    selectedOption == option
-                        ? personalHue.color.opacity(0.42)
-                        : .white.opacity(0.04)
-                )
+                .buttonStyle(WEPressableCardStyle())
                 .accessibilityAddTraits(
                     selectedOption == option ? .isSelected : []
                 )
@@ -629,7 +770,7 @@ private struct SharedMomentPage: View {
                 .font(.weHeadline)
                 .foregroundStyle(.white)
             Text(message)
-                .font(.weBody)
+                .font(.weSubheadline)
                 .foregroundStyle(.white.opacity(0.7))
         }
         .accessibilityElement(children: .combine)

@@ -25,7 +25,7 @@ struct WEMark: View {
         case .compact:
             34
         case .display:
-            104
+            64
         }
     }
 
@@ -40,7 +40,7 @@ struct WEMark: View {
         case .compact:
             58
         case .display:
-            246
+            148
         }
     }
 

@@ -5,39 +5,57 @@ struct HorizonGlimpse: View {
     @State private var showsPlanEditor = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Something coming up?", systemImage: "sun.horizon")
-                .font(.weHeadline)
-                .foregroundStyle(.white)
+        Button {
+            showsPlanEditor = true
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "sun.horizon.fill")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(personalHue.atmosphereColor)
+                    .frame(width: 42, height: 42)
+                    .background(.white.opacity(0.06), in: Circle())
+                    .accessibilityHidden(true)
 
-            Text("A plan, possibility, or day you want to keep in view.")
-                .font(.weBody)
-                .foregroundStyle(.white.opacity(0.82))
-                .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Something coming up?")
+                        .font(.weHeadline)
+                        .foregroundStyle(.white)
 
-            Button("Add something ahead") {
-                showsPlanEditor = true
+                    Text("Keep a plan or possibility in view.")
+                        .font(.weSubheadline)
+                        .foregroundStyle(.white.opacity(0.62))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 4)
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .frame(width: 28, height: 44)
+                    .accessibilityHidden(true)
             }
-            .buttonStyle(WESecondaryButtonStyle(tintColor: personalHue.atmosphereColor))
-            .disabled(!session.canMutate)
-            .accessibilityHint(
-                "Opens one editor for a shared plan or possibility"
-            )
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, minHeight: 70)
+            .contentShape(Rectangle())
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .buttonStyle(WEPressableCardStyle())
+        .disabled(!session.canMutate)
         .background(
-            .white.opacity(0.065),
-            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .white.opacity(0.045),
+            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
         )
         .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(.white.opacity(0.11), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(.white.opacity(0.09), lineWidth: 1)
         }
+        .accessibilityLabel("Add something ahead")
+        .accessibilityHint(
+            "Opens one editor for a shared plan or possibility"
+        )
         .sheet(isPresented: $showsPlanEditor) {
             PlanEditor()
         }
-        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("horizonGlimpse")
     }
 
@@ -231,39 +249,63 @@ private struct SuggestionReviewSheet: View {
 
 struct PresenceControl: View {
     @EnvironmentObject private var session: AppSession
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Menu {
+        HStack(spacing: 4) {
             ForEach(PresenceMode.allCases, id: \.self) { mode in
+                let isSelected = mode == session.presenceMode
                 Button {
                     Task { await session.setPresence(mode) }
                 } label: {
-                    Label(
-                        mode.title,
-                        systemImage: mode == session.presenceMode
-                            ? "checkmark.circle.fill"
-                            : "circle"
+                    HStack(spacing: 5) {
+                        Image(systemName: presenceSymbol(for: mode))
+                            .font(.caption.weight(.semibold))
+                        Text(mode.title)
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .foregroundStyle(
+                        isSelected ? .white : .white.opacity(0.52)
                     )
+                    .padding(.horizontal, 8)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background {
+                        if isSelected {
+                            Capsule()
+                                .fill(personalHue.atmosphereColor)
+                                .overlay(
+                                    Capsule()
+                                        .stroke(.white.opacity(0.2), lineWidth: 1)
+                                )
+                        }
+                    }
                 }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+                .accessibilityHint(mode.detail)
             }
-        } label: {
-            Label(
-                session.presenceMode.title,
-                systemImage: presenceSymbol
-            )
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.8))
-            .padding(.horizontal, 10)
-            .frame(minHeight: 36)
-            .background(.white.opacity(0.08), in: Capsule())
         }
-        .accessibilityLabel("Presence mode")
-        .accessibilityValue(session.presenceMode.title)
-        .accessibilityHint(session.presenceMode.detail)
+        .padding(4)
+        .background(.white.opacity(0.06), in: Capsule())
+        .overlay(
+            Capsule()
+                .stroke(.white.opacity(0.1), lineWidth: 1)
+        )
+        .animation(
+            reduceMotion ? nil : .weQuick,
+            value: session.presenceMode
+        )
+        .sensoryFeedback(.selection, trigger: session.presenceMode)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Relationship Presence Mode")
     }
 
-    private var presenceSymbol: String {
-        switch session.presenceMode {
+    private var personalHue: WEHue {
+        session.snapshot?.membership.map { WEHue($0.hue) } ?? .burgundy
+    }
+
+    private func presenceSymbol(for mode: PresenceMode) -> String {
+        switch mode {
         case .apart: "circle.dotted"
         case .together: "person.2.fill"
         case .away: "airplane"
