@@ -365,7 +365,7 @@ struct ThreadView: View {
 
     var body: some View {
         ZStack {
-            Color.weCinematicInk.ignoresSafeArea()
+            Color.weCanvas.ignoresSafeArea()
             WEConfluenceForm(
                 personalHue: personalHue,
                 partnerHue: relationshipPartnerHue(session),
@@ -470,7 +470,7 @@ struct ThreadView: View {
                 .padding(.bottom, 44)
             }
         }
-        .toolbarBackground(Color.weCinematicInk, for: .navigationBar)
+        .toolbarBackground(Color.weCanvas, for: .navigationBar)
         .sheet(item: $selectedEvidence) {
             EvidenceSheet(
                 title: $0.title,
@@ -606,7 +606,7 @@ private struct SeasonDetailView: View {
 
     var body: some View {
         ZStack {
-            Color.weCinematicInk.ignoresSafeArea()
+            Color.weCanvas.ignoresSafeArea()
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("SEASON \(season.sequence) · WITH \(session.partnerName.uppercased())")
@@ -906,7 +906,7 @@ struct SimulationMarker: View {
             .padding(.horizontal, 10)
             .frame(minHeight: 28)
             .background(
-                Color.weCinematicInk.opacity(0.86),
+                Color.weCanvas.opacity(0.86),
                 in: Capsule()
             )
             .overlay {

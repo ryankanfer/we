@@ -145,7 +145,7 @@ private struct PartnerArrivalCeremony: View {
 
     var body: some View {
         ZStack {
-            Color.weCinematicInk.ignoresSafeArea()
+            Color.weCanvas.ignoresSafeArea()
             WEConfluenceForm(
                 personalHue: personalHue,
                 partnerHue: relationshipPartnerHue(session),
@@ -156,9 +156,9 @@ private struct PartnerArrivalCeremony: View {
             .ignoresSafeArea()
             LinearGradient(
                 colors: [
-                    Color.weCinematicInk.opacity(0.65),
+                    Color.weCanvas.opacity(0.65),
                     .clear,
-                    Color.weCinematicInk.opacity(0.9),
+                    Color.weCanvas.opacity(0.9),
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -234,7 +234,7 @@ private struct PairingView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.weCinematicInk.ignoresSafeArea()
+                Color.weCanvas.ignoresSafeArea()
                 WEConfluenceForm(
                     personalHue: .burgundy,
                     partnerHue: .sage,
@@ -245,9 +245,9 @@ private struct PairingView: View {
                 .ignoresSafeArea()
                 LinearGradient(
                     colors: [
-                        Color.weCinematicInk.opacity(0.58),
-                        Color.weCinematicInk.opacity(0.32),
-                        Color.weCinematicInk.opacity(0.97),
+                        Color.weCanvas.opacity(0.58),
+                        Color.weCanvas.opacity(0.32),
+                        Color.weCanvas.opacity(0.97),
                     ],
                     startPoint: .top,
                     endPoint: .bottom
@@ -372,7 +372,7 @@ private struct PairingView: View {
     private var missingField: some View {
         ZStack(alignment: .bottomLeading) {
             RoundedRectangle(cornerRadius: 26)
-                .fill(Color.weCinematicInk.opacity(0.62))
+                .fill(Color.weCanvas.opacity(0.62))
             WEConfluenceForm(
                 personalHue: .burgundy,
                 partnerHue: .sage,
@@ -424,7 +424,7 @@ private struct PartnerWaitingView: View {
 
     var body: some View {
         ZStack {
-            Color.weCinematicInk.ignoresSafeArea()
+            Color.weCanvas.ignoresSafeArea()
             WEConfluenceForm(
                 personalHue: personalHue,
                 partnerHue: .sage,
@@ -435,9 +435,9 @@ private struct PartnerWaitingView: View {
             .ignoresSafeArea()
             LinearGradient(
                 colors: [
-                    Color.weCinematicInk.opacity(0.52),
-                    Color.weCinematicInk.opacity(0.34),
-                    Color.weCinematicInk.opacity(0.98),
+                    Color.weCanvas.opacity(0.52),
+                    Color.weCanvas.opacity(0.34),
+                    Color.weCanvas.opacity(0.98),
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -474,7 +474,7 @@ private struct PartnerWaitingView: View {
                 .padding(18)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
-                    Color.weCinematicInk.opacity(0.5),
+                    Color.weCanvas.opacity(0.5),
                     in: RoundedRectangle(cornerRadius: 20)
                 )
                 .overlay {

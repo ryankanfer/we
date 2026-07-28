@@ -43,33 +43,33 @@ struct ProductHeader: View {
 struct WarmEditorialBackground: View {
     @EnvironmentObject private var session: AppSession
 
+    /// Life and Ahead share the WE canvas exactly — same base, same two
+    /// washes, same confluence. Previously this and `WEAtmosphere` were
+    /// different compositions, so moving between tabs read as moving between
+    /// products rather than around one home.
     var body: some View {
         ZStack {
-            Color.weCinematicInk
-            LinearGradient(
-                colors: [
-                    personalHue.atmosphereColor.opacity(0.14),
-                    .clear,
-                    partnerHue.atmosphereColor.opacity(0.08),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+            Color.weCanvas
+
+            RadialGradient(
+                colors: [personalHue.atmosphereColor.opacity(0.22), .clear],
+                center: .init(x: 0.12, y: -0.10),
+                startRadius: 0,
+                endRadius: 620
             )
             RadialGradient(
-                colors: [
-                    personalHue.atmosphereColor.opacity(0.06),
-                    .clear
-                ],
-                center: .top,
+                colors: [partnerHue.atmosphereColor.opacity(0.16), .clear],
+                center: .init(x: 0.92, y: 0.10),
                 startRadius: 0,
-                endRadius: 480
+                endRadius: 580
             )
+
             WEConfluenceForm(
                 personalHue: personalHue,
                 partnerHue: partnerHue,
                 connection: session.presenceMode == .together ? 1 : 0.72
             )
-            .opacity(0.12)
+            .opacity(0.34)
             .blendMode(.screen)
         }
         .ignoresSafeArea()

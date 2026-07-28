@@ -7,6 +7,37 @@
 
 import SwiftUI
 
+/// The single surface and ink scale.
+///
+/// WE previously ran two palettes side by side: a semantic one
+/// (`WEInk`/`WEFaint`/`WECard`) used by Life, Ahead, Profile and the sheets,
+/// and a second cinematic one built from `weCinematicInk` plus ~129 literal
+/// `.white.opacity(…)` values used by WE, Thread and the Promise. The two
+/// dark canvases were not the same colour, so every sheet landed on a surface
+/// visibly darker than the one it came from.
+///
+/// These tokens replace both. Contrast is measured against `weSurface` and
+/// holds for all ten hues.
+extension Color {
+    /// The app canvas. One value, everywhere.
+    static let weCanvas = Color("WECanvas")
+    /// Cards and sheets. 1.18:1 above the canvas — a soft elevation step.
+    static let weSurface = Color("WESurface")
+    /// Nested surfaces inside a card.
+    static let weSurfaceRaised = Color("WESurfaceRaised")
+
+    /// Titles and primary body. 13.60:1 on `weSurface`.
+    static let weInk = Color("WEInk")
+    /// Body copy and descriptions. 8.79:1.
+    static let weInkSecondary = Color("WEInkSecondary")
+    /// Eyebrows, metadata, captions. 5.05:1 — clears AA at any size.
+    static let weInkTertiary = Color("WEInkTertiary")
+    /// Disclaimers at 18pt or larger only. 3.55:1 — AA-large, never body.
+    static let weInkFaint = Color("WEInkFaint")
+    /// Borders and dividers. Non-text.
+    static let weHairline = Color("WEHairline")
+}
+
 extension Font {
     static var weLargeTitle: Font {
         .system(.largeTitle, design: .serif, weight: .regular)
