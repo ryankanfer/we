@@ -563,7 +563,7 @@ private struct HueAtmosphere: View {
 
     var body: some View {
         ZStack {
-            Color.weCinematicInk
+            Color.weCanvas
 
             RadialGradient(
                 colors: [

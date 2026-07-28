@@ -93,6 +93,10 @@ enum WEHue: String, CaseIterable, Identifiable {
         isLight ? controlColor : color
     }
 
+    var atmosphereComponents: (red: Double, green: Double, blue: Double) {
+        isLight ? controlComponents : colorComponents
+    }
+
     var controlColor: Color {
         let components = controlComponents
         return Color(
@@ -119,6 +123,47 @@ enum WEHue: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The hue lightened for use as *text or an icon* on a dark surface.
+    ///
+    /// `color` and `controlColor` are fill tones — placed behind white they
+    /// read correctly, but set as a foreground they collapse (burgundy scores
+    /// 1.93:1 on `WESurface`, sage 2.75:1). Every value here clears 7:1 on
+    /// `WESurface`, so a hue can carry a kicker or a symbol without the
+    /// relationship identity dropping below legibility.
+    var accentColor: Color {
+        let components = accentComponents
+        return Color(
+            red: components.red,
+            green: components.green,
+            blue: components.blue
+        )
+    }
+
+    var accentComponents: (red: Double, green: Double, blue: Double) {
+        switch self {
+        case .burgundy:
+            (0.875, 0.627, 0.651)
+        case .sage:
+            (0.788, 0.855, 0.722)
+        case .ember:
+            (0.867, 0.624, 0.561)
+        case .tide:
+            (0.557, 0.710, 0.737)
+        case .plum:
+            (0.753, 0.651, 0.741)
+        case .clay:
+            (0.796, 0.655, 0.573)
+        case .pearl:
+            (0.890, 0.839, 0.741)
+        case .mist:
+            (0.659, 0.761, 0.820)
+        case .blush:
+            (0.851, 0.624, 0.643)
+        case .celadon:
+            (0.678, 0.780, 0.678)
+        }
+    }
+
 }
 
 extension WEHue {
@@ -139,10 +184,3 @@ extension WEHue {
     }
 }
 
-extension Color {
-    static let weCinematicInk = Color(
-        red: 0.153,
-        green: 0.129,
-        blue: 0.102
-    )
-}

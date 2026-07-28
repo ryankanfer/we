@@ -23,15 +23,15 @@ struct LivingConfluencePromise: View {
 
     var body: some View {
         ZStack {
-            Color.weCinematicInk.ignoresSafeArea()
+            Color.weCanvas.ignoresSafeArea()
             promiseField
                 .ignoresSafeArea()
             LinearGradient(
                 colors: [
-                    Color.weCinematicInk.opacity(0.7),
-                    Color.weCinematicInk.opacity(0.18),
-                    Color.weCinematicInk.opacity(0.7),
-                    Color.weCinematicInk.opacity(0.98),
+                    Color.weCanvas.opacity(0.7),
+                    Color.weCanvas.opacity(0.18),
+                    Color.weCanvas.opacity(0.7),
+                    Color.weCanvas.opacity(0.98),
                 ],
                 startPoint: .top,
                 endPoint: .bottom

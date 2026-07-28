@@ -10,7 +10,7 @@ struct WEView: View {
 
     var body: some View {
         ZStack {
-            WEAtmosphere()
+            WEAtmosphere(connection: fieldConnection)
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 24) {
@@ -90,6 +90,19 @@ struct WEView: View {
                 return $0.0 < $1.0
             }
             .map(\.2)
+    }
+
+    /// Together collapses the field to one. Otherwise the leading moment —
+    /// the one already sorted to the top by `phasePriority` — sets how near
+    /// the two halves sit.
+    private var fieldConnection: CGFloat {
+        if session.presenceMode == .together { return 1 }
+        guard let record = activeMoments.first,
+              let projection = session.projection(for: record)
+        else {
+            return TrustPhase.open.confluenceConnection
+        }
+        return projection.phase.confluenceConnection
     }
 
     private func phasePriority(_ phase: TrustPhase) -> Int {
@@ -1224,36 +1237,48 @@ struct InsightDetailView: View {
 private struct WEAtmosphere: View {
     @EnvironmentObject private var session: AppSession
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isBreathing = false
+
+    /// How near the two fields sit — driven by the leading moment's trust
+    /// phase, so the canvas itself reports how far something has travelled
+    /// toward being shared.
+    var connection: CGFloat
 
     var body: some View {
         let hue = session.snapshot?.membership.map { WEHue($0.hue) } ?? .burgundy
         let partnerHue = relationshipPartnerHue(session)
         ZStack {
-            LinearGradient(
-                colors: [
-                    hue.atmosphereColor.opacity(isBreathing ? 0.98 : 0.90),
-                    Color.weCinematicInk,
-                    partnerHue.color.opacity(isBreathing ? 0.88 : 0.78),
-                ],
-                startPoint: isBreathing ? .topLeading : .top,
-                endPoint: isBreathing ? .bottomTrailing : .bottom
+            Color("WECanvas")
+
+            // Two soft washes rather than a full-bleed hue. The hue used to
+            // sit at 0.90 here, which put body copy between 3.26:1 and 4.91:1
+            // depending on which colour the user had chosen. Held to a wash,
+            // every ink token clears AA against all ten hues.
+            RadialGradient(
+                colors: [hue.atmosphereColor.opacity(0.22), .clear],
+                center: .init(x: 0.12, y: -0.10),
+                startRadius: 0,
+                endRadius: 620
             )
             RadialGradient(
-                colors: [.white.opacity(isBreathing ? 0.22 : 0.14), .clear],
-                center: .topLeading,
+                colors: [partnerHue.atmosphereColor.opacity(0.16), .clear],
+                center: .init(x: 0.92, y: 0.10),
                 startRadius: 0,
-                endRadius: 340
+                endRadius: 580
             )
-            Color.black.opacity(0.05)
+
+            WEConfluenceForm(
+                personalHue: hue,
+                partnerHue: partnerHue,
+                connection: connection
+            )
+            .opacity(0.34)
+            .blendMode(.screen)
+            .animation(
+                .weSettle(duration: 0.9, reduceMotion: reduceMotion),
+                value: connection
+            )
         }
         .ignoresSafeArea()
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 5.5).repeatForever(autoreverses: true)) {
-                isBreathing = true
-            }
-        }
     }
 }
 
