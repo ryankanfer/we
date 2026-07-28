@@ -157,7 +157,7 @@ struct LifeView: View {
                     }
                 } label: {
                     Text(filterLabel(option))
-                        .font(.caption.weight(.bold))
+                        .font(.weMeta)
                         .foregroundStyle(selectedFilter == option ? Color("WEInk") : Color("WEFaint"))
                         .padding(.horizontal, 12)
                         .frame(minHeight: 44)
@@ -192,11 +192,11 @@ struct LifeView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("CARE, NOT ASSIGNMENTS")
-                    .font(.weCaption)
-                    .tracking(1.1)
+                    .font(.weMeta)
+                    .tracking(1.4)
                     .foregroundStyle(Color("WEBurgundy"))
                 Text("Naming care keeps it from becoming invisible. It is not a score of who does more.")
-                    .font(.subheadline)
+                    .font(.weSubheadline)
                     .foregroundStyle(Color("WEInk"))
             }
         }

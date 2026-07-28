@@ -129,6 +129,14 @@ extension WEHue {
     var memberHue: MemberHue {
         MemberHue(rawValue: rawValue) ?? .burgundy
     }
+
+    func cardBackgroundTint(opacity: Double = 0.12) -> Color {
+        atmosphereColor.opacity(opacity)
+    }
+
+    func borderStrokeTint(opacity: Double = 0.28) -> Color {
+        atmosphereColor.opacity(opacity)
+    }
 }
 
 extension Color {

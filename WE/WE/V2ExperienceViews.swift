@@ -18,9 +18,7 @@ struct HorizonGlimpse: View {
             Button("Add something ahead") {
                 showsPlanEditor = true
             }
-            .buttonStyle(.bordered)
-            .tint(personalHue.color)
-            .frame(minHeight: 44)
+            .buttonStyle(WESecondaryButtonStyle(tintColor: personalHue.atmosphereColor))
             .disabled(!session.canMutate)
             .accessibilityHint(
                 "Opens one editor for a shared plan or possibility"
@@ -56,17 +54,17 @@ struct ContextualSuggestionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(suggestion.evidence.context.uppercased())
-                .font(.weCaption)
-                .tracking(1.2)
-                .foregroundStyle(personalHue.color)
+                .font(.weMeta)
+                .tracking(1.4)
+                .foregroundStyle(personalHue.atmosphereColor)
 
             Text(suggestion.title)
                 .font(.weTitle)
                 .foregroundStyle(.white)
 
             Text(suggestion.evidence.reason)
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.72))
+                .font(.weSubheadline)
+                .foregroundStyle(.white.opacity(0.78))
 
             HStack(spacing: 10) {
                 Button("Review and add") {
@@ -83,8 +81,7 @@ struct ContextualSuggestionCard: View {
                         )
                     }
                 }
-                .buttonStyle(.bordered)
-                .tint(.white.opacity(0.78))
+                .buttonStyle(WESecondaryButtonStyle(tintColor: .white.opacity(0.78)))
                 .disabled(!session.canMutate)
             }
             .frame(minHeight: 44)

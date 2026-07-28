@@ -10,7 +10,7 @@ struct ProductHeader: View {
         HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(eyebrow.uppercased())
-                    .font(.weCaption)
+                    .font(.weMeta)
                     .tracking(1.4)
                     .foregroundStyle(Color("WEFaint"))
                 Text(title)
@@ -55,6 +55,15 @@ struct WarmEditorialBackground: View {
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
+            RadialGradient(
+                colors: [
+                    personalHue.atmosphereColor.opacity(0.06),
+                    .clear
+                ],
+                center: .top,
+                startRadius: 0,
+                endRadius: 480
+            )
             WEConfluenceForm(
                 personalHue: personalHue,
                 partnerHue: partnerHue,
@@ -90,13 +99,11 @@ struct EditorialEmptyState: View {
                 .accessibilityHidden(true)
             Text(title).font(.weTitle)
             Text(message)
-                .font(.weBody)
+                .font(.weSubheadline)
                 .foregroundStyle(Color("WEFaint"))
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
-                    .buttonStyle(.bordered)
-                    .tint(Color("WEBurgundy"))
-                    .frame(minHeight: 44)
+                    .buttonStyle(WESecondaryButtonStyle(tintColor: Color("WEBurgundy")))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

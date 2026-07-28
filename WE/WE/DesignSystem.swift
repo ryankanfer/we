@@ -16,6 +16,14 @@ extension Font {
         .system(.title2, design: .serif, weight: .regular)
     }
 
+    static var weSheetTitle: Font {
+        .system(.title3, design: .serif, weight: .semibold)
+    }
+
+    static var weSubheadline: Font {
+        .system(.subheadline, design: .serif, weight: .regular)
+    }
+
     static var weHeadline: Font {
         .headline
     }
@@ -26,6 +34,10 @@ extension Font {
 
     static var weCaption: Font {
         .caption.weight(.medium)
+    }
+
+    static var weMeta: Font {
+        .system(.caption2, design: .default, weight: .medium)
     }
 }
 
@@ -133,6 +145,29 @@ struct WEPrimaryButtonStyle: ButtonStyle {
                 Color("WEBurgundy").opacity(isEnabled ? 1 : 0.45),
                 in: RoundedRectangle(cornerRadius: 16, style: .continuous)
             )
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .animation(.weQuick, value: configuration.isPressed)
+    }
+}
+
+struct WESecondaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    var tintColor: Color = .white
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(tintColor.opacity(isEnabled ? 0.9 : 0.45))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(
+                .white.opacity(0.08),
+                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(.white.opacity(0.12), lineWidth: 1)
+            }
             .scaleEffect(configuration.isPressed ? 0.985 : 1)
             .animation(.weQuick, value: configuration.isPressed)
     }

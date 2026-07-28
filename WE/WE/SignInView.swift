@@ -247,8 +247,8 @@ struct BackendStateView: View {
                 .font(.weBody)
                 .foregroundStyle(Color("WEFaint"))
                 .multilineTextAlignment(.center)
-            if let retry { Button("Continue", action: retry).buttonStyle(.borderedProminent).tint(Color("WEBurgundy")) }
-            if let signOut { Button("Sign out", action: signOut).buttonStyle(.bordered) }
+            if let retry { Button("Continue", action: retry).buttonStyle(WEPrimaryButtonStyle()) }
+            if let signOut { Button("Sign out", action: signOut).buttonStyle(WESecondaryButtonStyle(tintColor: Color("WEBurgundy"))) }
         }
         .padding(28)
         .frame(maxWidth: 440)

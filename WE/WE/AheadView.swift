@@ -115,7 +115,7 @@ struct AheadView: View {
                         .font(.weHeadline)
                         .foregroundStyle(Color("WEInk"))
                     Text("WE opens only a mutual match. A preference that does not match stays unspoken.")
-                        .font(.subheadline)
+                        .font(.weSubheadline)
                         .foregroundStyle(Color("WEFaint"))
                 }
 
@@ -198,7 +198,7 @@ struct AheadView: View {
         return VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("THE APPROACH")
-                    .font(.weCaption)
+                    .font(.weMeta)
                     .tracking(1.6)
                     .foregroundStyle(personalHue.color)
                 Spacer()
@@ -255,7 +255,7 @@ struct AheadView: View {
             .disabled(!session.canMutate)
 
             Text("WE runs this once per plan. No countdowns, reminders, or nudges in between.")
-                .font(.caption)
+                .font(.weMeta)
                 .foregroundStyle(.white.opacity(0.4))
         }
         .padding(18)

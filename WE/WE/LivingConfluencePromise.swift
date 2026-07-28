@@ -120,7 +120,7 @@ struct LivingConfluencePromise: View {
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.leading)
             Text(copy[beat].2)
-                .font(.body)
+                .font(.weBody)
                 .foregroundStyle(.white.opacity(0.66))
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: 330, alignment: .leading)

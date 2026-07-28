@@ -205,5 +205,9 @@ float weSoftField(
     float vignette = 1.0 - smoothstep(0.18, 0.76, length(p));
     alpha *= saturate(vignette * 1.25);
 
+    // High-frequency dither noise to eliminate smooth color banding on OLED screens
+    float dither = (weHash(position + time) - 0.5) * (1.0 / 255.0);
+    blended += dither;
+
     return half4(half3(blended * alpha), half(alpha));
 }

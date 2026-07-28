@@ -205,7 +205,6 @@ struct WEView: View {
                             holdsSomething = true
                         } label: {
                             Label("Hold privately", systemImage: "lock.fill")
-                                .font(.body.weight(.semibold))
                                 .fixedSize(
                                     horizontal: false,
                                     vertical: true
@@ -215,9 +214,7 @@ struct WEView: View {
                                     minHeight: 48
                                 )
                         }
-                        .buttonStyle(.bordered)
-                        .buttonBorderShape(.capsule)
-                        .tint(personalHue.color.opacity(0.24))
+                        .buttonStyle(WESecondaryButtonStyle(tintColor: personalHue.atmosphereColor))
                         .disabled(!session.canMutate)
 
                         Button {
@@ -227,13 +224,10 @@ struct WEView: View {
                                 "Pass the phone",
                                 systemImage: "iphone.gen3"
                             )
-                            .font(.body.weight(.semibold))
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, minHeight: 48)
                         }
-                        .buttonStyle(.bordered)
-                        .buttonBorderShape(.capsule)
-                        .tint(personalHue.color.opacity(0.24))
+                        .buttonStyle(WESecondaryButtonStyle(tintColor: personalHue.atmosphereColor))
                     }
                 }
 
@@ -281,7 +275,8 @@ struct WEView: View {
 
             if activeMoments.count > 1 {
                 Text("\(activeMoments.count) moments")
-                    .font(.caption.weight(.medium))
+                    .font(.weMeta)
+                    .tracking(0.8)
                     .foregroundStyle(.white.opacity(0.62))
             }
         }
@@ -328,11 +323,11 @@ private struct InsightEvidenceDisclosure: View {
                     systemImage: "lock.shield"
                 )
             }
-            .font(.subheadline)
+            .font(.weSubheadline)
             .foregroundStyle(.white.opacity(0.72))
             .padding(.top, 8)
         }
-        .font(.body.weight(.semibold))
+        .font(.weHeadline)
         .foregroundStyle(.white.opacity(0.86))
         .tint(.white.opacity(0.72))
         .accessibilityHint(
@@ -668,11 +663,9 @@ private struct SharedMomentPage: View {
             Task { await action() }
         } label: {
             Text(title)
-                .font(.body.weight(.semibold))
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(.white.opacity(0.72))
+        .buttonStyle(WESecondaryButtonStyle(tintColor: .white.opacity(0.78)))
         .disabled(!session.canMutate)
     }
 
@@ -1111,7 +1104,7 @@ private struct WEAtmosphere: View {
                 startRadius: 0,
                 endRadius: 340
             )
-            Color.black.opacity(0.08)
+            Color.black.opacity(0.05)
         }
         .ignoresSafeArea()
         .onAppear {
