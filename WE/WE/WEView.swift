@@ -639,63 +639,18 @@ private struct SharedMomentPage: View {
     }
 
     private var answerOptions: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Choose what is true for you.")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.82))
+                .font(.weCaption)
+                .tracking(1.4)
+                .textCase(.uppercase)
+                .foregroundStyle(Color.weInkTertiary)
 
-            ForEach(record.insight.options, id: \.self) { option in
-                Button {
-                    withAnimation(
-                        .weSettle(duration: 0.24, reduceMotion: reduceMotion)
-                    ) {
-                        selectedOption = option
-                    }
-                } label: {
-                    HStack(spacing: 12) {
-                        Text(option)
-                            .font(.body.weight(.medium))
-                            .multilineTextAlignment(.leading)
-                        Spacer(minLength: 8)
-                        Image(
-                            systemName: selectedOption == option
-                                ? "checkmark.circle.fill"
-                                : "circle"
-                        )
-                        .font(.title3)
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .frame(maxWidth: .infinity, minHeight: 52)
-                    .background(
-                        selectedOption == option
-                            ? personalHue.color.opacity(0.3)
-                            : .white.opacity(0.045),
-                        in: RoundedRectangle(
-                            cornerRadius: 16,
-                            style: .continuous
-                        )
-                    )
-                    .overlay {
-                        RoundedRectangle(
-                            cornerRadius: 16,
-                            style: .continuous
-                        )
-                        .stroke(
-                            selectedOption == option
-                                ? personalHue.atmosphereColor.opacity(0.62)
-                                : .white.opacity(0.09),
-                            lineWidth: 1
-                        )
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(WEPressableCardStyle())
-                .accessibilityAddTraits(
-                    selectedOption == option ? .isSelected : []
-                )
-            }
+            WEAnswerOptions(
+                options: record.insight.options,
+                hue: personalHue,
+                selection: $selectedOption
+            )
         }
     }
 
@@ -705,6 +660,7 @@ private struct SharedMomentPage: View {
                 style: .display,
                 personalHue: personalHue,
                 partnerHue: relationshipPartnerHue(session),
+                connection: TrustPhase.held.confluenceConnection,
                 accessibilityText: "Your private answer is held"
             )
             quietStatus(
@@ -1136,29 +1092,11 @@ struct InsightDetailView: View {
     }
 
     private func optionPicker(_ record: InsightRecord) -> some View {
-        VStack(spacing: 10) {
-            ForEach(record.insight.options, id: \.self) { option in
-                Button {
-                    withAnimation(.weSettle(duration: 0.25, reduceMotion: reduceMotion)) {
-                        selectedOption = option
-                    }
-                } label: {
-                    HStack {
-                        Text(option)
-                            .font(.body.weight(.semibold))
-                        Spacer()
-                        if selectedOption == option {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.title3)
-                        }
-                    }
-                    .padding(.horizontal, 14)
-                    .frame(maxWidth: .infinity, minHeight: 48)
-                }
-                .buttonStyle(.bordered)
-                .tint(selectedOption == option ? hue.controlColor : Color("WEFaint"))
-            }
-        }
+        WEAnswerOptions(
+            options: record.insight.options,
+            hue: hue,
+            selection: $selectedOption
+        )
         .sensoryFeedback(.selection, trigger: selectedOption)
     }
 

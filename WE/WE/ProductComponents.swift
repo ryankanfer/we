@@ -135,6 +135,103 @@ struct ConnectionBanner: View {
     }
 }
 
+/// The answering surface.
+///
+/// This replaces two separate radio lists — one in `SharedMomentPage`, one in
+/// `InsightDetailView` — that each drew every option as an identically
+/// weighted rounded rect with a `circle` / `checkmark.circle.fill` on the
+/// right. Five equally loud plates read as a form to fill in rather than a
+/// question being asked.
+///
+/// Unanswered options are hairline-separated serif lines with no container at
+/// all. Only the chosen one takes a surface, lifting onto a plate in the
+/// person's own hue. Quiet by default, one clear moment of commitment.
+struct WEAnswerOptions: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let options: [String]
+    let hue: WEHue
+    @Binding var selection: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(options.enumerated()), id: \.element) { index, option in
+                row(option, showsRule: showsRule(after: index))
+            }
+        }
+    }
+
+    private func row(_ option: String, showsRule: Bool) -> some View {
+        let isSelected = selection == option
+
+        return Button {
+            withAnimation(.weSettle(duration: 0.3, reduceMotion: reduceMotion)) {
+                selection = option
+            }
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 14) {
+                // A gutter mark rather than a control. Nothing to "tick" —
+                // the line itself is the answer.
+                Circle()
+                    .fill(isSelected ? Color.white : .clear)
+                    .frame(width: 7, height: 7)
+                    .overlay {
+                        Circle().stroke(
+                            isSelected ? .clear : Color.weHairline,
+                            lineWidth: 1
+                        )
+                    }
+                    .alignmentGuide(.firstTextBaseline) { $0.height * 0.85 }
+
+                Text(option)
+                    .font(.system(.title3, design: .serif))
+                    .foregroundStyle(isSelected ? Color.weInk : Color.weInkTertiary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, isSelected ? 16 : 2)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        // `color` would fail AA on the five light hues —
+                        // pearl lands at 2.51:1. `atmosphereColor` deepens
+                        // those, and holds every hue above 6.2:1.
+                        .fill(hue.atmosphereColor.opacity(0.65))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(.white.opacity(0.42), lineWidth: 1)
+                        }
+                        .shadow(
+                            color: hue.atmosphereColor.opacity(0.5),
+                            radius: 13,
+                            y: 6
+                        )
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if showsRule {
+                    Rectangle()
+                        .fill(Color.weHairline)
+                        .frame(height: 1)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(WEPressableCardStyle())
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// No rule beneath the last row, and none touching a lifted plate.
+    private func showsRule(after index: Int) -> Bool {
+        guard index < options.count - 1 else { return false }
+        return selection != options[index] && selection != options[index + 1]
+    }
+}
+
 struct ProductSectionHeader: View {
     let title: String
     var detail: String?
