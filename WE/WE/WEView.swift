@@ -5,54 +5,37 @@ struct WEView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var holdsSomething = false
     @State private var passesPhone = false
+    @State private var showsPresencePicker = false
     @State private var selectedMomentID = ""
     @State private var swipeDirection: SwipeDirection = .forward
     let onProfile: () -> Void
 
     var body: some View {
         ZStack {
+            Color.weCanvas.ignoresSafeArea()
             WEAtmosphere(connection: fieldConnection)
+                .opacity(0.38)
 
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 24) {
-                    header
+            GeometryReader { viewport in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        todayFocusScene(
+                            minHeight: max(viewport.size.height, 620)
+                        )
                         .weArrival()
 
-                    PresenceControl()
-                        .weArrival(order: 1)
-
-                    if session.presenceMode == .together {
-                        togetherStateCard
-                            .weArrival(order: 2)
-                    } else if session.presenceMode == .away {
-                        awayStateCard
-                            .weArrival(order: 2)
-                    } else if activeMoments.isEmpty {
-                        emptyState
-                            .weArrival(order: 2)
-                    } else {
-                        activeMomentsSection
-                            .weArrival(order: 2)
-                    }
-
-                    if session.presenceMode != .together {
-                        if let suggestion =
-                            session.contextualSuggestions.first {
-                            ContextualSuggestionCard(suggestion: suggestion)
+                        if session.presenceMode != .together {
+                            VStack(alignment: .leading, spacing: 22) {
+                                todayAfterglow
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.top, 30)
+                            .padding(.bottom, 36)
+                            .background(Color.weCanvas)
                         }
-
-                        if case .ready = session.seasonReadiness {
-                            SeasonReadyCard()
-                        }
-
-                        HorizonGlimpse()
-
-                        quietActions
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 14)
-                .padding(.bottom, 32)
+                .scrollIndicators(.hidden)
             }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -63,6 +46,20 @@ struct WEView: View {
         }
         .sheet(isPresented: $passesPhone) {
             PassThePhoneView()
+        }
+        .confirmationDialog(
+            "Right now",
+            isPresented: $showsPresencePicker,
+            titleVisibility: .visible
+        ) {
+            ForEach(PresenceMode.allCases, id: \.self) { mode in
+                Button(mode.title) {
+                    Task { await session.setPresence(mode) }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Choose how much room WE should hold around this moment.")
         }
         .onChange(of: activeMoments.map(\.id), initial: true) { _, ids in
             guard !ids.contains(selectedMomentID) else { return }
@@ -120,112 +117,188 @@ struct WEView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 14) {
-            WEMark(
-                style: .compact,
-                showsWordmark: false,
-                personalHue: personalHue,
-                partnerHue: relationshipPartnerHue(session)
-            )
+        WEEditorialScreenHeader(
+            title: "Today",
+            profileName: session.snapshot?.profile.name ?? "You",
+            actionSystemImage: "circle.dotted",
+            actionAccessibilityLabel: "Change presence",
+            actionEnabled: session.canMutate,
+            onAction: { showsPresencePicker = true },
+            onProfile: onProfile
+        )
+    }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("WE")
-                    .font(.weTitle)
-                    .foregroundStyle(.white)
-                Text(partnershipLine)
-                    .font(.weSubheadline)
-                    .foregroundStyle(.white.opacity(0.64))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+    private func todayFocusScene(minHeight: CGFloat) -> some View {
+        WECinematicFocusScene(
+            artwork: heroArtwork,
+            minHeight: minHeight,
+            focalPoint: heroArtwork == .horizon ? .bottom : .center,
+            intensity: 0.96
+        ) {
+            VStack(alignment: .leading, spacing: 0) {
+                header
 
-            Spacer()
+                Spacer(minLength: 28)
 
-            Button(action: onProfile) {
-                ZStack {
-                    Circle()
-                        .fill(personalHue.atmosphereColor.opacity(0.9))
-                        .frame(width: 44, height: 44)
-                        .overlay(
-                            Circle()
-                                .stroke(.white.opacity(0.25), lineWidth: 1)
-                        )
-                    Text(initials)
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.white)
+                if session.presenceMode == .together {
+                    presenceState(
+                        eyebrow: "TOGETHER",
+                        title: "You are together.",
+                        detail: "WE will stay quiet. Go be together."
+                    )
+                } else if session.presenceMode == .away {
+                    presenceState(
+                        eyebrow: "AWAY",
+                        title: "Room can wait.",
+                        detail: "Shared moments will wait safely until you reconnect."
+                    )
+                } else if activeMoments.isEmpty {
+                    presenceState(
+                        eyebrow: greeting,
+                        title: "Nothing needs you here.",
+                        detail: "Everything between \(partnershipLine) has somewhere to belong."
+                    )
+                } else {
+                    activeMomentsSection
+                }
+
+                Spacer(minLength: 18)
+
+                if activeMoments.isEmpty {
+                    PresenceControl()
                 }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Open Profile")
-            .accessibilityHint("Account, appearance, archives, and privacy")
-            .accessibilityIdentifier("profileButton")
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+            .padding(.bottom, 72)
         }
+    }
+
+    private func presenceState(
+        eyebrow: String,
+        title: String,
+        detail: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(eyebrow.uppercased())
+                .font(.weMeta)
+                .tracking(1.8)
+                .foregroundStyle(Color.weInkTertiary)
+
+            Text(title)
+                .font(.weLargeTitle)
+                .foregroundStyle(Color.weInk)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text(detail)
+                .font(.weSubheadline)
+                .foregroundStyle(Color.weInkSecondary)
+                .frame(maxWidth: 330, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var todayHero: some View {
+        WECinematicHero(
+            artwork: heroArtwork,
+            eyebrow: greeting,
+            title: heroTitle,
+            detail: heroDetail,
+            height: 430
+        )
+    }
+
+    private var heroArtwork: WECinematicArtwork {
+        guard let selectedMoment,
+              let projection = session.projection(for: selectedMoment)
+        else {
+            return .confluence
+        }
+
+        switch projection.phase {
+        case .held, .waiting, .invited:
+            return .vessel
+        case .revealed, .resolved:
+            return .horizon
+        default:
+            return .confluence
+        }
+    }
+
+    private var heroTitle: String {
+        if session.presenceMode == .together {
+            return "You are together."
+        }
+        if session.presenceMode == .away {
+            return "Room can wait."
+        }
+        if activeMoments.isEmpty {
+            return "Nothing needs you here."
+        }
+        return "One thing worth holding."
+    }
+
+    private var heroDetail: String {
+        if session.presenceMode == .together {
+            return "WE stays quiet. Go be together."
+        }
+        if session.presenceMode == .away {
+            return "Shared moments will wait safely until you reconnect."
+        }
+        if let selectedMoment {
+            return selectedMoment.insight.title
+        }
+        return "Everything between \(partnershipLine) has somewhere to belong."
+    }
+
+    private var greeting: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        let period: String
+        switch hour {
+        case 5..<12: period = "Good morning"
+        case 12..<17: period = "Good afternoon"
+        default: period = "Good evening"
+        }
+        return "\(period) · \(partnershipLine)"
     }
 
     private var togetherStateCard: some View {
-        VStack(spacing: 14) {
-            WEMark(
-                style: .display,
-                personalHue: personalHue,
-                partnerHue: relationshipPartnerHue(session),
-                accessibilityText: "Together"
-            )
+        WECinematicPanel {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("TOGETHER")
+                    .font(.weMeta)
+                    .tracking(1.6)
+                    .foregroundStyle(Color.weInkTertiary)
 
-            VStack(spacing: 6) {
-                Text("Be here together.")
+                Text("WE will stay quiet.")
                     .font(.weTitle)
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
+                    .foregroundStyle(Color.weInk)
 
-                Text("WE goes quiet and holds everything for later. No active prompts or decisions will interrupt your time together.")
+                Text("Everything can wait until there is room again.")
                     .font(.weSubheadline)
-                    .foregroundStyle(.white.opacity(0.76))
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 320)
+                    .foregroundStyle(Color.weInkSecondary)
             }
         }
-        .padding(18)
-        .frame(maxWidth: .infinity)
-        .background(
-            .white.opacity(0.06),
-            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(personalHue.atmosphereColor.opacity(0.3), lineWidth: 1)
-        )
     }
 
     private var awayStateCard: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "airplane")
-                .font(.title2.weight(.medium))
-                .foregroundStyle(personalHue.atmosphereColor)
-                .frame(width: 44, height: 44)
-                .background(.white.opacity(0.08), in: Circle())
+        WECinematicPanel {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("APART")
+                    .font(.weMeta)
+                    .tracking(1.6)
+                    .foregroundStyle(Color.weInkTertiary)
 
-            VStack(spacing: 6) {
-                Text("One of you is away.")
+                Text("The timing widens.")
                     .font(.weTitle)
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
+                    .foregroundStyle(Color.weInk)
 
-                Text("Timing widens gently while you are apart. Shared moments wait safely until you reconnect.")
+                Text("Shared moments remain safe until both of you are home.")
                     .font(.weSubheadline)
-                    .foregroundStyle(.white.opacity(0.76))
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 320)
+                    .foregroundStyle(Color.weInkSecondary)
             }
         }
-        .padding(18)
-        .frame(maxWidth: .infinity)
-        .background(
-            .white.opacity(0.06),
-            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(.white.opacity(0.12), lineWidth: 1)
-        )
     }
 
     private var emptyState: some View {
@@ -324,6 +397,38 @@ struct WEView: View {
             }
         }
         .weArrival(order: 4)
+    }
+
+    @ViewBuilder
+    private var todayAfterglow: some View {
+        if let suggestion = session.contextualSuggestions.first {
+            ContextualSuggestionCard(suggestion: suggestion)
+        } else if case .ready = session.seasonReadiness {
+            SeasonReadyCard()
+        } else {
+            HorizonGlimpse()
+        }
+
+        DisclosureGroup {
+            quietActions
+                .padding(.top, 12)
+        } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Leave something here")
+                    .font(.weHeadline)
+                    .foregroundStyle(Color.weInk)
+                Text("Private reflection and pass-the-phone stay out of the way until useful.")
+                    .font(.weMeta)
+                    .foregroundStyle(Color.weInkTertiary)
+            }
+        }
+        .tint(Color.weInkSecondary)
+        .padding(.vertical, 12)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Color.weHairline)
+                .frame(height: 0.5)
+        }
     }
 
     private func quietAction(
@@ -548,44 +653,10 @@ private struct SharedMomentPage: View {
                 momentControls(projection)
             }
 
-            if projection?.phase == .answering {
-                let action = session.questionAction(for: record)
-                Divider()
-                    .overlay(.white.opacity(0.1))
-
-                VStack(spacing: 8) {
-                    Text(action.explanation)
-                        .font(.weMeta)
-                        .foregroundStyle(.white.opacity(0.68))
-                        .multilineTextAlignment(.center)
-                    primary(action.title) {
-                        guard let selectedOption else { return }
-                        await session.submitResponse(
-                            insightID: record.id,
-                            choice: selectedOption,
-                            note: nil
-                        )
-                    }
-                    .disabled(selectedOption == nil || !session.canMutate)
-                }
-            }
-
             SessionMessageView()
         }
-        .padding(20)
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // An opaque surface, not a 5.5% white veil. The card used to be
-        // translucent enough that the atmosphere read straight through the
-        // headline — the plate has to hold the type, not share it.
-        .background(
-            Color.weSurface,
-            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.weHairline, lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
         .animation(
             .weSettle(duration: 0.45, reduceMotion: reduceMotion),
             value: projection?.phase
@@ -672,7 +743,20 @@ private struct SharedMomentPage: View {
                 await session.acceptReveal(insightID: record.id)
             }
         case .answering:
-            answerOptions
+            quietStatus(
+                "A private choice is ready",
+                "Choose on your side. WE opens only the direction that can belong to both of you."
+            )
+
+            NavigationLink {
+                InsightDetailView(insightID: record.id)
+            } label: {
+                Text("Choose privately")
+                    .font(.body.weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: 50)
+            }
+            .buttonStyle(WEFocusPrimaryButtonStyle())
+            .accessibilityIdentifier("today.openMoment")
         case .held:
             heldState
         case .revealed:
@@ -698,13 +782,12 @@ private struct SharedMomentPage: View {
 
     private var heldState: some View {
         VStack(alignment: .leading, spacing: 14) {
-            WEMark(
-                style: .display,
-                personalHue: personalHue,
-                partnerHue: relationshipPartnerHue(session),
-                connection: TrustPhase.held.confluenceConnection,
-                accessibilityText: "Your private answer is held"
+            WECinematicArt(
+                artwork: .vessel,
+                height: 220,
+                intensity: 0.9
             )
+            .accessibilityLabel("Your private answer is held")
             quietStatus(
                 "Your answer is held",
                 "WE will open only the shared direction after \(partnerName) answers too."
@@ -720,6 +803,13 @@ private struct SharedMomentPage: View {
             partner: projection.partnerResponse?.choice
         ) {
             VStack(alignment: .leading, spacing: 14) {
+                WECinematicArt(
+                    artwork: .horizon,
+                    height: 210,
+                    focalPoint: .bottom,
+                    intensity: 0.92
+                )
+
                 Image(systemName: interpretation.symbol)
                     .font(.largeTitle)
                     .symbolRenderingMode(.hierarchical)
@@ -767,8 +857,7 @@ private struct SharedMomentPage: View {
                     .font(.body.weight(.semibold))
                     .frame(maxWidth: .infinity, minHeight: 50)
             }
-            .buttonStyle(.glassProminent)
-            .tint(personalHue.controlColor)
+            .buttonStyle(WEFocusPrimaryButtonStyle())
         }
     }
 
@@ -795,15 +884,14 @@ private struct SharedMomentPage: View {
             Task { await action() }
         } label: {
             if session.isWorking {
-                ProgressView().tint(.white)
+                ProgressView().tint(Color.weCanvas)
             } else {
                 Text(title)
             }
         }
         .font(.body.weight(.semibold))
         .frame(maxWidth: .infinity, minHeight: 50)
-        .buttonStyle(.glassProminent)
-        .tint(personalHue.controlColor)
+        .buttonStyle(WEFocusPrimaryButtonStyle())
         .disabled(!session.canMutate)
     }
 

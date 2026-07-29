@@ -8,17 +8,9 @@ struct AppShell: View {
 
         var title: String {
             switch self {
-            case .we: "WE"
+            case .we: "Today"
             case .life: "Life"
-            case .ahead: "Ahead"
-            }
-        }
-
-        var systemImage: String {
-            switch self {
-            case .we: "person.2.fill"
-            case .life: "house.fill"
-            case .ahead: "arrow.forward.circle.fill"
+            case .ahead: "Us"
             }
         }
 
@@ -32,63 +24,50 @@ struct AppShell: View {
     }
 
     @EnvironmentObject private var session: AppSession
-    @EnvironmentObject private var host: SessionHost
     @Environment(\.visualEngine) private var visualEngine
     @State private var selection: Destination = {
         switch ProcessInfo.processInfo.environment["WE_START_DESTINATION"] {
         case "life": .life
-        case "ahead": .ahead
+        case "ahead", "us", "thread": .ahead
         default: .we
         }
     }()
     @State private var showsProfile = false
-    @State private var showsThread =
-        ProcessInfo.processInfo.environment[
-            "WE_START_DESTINATION"
-        ] == "thread"
     let onReplayPromise: () -> Void
 
     var body: some View {
-        TabView(selection: $selection) {
+        ZStack {
             NavigationStack {
                 WEView { showsProfile = true }
             }
-            .tabItem {
-                Label(
-                    Destination.we.title,
-                    systemImage: Destination.we.systemImage
-                )
-            }
-            .tag(Destination.we)
+            .zIndex(selection == .we ? 1 : 0)
+            .opacity(selection == .we ? 1 : 0)
+            .allowsHitTesting(selection == .we)
+            .accessibilityHidden(selection != .we)
 
             NavigationStack {
                 LifeView { showsProfile = true }
             }
-            .tabItem {
-                Label(
-                    Destination.life.title,
-                    systemImage: Destination.life.systemImage
+            .zIndex(selection == .life ? 1 : 0)
+            .opacity(selection == .life ? 1 : 0)
+            .allowsHitTesting(selection == .life)
+            .accessibilityHidden(selection != .life)
+
+            NavigationStack {
+                ThreadView(
+                    onClose: nil,
+                    onProfile: { showsProfile = true }
                 )
             }
-            .tag(Destination.life)
-
-            if session.hasUnlockedAhead {
-                NavigationStack {
-                    AheadView { showsProfile = true }
-                }
-                .tabItem {
-                    Label(
-                        Destination.ahead.title,
-                        systemImage: Destination.ahead.systemImage
-                    )
-                }
-                .tag(Destination.ahead)
-            }
-
+            .zIndex(selection == .ahead ? 1 : 0)
+            .opacity(selection == .ahead ? 1 : 0)
+            .allowsHitTesting(selection == .ahead)
+            .accessibilityHidden(selection != .ahead)
         }
         .tint(personalHue.controlColor)
-        .toolbarBackground(.visible, for: .tabBar)
-        .toolbarBackground(.regularMaterial, for: .tabBar)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            editorialTabBar
+        }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
                 SimulationMarker()
@@ -100,37 +79,69 @@ struct AppShell: View {
         .sheet(isPresented: $showsProfile) {
             ProfileView(onReplayPromise: onReplayPromise)
         }
-        .fullScreenCover(isPresented: $showsThread) {
-            NavigationStack {
-                ThreadView { showsThread = false }
-            }
-            .preferredColorScheme(.dark)
-        }
-        .overlay(alignment: .top) {
-            if session.hasUnlockedThread {
-                ThreadPullHandle { showsThread = true }
-                    .padding(.top, host.mode == .simulation ? 34 : 4)
-            }
-        }
         .sensoryFeedback(.selection, trigger: selection)
         .preferredColorScheme(.dark)
-        // A tab that is not selected keeps its view tree alive and never
-        // receives onDisappear, so no destination can work out on its own
-        // that it is off screen. The shell is the only place that knows.
+        // All three destinations stay mounted to preserve their navigation
+        // and scroll state. The shell is the only place that knows which one
+        // is actually visible.
         .onChange(of: selection, initial: true) { _, destination in
             visualEngine?.visibleSurface = destination.surface
         }
         .onChange(of: showsProfile, initial: true) { _, _ in
             syncModalDepth()
         }
-        .onChange(of: showsThread) { _, _ in
-            syncModalDepth()
-        }
     }
 
     private func syncModalDepth() {
-        visualEngine?.modalDepth =
-            (showsProfile ? 1 : 0) + (showsThread ? 1 : 0)
+        visualEngine?.modalDepth = showsProfile ? 1 : 0
+    }
+
+    private var editorialTabBar: some View {
+        HStack(spacing: 0) {
+            ForEach(Destination.allCases, id: \.self) { destination in
+                Button {
+                    selection = destination
+                } label: {
+                    VStack(spacing: 6) {
+                        Text(destination.title)
+                            .font(.subheadline.weight(
+                                selection == destination ? .semibold : .regular
+                            ))
+                            .foregroundStyle(
+                                selection == destination
+                                    ? personalHue.controlColor
+                                    : Color.weInkTertiary
+                            )
+
+                        Circle()
+                            .fill(personalHue.controlColor)
+                            .frame(width: 4, height: 4)
+                            .opacity(selection == destination ? 1 : 0)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 54)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(
+                    selection == destination ? .isSelected : []
+                )
+                .accessibilityHint("Opens \(destination.title)")
+                .accessibilityIdentifier("primaryTab.\(destination.title)")
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 4)
+        .background {
+            LinearGradient(
+                colors: [
+                    Color.weCanvas.opacity(0.02),
+                    Color.weCanvas.opacity(0.68),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea(edges: .bottom)
+        }
     }
 
     private var personalHue: WEHue {

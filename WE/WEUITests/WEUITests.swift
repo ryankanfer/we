@@ -6,31 +6,35 @@ final class WEUITests: XCTestCase {
     }
 
     @MainActor
-    func testNativeTabsContextualCreationAndProfile() throws {
+    func testPrimaryNavigationContextualCreationAndProfile() throws {
         let app = launch(scenario: "empty")
 
-        XCTAssertTrue(app.tabBars.buttons["WE"].waitForExistence(timeout: 4))
-        XCTAssertFalse(app.tabBars.buttons["Ahead"].exists)
+        XCTAssertTrue(
+            app.buttons["primaryTab.Today"].waitForExistence(timeout: 4)
+        )
+        XCTAssertTrue(app.buttons["primaryTab.Life"].exists)
+        XCTAssertTrue(app.buttons["primaryTab.Us"].exists)
+        let addHorizon = app.buttons["Add something ahead"]
+        scrollUntilVisible(addHorizon, in: app)
+        XCTAssertTrue(addHorizon.waitForExistence(timeout: 2))
         XCTAssertTrue(app.staticTexts["Something coming up?"].exists)
-        app.buttons["Add something ahead"].tap()
+        addHorizon.tap()
         XCTAssertTrue(app.staticTexts["THE HORIZON"].exists)
         app.textFields["What are you hoping toward?"].tap()
         app.textFields["What are you hoping toward?"]
             .typeText("Saturday's party")
         app.buttons["Add Something Ahead"].tap()
-        XCTAssertTrue(
-            app.tabBars.buttons["Ahead"].waitForExistence(timeout: 3)
-        )
 
-        app.tabBars.buttons["Life"].tap()
+        app.buttons["primaryTab.Life"].tap()
         XCTAssertTrue(
-            app.staticTexts["Nothing needs naming right now."].exists
+            app.staticTexts["Nothing is asking for a place yet."]
+                .waitForExistence(timeout: 2)
         )
-        app.navigationBars["Life"].buttons["Name some care"].tap()
+        app.buttons["Name some care"].tap()
         XCTAssertTrue(app.staticTexts["THE CARE"].exists)
         app.buttons["Cancel"].tap()
 
-        app.tabBars.buttons["Ahead"].tap()
+        app.buttons["Open shared horizons"].tap()
         app.navigationBars["Ahead"].buttons["Add something ahead"].tap()
         XCTAssertTrue(app.staticTexts["THE HORIZON"].exists)
         app.buttons["Cancel"].tap()
@@ -90,7 +94,9 @@ final class WEUITests: XCTestCase {
         app.buttons["Make it mine"].tap()
         XCTAssertTrue(app.buttons["Enter WE"].waitForExistence(timeout: 2))
         app.buttons["Enter WE"].tap()
-        XCTAssertTrue(app.tabBars.buttons["WE"].waitForExistence(timeout: 3))
+        XCTAssertTrue(
+            app.buttons["primaryTab.Today"].waitForExistence(timeout: 3)
+        )
     }
 
     @MainActor
@@ -209,7 +215,9 @@ final class WEUITests: XCTestCase {
             app.staticTexts["What opens, opens together."].exists
         )
         app.buttons["Hold to join"].press(forDuration: 0.5)
-        XCTAssertTrue(app.tabBars.buttons["WE"].waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            app.buttons["primaryTab.Today"].waitForExistence(timeout: 4)
+        )
     }
 
     @MainActor
@@ -219,7 +227,12 @@ final class WEUITests: XCTestCase {
         XCTAssertTrue(insight.waitForExistence(timeout: 4))
 
         XCTAssertTrue(
-            app.staticTexts["Choose what is true for you."].exists
+            app.staticTexts["A private choice is ready"].exists
+        )
+        app.buttons["Choose privately"].tap()
+        XCTAssertTrue(
+            app.staticTexts["Choose what is true for you."]
+                .waitForExistence(timeout: 2)
         )
         app.buttons["Out of the house"].tap()
         app.buttons["Open together"].tap()
@@ -233,15 +246,17 @@ final class WEUITests: XCTestCase {
     func testLifeStreamAndPrivateChoiceAreVisible() throws {
         let app = launch(scenario: "ready")
 
-        app.tabBars.buttons["Life"].tap()
+        app.buttons["primaryTab.Life"].tap()
+        let lifeStream = app.staticTexts["LIFE STREAM"]
+        scrollUntilVisible(lifeStream, in: app, maxSwipes: 6)
         XCTAssertTrue(
-            app.staticTexts["LIFE STREAM"].waitForExistence(timeout: 3)
+            lifeStream.waitForExistence(timeout: 3)
         )
         XCTAssertTrue(
             app.staticTexts["Morning coffee by the river"].exists
         )
 
-        app.tabBars.buttons["Ahead"].tap()
+        app.buttons["Open shared horizons"].tap()
         XCTAssertTrue(app.staticTexts["CHOOSE PRIVATELY"].exists)
         XCTAssertTrue(
             app.staticTexts["How should tonight feel?"].exists
@@ -251,7 +266,9 @@ final class WEUITests: XCTestCase {
     @MainActor
     func testCoreAccessibilityAudit() throws {
         let app = launch(scenario: "empty")
-        XCTAssertTrue(app.tabBars.buttons["WE"].waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            app.buttons["primaryTab.Today"].waitForExistence(timeout: 4)
+        )
 
         try app.performAccessibilityAudit(
             for: [
@@ -261,6 +278,17 @@ final class WEUITests: XCTestCase {
                 .textClipped
             ]
         )
+    }
+
+    @MainActor
+    private func scrollUntilVisible(
+        _ element: XCUIElement,
+        in app: XCUIApplication,
+        maxSwipes: Int = 4
+    ) {
+        for _ in 0..<maxSwipes where !element.isHittable {
+            app.swipeUp()
+        }
     }
 
     @MainActor

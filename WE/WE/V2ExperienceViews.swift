@@ -252,45 +252,61 @@ struct PresenceControl: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 10) {
             ForEach(PresenceMode.allCases, id: \.self) { mode in
                 let isSelected = mode == session.presenceMode
                 Button {
                     Task { await session.setPresence(mode) }
                 } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: presenceSymbol(for: mode))
-                            .font(.caption.weight(.semibold))
-                        Text(mode.title)
-                            .font(.subheadline.weight(.semibold))
-                    }
-                    .foregroundStyle(
-                        isSelected ? .white : .white.opacity(0.52)
-                    )
-                    .padding(.horizontal, 8)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .background {
-                        if isSelected {
-                            Capsule()
-                                .fill(personalHue.atmosphereColor)
-                                .overlay(
-                                    Capsule()
-                                        .stroke(.white.opacity(0.2), lineWidth: 1)
+                    VStack(spacing: 8) {
+                        ZStack {
+                            Circle()
+                                .fill(modeTint(for: mode).opacity(
+                                    isSelected ? 0.22 : 0.055
+                                ))
+                                .frame(width: 38, height: 38)
+
+                            Circle()
+                                .stroke(
+                                    modeTint(for: mode).opacity(
+                                        isSelected ? 0.92 : 0.34
+                                    ),
+                                    lineWidth: isSelected ? 1.5 : 1
+                                )
+                                .frame(width: 38, height: 38)
+
+                            Image(systemName: presenceSymbol(for: mode))
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(
+                                    isSelected
+                                        ? Color.weInk
+                                        : Color.weInkTertiary
                                 )
                         }
+                        .shadow(
+                            color: modeTint(for: mode).opacity(
+                                isSelected ? 0.46 : 0
+                            ),
+                            radius: 12
+                        )
+
+                        Text(mode.title)
+                            .font(.weMeta)
+                            .foregroundStyle(
+                                isSelected
+                                    ? Color.weInk
+                                    : Color.weInkTertiary
+                            )
                     }
+                    .frame(maxWidth: .infinity, minHeight: 68)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
+                .accessibilityValue(isSelected ? "Selected" : "Not selected")
                 .accessibilityHint(mode.detail)
             }
         }
-        .padding(4)
-        .background(.white.opacity(0.06), in: Capsule())
-        .overlay(
-            Capsule()
-                .stroke(.white.opacity(0.1), lineWidth: 1)
-        )
         .animation(
             reduceMotion ? nil : .weQuick,
             value: session.presenceMode
@@ -302,6 +318,17 @@ struct PresenceControl: View {
 
     private var personalHue: WEHue {
         session.snapshot?.membership.map { WEHue($0.hue) } ?? .burgundy
+    }
+
+    private func modeTint(for mode: PresenceMode) -> Color {
+        switch mode {
+        case .apart:
+            personalHue.atmosphereColor
+        case .together:
+            personalHue.controlColor
+        case .away:
+            relationshipPartnerHue(session).atmosphereColor
+        }
     }
 
     private func presenceSymbol(for mode: PresenceMode) -> String {
@@ -361,113 +388,33 @@ struct ThreadView: View {
     @EnvironmentObject private var session: AppSession
     @State private var filter: Filter = .everything
     @State private var selectedEvidence: ThreadEvidence?
-    let onClose: () -> Void
+    let onClose: (() -> Void)?
+    let onProfile: (() -> Void)?
+
+    init(
+        onClose: (() -> Void)? = nil,
+        onProfile: (() -> Void)? = nil
+    ) {
+        self.onClose = onClose
+        self.onProfile = onProfile
+    }
 
     var body: some View {
         ZStack {
             Color.weCanvas.ignoresSafeArea()
-            WEConfluenceForm(
-                personalHue: personalHue,
-                partnerHue: relationshipPartnerHue(session),
-                connection: 0.3
-            )
-            .opacity(0.18)
-            .blur(radius: 28)
-            .ignoresSafeArea()
 
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ZStack {
-                        Capsule()
-                            .fill(.white.opacity(0.24))
-                            .frame(width: 42, height: 4)
-                        HStack {
-                            Spacer()
-                            Button("Close", action: onClose)
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.white.opacity(0.54))
-                                .frame(minWidth: 44, minHeight: 44)
-                        }
+            GeometryReader { viewport in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        usFocusScene(
+                            minHeight: max(viewport.size.height, 620)
+                        )
+                        .weArrival()
+
+                        threadLibrary
                     }
-                    .padding(.bottom, 26)
-
-                    Text("THE THREAD")
-                        .font(.weCaption)
-                        .tracking(2)
-                        .foregroundStyle(.white.opacity(0.48))
-
-                    Text("Everything WE has\nheld together.")
-                        .font(.weLargeTitle)
-                        .foregroundStyle(.white)
-                        .padding(.top, 10)
-
-                    Text(threadSummary)
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.58))
-                        .padding(.top, 8)
-
-                    HStack(spacing: 8) {
-                        ForEach(Filter.allCases, id: \.self) { item in
-                            Button(item.rawValue) { filter = item }
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(
-                                    filter == item
-                                        ? .white
-                                        : .white.opacity(0.52)
-                                )
-                                .padding(.horizontal, 14)
-                                .frame(minHeight: 40)
-                                .background(
-                                    filter == item
-                                        ? .white.opacity(0.14)
-                                        : .clear,
-                                    in: Capsule()
-                                )
-                                .overlay {
-                                    Capsule().stroke(.white.opacity(0.14))
-                                }
-                        }
-                    }
-                    .padding(.top, 18)
-
-                    ForEach(groupedEvents, id: \.month) { group in
-                        monthHeader(group.month)
-                            .padding(.top, 24)
-                        ForEach(group.events) { event in
-                            threadRow(event)
-                        }
-                    }
-
-                    ForEach(session.seasons.reversed()) { season in
-                        NavigationLink {
-                            SeasonDetailView(season: season)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("A SEASON IS READY")
-                                    .font(.weCaption)
-                                    .tracking(1.6)
-                                    .foregroundStyle(Color("WEBurgundySoft"))
-                                Text(season.title)
-                                    .font(.weTitle)
-                                    .foregroundStyle(.white)
-                                Text("Read the season")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(.white.opacity(0.7))
-                            }
-                            .padding(.vertical, 24)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    Text("WE keeps nothing either of you did not choose to close.")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.34))
-                        .padding(.top, 18)
                 }
-                .padding(.horizontal, 26)
-                .padding(.top, 14)
-                .padding(.bottom, 44)
+                .scrollIndicators(.hidden)
             }
         }
         .toolbarBackground(Color.weCanvas, for: .navigationBar)
@@ -479,8 +426,210 @@ struct ThreadView: View {
         }
     }
 
+    private func usFocusScene(minHeight: CGFloat) -> some View {
+        WECinematicFocusScene(
+            artwork: .horizon,
+            minHeight: minHeight,
+            focalPoint: .bottom,
+            intensity: 0.96
+        ) {
+            VStack(alignment: .leading, spacing: 0) {
+                if let onClose {
+                    HStack {
+                        Text("WE")
+                            .font(.weMeta)
+                            .tracking(1.8)
+                            .foregroundStyle(Color.weInkTertiary)
+
+                        Spacer()
+
+                        Button("Close", action: onClose)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.weInkSecondary)
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                } else if let onProfile {
+                    WEEditorialScreenHeader(
+                        title: "Us",
+                        profileName: session.snapshot?.profile.name ?? "You",
+                        onProfile: onProfile
+                    )
+                } else {
+                    Text("WE")
+                        .font(.weMeta)
+                        .tracking(1.8)
+                        .foregroundStyle(Color.weInkTertiary)
+
+                    Text("Us")
+                        .font(.weLargeTitle)
+                        .foregroundStyle(Color.weInk)
+                        .padding(.top, 2)
+                }
+
+                Spacer(minLength: 60)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("OUR MEMORY")
+                        .font(.weMeta)
+                        .tracking(1.8)
+                        .foregroundStyle(Color.weInkTertiary)
+
+                    Text(heroTitle)
+                        .font(.weLargeTitle)
+                        .foregroundStyle(Color.weInk)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text(heroDetail)
+                        .font(.weSubheadline)
+                        .foregroundStyle(Color.weInkSecondary)
+                        .frame(maxWidth: 330, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityElement(children: .combine)
+
+                Spacer(minLength: 24)
+
+                HStack(spacing: 8) {
+                    Text("What you hold together")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.down")
+                        .accessibilityHidden(true)
+                }
+                .foregroundStyle(Color.weInkSecondary)
+                .frame(maxWidth: .infinity, minHeight: 50)
+                .accessibilityElement(children: .combine)
+            }
+            .padding(.horizontal, 26)
+            .padding(.top, 14)
+            .padding(.bottom, 76)
+        }
+    }
+
+    @ViewBuilder
+    private var threadLibrary: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            AnchorsSection()
+
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("THREAD")
+                        .font(.weMeta)
+                        .tracking(1.8)
+                        .foregroundStyle(Color.weInkTertiary)
+                    Text("What you have held together")
+                        .font(.weTitle)
+                        .foregroundStyle(Color.weInk)
+                }
+
+                Spacer()
+
+                if !session.relationshipEvents.isEmpty {
+                    Text("\(session.relationshipEvents.count)")
+                        .font(.weMeta)
+                        .foregroundStyle(Color.weInkTertiary)
+                }
+            }
+            .padding(.top, 28)
+
+            if session.relationshipEvents.isEmpty {
+                WECinematicPanel {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("The memory has not been made yet.")
+                            .font(.weTitle)
+                            .foregroundStyle(Color.weInk)
+                        Text("Moments you both choose to close will gather here, quietly and in order.")
+                            .font(.weSubheadline)
+                            .foregroundStyle(Color.weInkSecondary)
+                    }
+                }
+                .padding(.top, 14)
+            } else {
+                HStack(spacing: 8) {
+                    ForEach(Filter.allCases, id: \.self) { item in
+                        Button(item.rawValue) { filter = item }
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(
+                                filter == item
+                                    ? Color.weInk
+                                    : Color.weInkTertiary
+                            )
+                            .padding(.horizontal, 14)
+                            .frame(minHeight: 44)
+                            .background(
+                                filter == item
+                                    ? Color.weSurfaceRaised
+                                    : Color.clear,
+                                in: Capsule()
+                            )
+                            .overlay {
+                                Capsule().stroke(Color.weHairline)
+                            }
+                    }
+                }
+                .padding(.top, 18)
+            }
+
+            ForEach(groupedEvents, id: \.month) { group in
+                monthHeader(group.month)
+                    .padding(.top, 24)
+                ForEach(group.events) { event in
+                    threadRow(event)
+                }
+            }
+
+            ForEach(session.seasons.reversed()) { season in
+                NavigationLink {
+                    SeasonDetailView(season: season)
+                } label: {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("A SEASON IS READY")
+                            .font(.weCaption)
+                            .tracking(1.6)
+                            .foregroundStyle(Color("WEBurgundySoft"))
+                        Text(season.title)
+                            .font(.weTitle)
+                            .foregroundStyle(.white)
+                        Text("Read the season")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.7))
+                    }
+                    .padding(.vertical, 24)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Text("WE keeps nothing either of you did not choose to close.")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.34))
+                .padding(.top, 18)
+        }
+        .padding(.horizontal, 26)
+        .padding(.top, 30)
+        .padding(.bottom, 44)
+        .background(Color.weCanvas)
+    }
+
     private var personalHue: WEHue {
         session.snapshot?.membership.map { WEHue($0.hue) } ?? .burgundy
+    }
+
+    private var heroTitle: String {
+        if let anchor = session.anchors.first(where: \.isActive) {
+            return anchor.title
+        }
+        if let season = session.seasons.last {
+            return season.title
+        }
+        return "Everything between you has somewhere to belong."
+    }
+
+    private var heroDetail: String {
+        if session.relationshipEvents.isEmpty {
+            return "The first shared memory will appear after you close something together."
+        }
+        return threadSummary
     }
 
     private var visibleEvents: [RelationshipEvent] {
@@ -926,16 +1075,25 @@ struct AnchorsSection: View {
     @State private var showsEditor = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                ProductSectionHeader(
-                    title: "Anchors",
-                    detail: "\(activeAnchors.count)"
-                )
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("ANCHOR")
+                        .font(.weMeta)
+                        .tracking(1.8)
+                        .foregroundStyle(Color.weInkTertiary)
+                    Text("What brings you back")
+                        .font(.weTitle)
+                        .foregroundStyle(Color.weInk)
+                }
+
+                Spacer()
+
                 Button {
                     showsEditor = true
                 } label: {
-                    Image(systemName: "plus.circle.fill")
+                    Image(systemName: "plus")
+                        .foregroundStyle(Color.weInkSecondary)
                         .frame(width: 44, height: 44)
                 }
                 .disabled(!session.canMutate)
@@ -944,22 +1102,31 @@ struct AnchorsSection: View {
 
             if activeAnchors.isEmpty {
                 Text("A small shared rhythm can live here without becoming a task.")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.68))
+                    .font(.weSubheadline)
+                    .foregroundStyle(Color.weInkSecondary)
+                    .padding(.vertical, 12)
             } else {
                 ForEach(activeAnchors) { anchor in
-                    HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: "circle.hexagongrid.fill")
-                            .foregroundStyle(Color("WESage"))
+                    HStack(alignment: .top, spacing: 14) {
+                        Circle()
+                            .fill(Color("WESage"))
+                            .frame(width: 7, height: 7)
+                            .padding(.top, 8)
+                            .accessibilityHidden(true)
+
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(anchor.title).font(.headline)
+                            Text(anchor.title)
+                                .font(.system(.title3, design: .serif))
+                                .foregroundStyle(Color.weInk)
                             if let note = anchor.note {
                                 Text(note)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .font(.weSubheadline)
+                                    .foregroundStyle(Color.weInkSecondary)
                             }
                         }
+
                         Spacer()
+
                         Menu {
                             Button("Let this rest") {
                                 Task {
@@ -971,17 +1138,17 @@ struct AnchorsSection: View {
                             }
                         } label: {
                             Image(systemName: "ellipsis")
+                                .foregroundStyle(Color.weInkTertiary)
                                 .frame(width: 44, height: 44)
                         }
                     }
-                    .padding(15)
-                    .background(
-                        .white.opacity(0.065),
-                        in: RoundedRectangle(
-                            cornerRadius: 18,
-                            style: .continuous
-                        )
-                    )
+                    .padding(.vertical, 14)
+                    .overlay(alignment: .bottom) {
+                        Rectangle()
+                            .fill(Color.weHairline)
+                            .frame(height: 0.5)
+                    }
+                    .accessibilityElement(children: .combine)
                 }
             }
         }

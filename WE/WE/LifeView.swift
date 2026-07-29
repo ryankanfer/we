@@ -21,85 +21,21 @@ struct LifeView: View {
     var body: some View {
         ZStack {
             WarmEditorialBackground()
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 22) {
-                    ProductHeader(
-                        eyebrow: "Care made visible",
-                        title: "Life",
-                        profileName: session.snapshot?.profile.name ?? "You",
-                        onProfile: onProfile
-                    )
-                    .weArrival()
-
-                    AnchorsSection()
-                        .weArrival(order: 1)
-
-                    HandoffInbox()
-                        .weArrival(order: 2)
-
-                    if !active.isEmpty {
-                        carePromise
-                            .weArrival(order: 1)
-
-                        filterCapsuleBar
-                            .weArrival(order: 2)
-                    }
-
-                    if active.isEmpty {
-                        EditorialEmptyState(
-                            symbol: "hands.and.sparkles",
-                            title: "Nothing needs naming right now.",
-                            message: "Name a piece of care when making it visible would help life feel lighter.",
-                            actionTitle: session.canMutate ? "Name some care" : nil,
-                            action: { showsAdd = true }
+            GeometryReader { viewport in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        lifeRhythmFocusScene(
+                            minHeight: max(viewport.size.height, 620)
                         )
-                        .weArrival(order: 3)
-                    } else if filteredActive.isEmpty {
-                        EditorialEmptyState(
-                            symbol: "line.3.horizontal.decrease.circle",
-                            title: "Nothing is \(emptyFilterPhrase).",
-                            message: "The rest of what you carry is still here.",
-                            actionTitle: "Show everything",
-                            action: {
-                                withAnimation(reduceMotion ? .easeOut(duration: 0.16) : .weState) {
-                                    selectedFilter = .all
-                                }
-                            }
-                        )
-                        .weArrival(order: 3)
-                    } else {
-                        ForEach(
-                            Array(ResponsibilityOwner.allCases.enumerated()),
-                            id: \.element
-                        ) { index, owner in
-                            let items = filteredActive.filter { $0.owner == owner }
-                            if !items.isEmpty {
-                                responsibilitySection(ownerSectionTitle(owner), items: items)
-                                    .weArrival(order: index + 4)
-                            }
-                        }
-                    }
+                        .weArrival()
 
-                    if !lifeStream.isEmpty && selectedFilter == .all {
-                        lifeStreamSection
-                            .weArrival(order: 8)
+                        lifeLibrary
                     }
-                    SessionMessageView()
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 18)
-                .padding(.bottom, 32)
+                .scrollIndicators(.hidden)
             }
         }
-        .navigationTitle("Life")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { showsAdd = true } label: { Image(systemName: "plus") }
-                    .disabled(!session.canMutate)
-                    .accessibilityLabel("Name some care")
-            }
-        }
+        .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showsAdd) { ResponsibilityEditor() }
         .sheet(item: $editing) { ResponsibilityEditor(responsibility: $0) }
         .animation(
@@ -108,7 +44,103 @@ struct LifeView: View {
         )
     }
 
+    private var header: some View {
+        WEEditorialScreenHeader(
+            title: "Life",
+            profileName: session.snapshot?.profile.name ?? "You",
+            actionSystemImage: "plus",
+            actionAccessibilityLabel: "Name some care",
+            actionEnabled: session.canMutate,
+            onAction: { showsAdd = true },
+            onProfile: onProfile
+        )
+    }
+
+    @ViewBuilder
+    private var lifeLibrary: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("LIFE")
+                    .font(.weMeta)
+                    .tracking(1.8)
+                    .foregroundStyle(Color.weInkTertiary)
+                Text("Everything else you are carrying")
+                    .font(.weTitle)
+                    .foregroundStyle(Color.weInk)
+            }
+
+            HandoffInbox()
+                .weArrival(order: 2)
+
+            if !active.isEmpty {
+                carePromise
+                    .weArrival(order: 1)
+
+                filterCapsuleBar
+                    .weArrival(order: 2)
+            }
+
+            if active.isEmpty {
+                EditorialEmptyState(
+                    symbol: "hands.and.sparkles",
+                    title: "Nothing needs naming right now.",
+                    message: "Name a piece of care when making it visible would help life feel lighter.",
+                    actionTitle: session.canMutate ? "Name some care" : nil,
+                    action: { showsAdd = true }
+                )
+                .weArrival(order: 3)
+            } else if filteredActive.isEmpty {
+                EditorialEmptyState(
+                    symbol: "line.3.horizontal.decrease.circle",
+                    title: "Nothing is \(emptyFilterPhrase).",
+                    message: "The rest of what you carry is still here.",
+                    actionTitle: "Show everything",
+                    action: {
+                        withAnimation(
+                            reduceMotion
+                                ? .easeOut(duration: 0.16)
+                                : .weState
+                        ) {
+                            selectedFilter = .all
+                        }
+                    }
+                )
+                .weArrival(order: 3)
+            } else {
+                ForEach(
+                    Array(ResponsibilityOwner.allCases.enumerated()),
+                    id: \.element
+                ) { index, owner in
+                    let items = filteredActive.filter { $0.owner == owner }
+                    if !items.isEmpty {
+                        responsibilitySection(
+                            ownerSectionTitle(owner),
+                            items: items
+                        )
+                        .weArrival(order: index + 4)
+                    }
+                }
+            }
+
+            if !lifeStream.isEmpty && selectedFilter == .all {
+                lifeStreamSection
+                    .weArrival(order: 8)
+            }
+
+            SessionMessageView()
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 30)
+        .padding(.bottom, 36)
+        .background(Color.weCanvas)
+    }
+
     private var active: [Responsibility] { session.responsibilities.filter { $0.status == .active } }
+    private var activePlans: [PlanItem] {
+        session.plans
+            .filter { $0.status == .active }
+            .sorted { ($0.scheduledOn ?? "9999") < ($1.scheduledOn ?? "9999") }
+    }
     private var completedCare: [Responsibility] {
         session.responsibilities.filter { $0.status == .completed }
     }
@@ -148,64 +180,222 @@ struct LifeView: View {
         }
     }
 
-    private var filterCapsuleBar: some View {
-        HStack(spacing: 6) {
-            ForEach(FilterOption.allCases) { option in
-                Button {
-                    withAnimation(reduceMotion ? .easeOut(duration: 0.16) : .weState) {
-                        selectedFilter = option
-                    }
-                } label: {
-                    Text(filterLabel(option))
+    private func lifeRhythmFocusScene(minHeight: CGFloat) -> some View {
+        WECinematicFocusScene(
+            artwork: .confluence,
+            minHeight: minHeight,
+            intensity: 0.88
+        ) {
+            VStack(alignment: .leading, spacing: 0) {
+                header
+
+                weekStrip
+                    .padding(.top, 18)
+
+                Spacer(minLength: 42)
+
+                VStack(alignment: .leading, spacing: 9) {
+                    Text(lifeFocusEyebrow)
                         .font(.weMeta)
-                        .foregroundStyle(selectedFilter == option ? Color("WEInk") : Color("WEFaint"))
-                        .padding(.horizontal, 12)
-                        .frame(minHeight: 44)
-                        .background {
-                            if selectedFilter == option {
-                                Capsule()
-                                    .fill(Color("WECard"))
-                                    .shadow(color: Color.black.opacity(0.06), radius: 4, x: 0, y: 2)
+                        .tracking(1.8)
+                        .foregroundStyle(personalHue.controlColor)
+
+                    Text(lifeFocusTitle)
+                        .font(.weLargeTitle)
+                        .foregroundStyle(Color.weInk)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text(lifeFocusDetail)
+                        .font(.weSubheadline)
+                        .foregroundStyle(Color.weInkSecondary)
+                        .frame(maxWidth: 330, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityElement(children: .combine)
+
+                Spacer(minLength: 24)
+
+                NavigationLink {
+                    AheadView(onProfile: onProfile)
+                } label: {
+                    HStack(spacing: 10) {
+                        Text("Open shared horizons")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer(minLength: 8)
+                        Image(systemName: "arrow.up.right")
+                            .accessibilityHidden(true)
+                    }
+                    .foregroundStyle(Color.weInk)
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open shared horizons")
+                .accessibilityHint("Shows shared plans and possibilities")
+                .accessibilityIdentifier("life.openHorizons")
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+            .padding(.bottom, 76)
+        }
+    }
+
+    private var lifeFocusEyebrow: String {
+        if !activePlans.isEmpty { return "NEXT HORIZON" }
+        if !active.isEmpty { return "CARE IN VIEW" }
+        return "OUR RHYTHM"
+    }
+
+    private var lifeFocusTitle: String {
+        if let plan = activePlans.first {
+            return plan.title
+        }
+        if let item = active.first {
+            return item.title
+        }
+        return "Nothing is asking for a place yet."
+    }
+
+    private var lifeFocusDetail: String {
+        if let plan = activePlans.first {
+            return PlanDate.relativeDescription(plan.scheduledOn)
+                ?? "Still forming"
+        }
+        if let item = active.first {
+            return rhythmOwner(item.owner)
+        }
+        return "Plans and shared care will gather here when they come into view."
+    }
+
+    private var weekStrip: some View {
+        HStack(spacing: 0) {
+            ForEach(0..<7, id: \.self) { offset in
+                let date = Calendar.current.date(
+                    byAdding: .day,
+                    value: offset,
+                    to: Date()
+                ) ?? Date()
+
+                VStack(spacing: 6) {
+                    Text(date.formatted(.dateTime.weekday(.narrow)))
+                        .font(.weMeta)
+                        .foregroundStyle(Color.weInkTertiary)
+                    Text(date.formatted(.dateTime.day()))
+                        .font(.caption.weight(offset == 0 ? .bold : .medium))
+                        .foregroundStyle(
+                            offset == 0 ? Color.weInk : Color.weInkSecondary
+                        )
+                        .frame(width: 32, height: 32)
+                        .background(
+                            offset == 0
+                                ? personalHue.controlColor.opacity(0.34)
+                                : .clear,
+                            in: Circle()
+                        )
+                        .overlay {
+                            if offset == 0 {
+                                Circle().stroke(
+                                    personalHue.controlColor.opacity(0.7),
+                                    lineWidth: 1
+                                )
                             }
                         }
                 }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(selectedFilter == option ? .isSelected : [])
+                .frame(maxWidth: .infinity)
             }
         }
-        .padding(4)
-        .background(Color.black.opacity(0.04), in: Capsule())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("The next seven days, starting today")
+    }
+
+    private func rhythmRow(
+        symbol: String,
+        title: String,
+        detail: String,
+        tint: Color
+    ) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(tint)
+                .frame(width: 36, height: 36)
+                .background(tint.opacity(0.14), in: Circle())
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.weHeadline)
+                    .foregroundStyle(Color.weInk)
+                    .lineLimit(1)
+                Text(detail)
+                    .font(.weMeta)
+                    .foregroundStyle(Color.weInkTertiary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func rhythmOwner(_ owner: ResponsibilityOwner) -> String {
+        switch owner {
+        case .me: "On your side"
+        case .partner: "With \(partnerName)"
+        case .together: "Held together"
+        }
+    }
+
+    private var personalHue: WEHue {
+        session.snapshot?.membership.map { WEHue($0.hue) } ?? .burgundy
+    }
+
+    private var filterCapsuleBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 22) {
+                ForEach(FilterOption.allCases) { option in
+                    Button {
+                        withAnimation(reduceMotion ? .easeOut(duration: 0.16) : .weState) {
+                            selectedFilter = option
+                        }
+                    } label: {
+                        VStack(spacing: 5) {
+                            Text(filterLabel(option))
+                                .font(.weMeta)
+                                .foregroundStyle(
+                                    selectedFilter == option
+                                        ? personalHue.controlColor
+                                        : Color.weInkTertiary
+                                )
+
+                            Capsule()
+                                .fill(personalHue.controlColor)
+                                .frame(width: 18, height: 1.5)
+                                .opacity(selectedFilter == option ? 1 : 0)
+                        }
+                        .frame(minHeight: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(selectedFilter == option ? .isSelected : [])
+                }
+            }
+        }
         .sensoryFeedback(.selection, trigger: selectedFilter)
     }
 
     private var carePromise: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "hands.and.sparkles.fill")
-                .font(.title3)
-                .foregroundStyle(Color("WEBurgundy"))
-                .frame(width: 44, height: 44)
-                .background(
-                    Color("WEBurgundy").opacity(0.1),
-                    in: Circle()
-                )
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("CARE, NOT ASSIGNMENTS")
-                    .font(.weMeta)
-                    .tracking(1.4)
-                    .foregroundStyle(Color("WEBurgundy"))
-                Text("Naming care keeps it from becoming invisible. It is not a score of who does more.")
-                    .font(.weSubheadline)
-                    .foregroundStyle(Color("WEInk"))
-            }
+        VStack(alignment: .leading, spacing: 5) {
+            Text("CARE, NOT ASSIGNMENTS")
+                .font(.weMeta)
+                .tracking(1.4)
+                .foregroundStyle(personalHue.controlColor)
+            Text("Naming care keeps it from becoming invisible. It is not a score of who does more.")
+                .font(.weSubheadline)
+                .foregroundStyle(Color.weInkSecondary)
         }
-        .padding(16)
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            Color("WECard"),
-            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-        )
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.weHairline)
+                .frame(height: 0.5)
+        }
         .accessibilityElement(children: .combine)
     }
 
@@ -257,14 +447,11 @@ struct LifeView: View {
                     if item.id != items.last?.id { Divider().padding(.leading, 18) }
                 }
             }
-            .background(
-                Color("WECard"),
-                in: RoundedRectangle(cornerRadius: 20, style: .continuous)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(Color.black.opacity(0.04), lineWidth: 1)
-            )
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(Color.weHairline)
+                    .frame(height: 0.5)
+            }
         }
     }
 
@@ -305,14 +492,11 @@ struct LifeView: View {
                     }
                 }
             }
-            .background(
-                Color("WECard"),
-                in: RoundedRectangle(cornerRadius: 20, style: .continuous)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(Color.black.opacity(0.04), lineWidth: 1)
-            )
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(Color.weHairline)
+                    .frame(height: 0.5)
+            }
         }
     }
 }
