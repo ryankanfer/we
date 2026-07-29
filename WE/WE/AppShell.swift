@@ -21,10 +21,19 @@ struct AppShell: View {
             case .ahead: "arrow.forward.circle.fill"
             }
         }
+
+        var surface: VisualEngineCoordinator.Surface {
+            switch self {
+            case .we: .we
+            case .life: .life
+            case .ahead: .ahead
+            }
+        }
     }
 
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var host: SessionHost
+    @Environment(\.visualEngine) private var visualEngine
     @State private var selection: Destination = {
         switch ProcessInfo.processInfo.environment["WE_START_DESTINATION"] {
         case "life": .life
@@ -105,6 +114,23 @@ struct AppShell: View {
         }
         .sensoryFeedback(.selection, trigger: selection)
         .preferredColorScheme(.dark)
+        // A tab that is not selected keeps its view tree alive and never
+        // receives onDisappear, so no destination can work out on its own
+        // that it is off screen. The shell is the only place that knows.
+        .onChange(of: selection, initial: true) { _, destination in
+            visualEngine?.visibleSurface = destination.surface
+        }
+        .onChange(of: showsProfile, initial: true) { _, _ in
+            syncModalDepth()
+        }
+        .onChange(of: showsThread) { _, _ in
+            syncModalDepth()
+        }
+    }
+
+    private func syncModalDepth() {
+        visualEngine?.modalDepth =
+            (showsProfile ? 1 : 0) + (showsThread ? 1 : 0)
     }
 
     private var personalHue: WEHue {
