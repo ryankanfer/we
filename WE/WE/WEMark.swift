@@ -80,13 +80,16 @@ struct WEMark: View {
                         .accessibilityHidden(true)
                 }
             }
-            .accessibilityHidden(true)
         }
-        .accessibilityHidden(true)
         .frame(
             width: canvasWidth,
             height: diameter
         )
-        .accessibilityHidden(true)
+        // `accessibilityText` was declared and passed by five callers with
+        // real state strings, then silenced by four nested
+        // accessibilityHidden(true) calls. In togetherStateCard, emptyState
+        // and heldState the mark is the only thing carrying that state.
+        .accessibilityElement()
+        .accessibilityLabel(accessibilityText)
     }
 }

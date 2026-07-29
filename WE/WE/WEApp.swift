@@ -3,7 +3,9 @@ import SwiftUI
 @main
 struct WEApp: App {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @StateObject private var host: SessionHost
+    @State private var visualEngine = VisualEngineCoordinator()
     @AppStorage("hasSeenLivingConfluencePromise")
     private var hasSeenPromise = false
     @State private var isReplayingPromise = false
@@ -32,10 +34,24 @@ struct WEApp: App {
                     .zIndex(10)
                 }
             }
+            .environment(\.visualEngine, visualEngine)
             .animation(
                 .weSettle(duration: 0.45, reduceMotion: reduceMotion),
                 value: showsPromise
             )
+            // The Promise sits above everything, so it owns the screen while
+            // it is up — anything underneath must stop drawing.
+            .onChange(of: showsPromise, initial: true) { _, shows in
+                visualEngine.visibleSurface = shows ? .promise : .we
+            }
+            // These live in the environment, not in ProcessInfo, so they have
+            // to be pushed down rather than read from the coordinator.
+            .onChange(of: reduceMotion, initial: true) { _, _ in
+                syncAccessibility()
+            }
+            .onChange(of: reduceTransparency) { _, _ in
+                syncAccessibility()
+            }
             .task {
                 await host.restore()
             }
@@ -43,6 +59,13 @@ struct WEApp: App {
                 Task { await host.session.handleAuthCallback(url) }
             }
         }
+    }
+
+    private func syncAccessibility() {
+        visualEngine.setAccessibility(
+            reduceMotion: reduceMotion,
+            reduceTransparency: reduceTransparency
+        )
     }
 
     private var showsPromise: Bool {
