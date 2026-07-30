@@ -23,17 +23,68 @@ import SwiftUI
 
 enum FieldEntry {
     enum Mode: String {
-        case off
-        case zones
+        /// The real app, backed by Supabase.
+        case live
+        /// The real app on seeded data — no couple, no network.
+        case seeded
+        /// The review surface.
         case gallery
 
         static var current: Mode {
             switch ProcessInfo.processInfo.environment["WE_FIELD"] {
-            case "1", "zones": .zones
+            case "seeded", "1": .seeded
             case "gallery": .gallery
-            default: .off
+            default: .live
             }
         }
+    }
+}
+
+// MARK: - The root
+//
+// Builds the store from the live session. This is the cutover: once a couple
+// exists, the zones are the app.
+//
+// The store is held in @State rather than rebuilt per render, because it owns
+// the ephemeral UI state — the active zone, the capture draft, the open
+// takeover — and rebuilding it would throw all of that away on every snapshot
+// change.
+
+@MainActor
+struct FieldRoot: View {
+    let snapshot: RelationshipSnapshot
+    @State private var store: FieldStore?
+
+    var body: some View {
+        Group {
+            if let store {
+                FieldZoneShell(store: store)
+            } else {
+                // Not an empty state, a held one. The canvas is already the
+                // right colour, so the handoff never flashes.
+                FieldPalette.bg.ignoresSafeArea()
+            }
+        }
+        .task(id: snapshot.membership?.coupleID) {
+            guard store == nil else { return }
+            store = FieldStore(backend: backend())
+        }
+    }
+
+    private func backend() -> FieldBackend? {
+        guard let coupleID = snapshot.membership?.coupleID,
+              let first = snapshot.members.first?.id
+        else { return nil }
+
+        return FieldSupabaseBackend(
+            client: SupabaseClientProvider(
+                configuration: AppEnvironment.current.supabase
+            ).client,
+            coupleID: coupleID,
+            viewerID: snapshot.profile.id,
+            members: snapshot.members,
+            firstMemberID: first
+        )
     }
 }
 

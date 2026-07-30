@@ -12,13 +12,6 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		C0DE100A3013C00D00BACE01 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 79C3EB2D3013C00A00394313 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = C0DE10093013C00D00BACE01;
-			remoteInfo = WEWidgets;
-		};
 		79C3EB433013C00D00394313 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 79C3EB2D3013C00A00394313 /* Project object */;
@@ -32,6 +25,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 79C3EB343013C00A00394313;
 			remoteInfo = WE;
+		};
+		C0DE100A3013C00D00BACE01 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 79C3EB2D3013C00A00394313 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C0DE10093013C00D00BACE01;
+			remoteInfo = WEWidgets;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -362,11 +362,6 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		C0DE100B3013C00D00BACE01 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = C0DE10093013C00D00BACE01 /* WEWidgets */;
-			targetProxy = C0DE100A3013C00D00BACE01 /* PBXContainerItemProxy */;
-		};
 		79C3EB443013C00D00394313 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 79C3EB343013C00A00394313 /* WE */;
@@ -376,6 +371,11 @@
 			isa = PBXTargetDependency;
 			target = 79C3EB343013C00A00394313 /* WE */;
 			targetProxy = 79C3EB4D3013C00D00394313 /* PBXContainerItemProxy */;
+		};
+		C0DE100B3013C00D00BACE01 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C0DE10093013C00D00BACE01 /* WEWidgets */;
+			targetProxy = C0DE100A3013C00D00BACE01 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -506,8 +506,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
 				CODE_SIGN_ENTITLEMENTS = Config/WE.entitlements;
+				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 2F28BDAM56;
 				ENABLE_PREVIEWS = YES;
@@ -535,8 +535,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
 				CODE_SIGN_ENTITLEMENTS = Config/WE.entitlements;
+				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 2F28BDAM56;
 				ENABLE_PREVIEWS = YES;

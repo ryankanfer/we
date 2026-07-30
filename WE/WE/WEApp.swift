@@ -22,16 +22,34 @@ struct WEApp: App {
 
     var body: some Scene {
         WindowGroup {
-            // The handoff build runs behind a flag until the cutover is
-            // decided — it and AppShell disagree about the bottom tab bar,
-            // and only one of them can be right. See Field/FieldEntry.swift.
+            // The zones are the app. `liveApp` now only carries the states
+            // that come *before* a couple exists — sign in, verification,
+            // password recovery, pairing — because those are not zones and
+            // never were. The moment a relationship is ready, FieldRoot owns
+            // the screen.
             switch FieldEntry.Mode.current {
-            case .zones:
-                FieldZoneShell()
             case .gallery:
                 FieldGallery()
-            case .off:
-                liveApp
+            case .seeded:
+                FieldZoneShell()
+            case .live:
+                if let snapshot = host.session.snapshot,
+                   isReady(host.session.state) {
+                    FieldRoot(snapshot: snapshot)
+                        .environmentObject(host.session)
+                        .environmentObject(host)
+                        .environmentObject(externalSurfaces)
+                        .task { await host.restore() }
+                        .onOpenURL { url in
+                            if !WEDeepLinkRouter.handle(url) {
+                                Task {
+                                    await host.session.handleAuthCallback(url)
+                                }
+                            }
+                        }
+                } else {
+                    liveApp
+                }
             }
         }
     }
@@ -83,6 +101,14 @@ struct WEApp: App {
                 Task { await host.session.handleAuthCallback(url) }
             }
         }
+    }
+
+    /// Only `.ready` hands the screen to the zones. Pairing, hue choice, and
+    /// waiting for a partner still belong to the old flow — they are setup,
+    /// not the product, and 6f will replace them.
+    private func isReady(_ state: AppSession.State) -> Bool {
+        if case .ready = state { return true }
+        return false
     }
 
     private func syncAccessibility() {
