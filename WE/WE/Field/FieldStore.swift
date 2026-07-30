@@ -109,13 +109,19 @@ final class FieldStore {
     private let backend: FieldBackend?
     private let calendar = Calendar.gregorianUS
 
+    /// Both defaults resolve inside the body rather than in the parameter
+    /// list. Default argument expressions are evaluated in a nonisolated
+    /// context, and under the project's MainActor-by-default isolation
+    /// `FieldState.seed` and `FieldSampleData.today` are both main
+    /// actor-isolated — so referencing them as defaults warns today and fails
+    /// outright in Swift 6 language mode.
     init(
-        state: FieldState = .seed,
-        now: Date = FieldSampleData.today,
+        state: FieldState? = nil,
+        now: Date? = nil,
         backend: FieldBackend? = nil
     ) {
-        self.state = state
-        self.now = now
+        self.state = state ?? .seed
+        self.now = now ?? FieldSampleData.today
         self.backend = backend
     }
 

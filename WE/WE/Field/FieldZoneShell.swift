@@ -25,8 +25,12 @@ struct FieldZoneShell: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var store: FieldStore
 
-    init(store: FieldStore = FieldStore()) {
-        _store = State(initialValue: store)
+    // Constructed in the body, not as a default argument. Default argument
+    // expressions are evaluated in a nonisolated context, so `= FieldStore()`
+    // cannot call a @MainActor initializer even though this type is
+    // @MainActor. Inside the init body the isolation applies.
+    init(store: FieldStore? = nil) {
+        _store = State(initialValue: store ?? FieldStore())
     }
 
     var body: some View {
