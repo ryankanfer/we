@@ -135,6 +135,77 @@ final class SupabaseRepository: Repository {
             .execute()
     }
 
+    func loadPrivateProposals(
+        for user: AuthenticatedUser
+    ) async throws -> [SavedPrivateProposal] {
+        let values: [PrivateProposalDTO] = try await configuredClient()
+            .from("private_proposals")
+            .select(
+                "id,owner_id,proposal_title,offered_title,offered_question,offered_options,preparation_method,prepared_at"
+            )
+            .eq("owner_id", value: user.id)
+            .order("prepared_at", ascending: false)
+            .execute()
+            .value
+
+        return try values.map { value in
+            guard value.ownerID == user.id else {
+                throw RepositoryError.invalidData(
+                    "private proposal ownership did not match"
+                )
+            }
+            guard let method = ProposalPreparationMethod(
+                rawValue: value.preparationMethod
+            ) else {
+                throw RepositoryError.invalidData(
+                    "unknown proposal preparation method"
+                )
+            }
+            return SavedPrivateProposal(
+                id: value.id,
+                title: value.title,
+                offeredTopic: OfferedTopic(
+                    title: value.offeredTitle,
+                    question: value.offeredQuestion,
+                    options: value.offeredOptions
+                ),
+                preparationMethod: method,
+                preparedAt: value.preparedAt
+            )
+        }
+    }
+
+    func claimPrivateProposal(_ proposal: PrivateProposal) async throws
+        -> String
+    {
+        let proposalID: String = try await configuredClient()
+            .rpc(
+                "claim_private_proposal",
+                params: ClaimPrivateProposalParameters(
+                    localID: proposal.id,
+                    sourceNote: proposal.sourceNote,
+                    title: proposal.title,
+                    offeredTitle: proposal.offeredTopic.title,
+                    offeredQuestion: proposal.offeredTopic.question,
+                    offeredOptions: proposal.offeredTopic.options,
+                    preparationMethod: proposal.preparationMethod.rawValue,
+                    createdAt: Self.timestamp(proposal.createdAt)
+                )
+            )
+            .execute()
+            .value
+        return proposalID
+    }
+
+    func offerPrivateProposal(id: String) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "offer_private_proposal",
+                params: OfferPrivateProposalParameters(proposalID: id)
+            )
+            .execute()
+    }
+
     func createPlan(_ input: PlanInput, coupleID: String) async throws {
         _ = try await configuredClient()
             .rpc(
@@ -461,7 +532,8 @@ final class SupabaseRepository: Repository {
         let channel = client.channel("we-couple")
         let tables = [
             "insight_consent",
-            "responses",
+            "shared_directions",
+            "offered_topics",
             "couple_members",
             "dismissals",
             "insight_declines",
@@ -473,7 +545,6 @@ final class SupabaseRepository: Repository {
             "signal_consents",
             "anchors",
             "responsibility_handoffs",
-            "plan_approaches",
             "relationship_events",
             "seasons",
             "contextual_suggestions",
@@ -635,6 +706,15 @@ final class SupabaseRepository: Repository {
         async let responsesRequest: [ResponseDTO] = client
             .from("responses")
             .select("insight_id,profile_id,status,choice,note")
+            .eq("profile_id", value: user.id)
+            .execute()
+            .value
+        async let sharedDirectionsRequest: [SharedDirectionDTO] = client
+            .from("shared_directions")
+            .select(
+                "insight_id,couple_id,direction_key,eyebrow,title,message,symbol,created_at"
+            )
+            .eq("couple_id", value: membership.coupleID)
             .execute()
             .value
         async let reflectionsRequest: [ReflectionDTO] = client
@@ -716,9 +796,10 @@ final class SupabaseRepository: Repository {
         async let approachesRequest: [ApproachDTO] = client
             .from("plan_approaches")
             .select(
-                "id,plan_id,profile_id,approach,note,revealed_at,created_at"
+                "id,plan_id,profile_id,approach,note,created_at"
             )
             .eq("couple_id", value: membership.coupleID)
+            .eq("profile_id", value: user.id)
             .execute()
             .value
         async let eventsRequest: [RelationshipEventDTO] = client
@@ -806,6 +887,7 @@ final class SupabaseRepository: Repository {
         let graceDTOs = try await graceRequest
         let partnerAnswerStatusDTOs =
             try await partnerAnswerStatusesRequest
+        let sharedDirectionDTOs = try await sharedDirectionsRequest
 
         let members = try memberDTOs.map {
             try Member(
@@ -822,6 +904,11 @@ final class SupabaseRepository: Repository {
         var responsesByInsight = try Dictionary(
             grouping: responseDTOs.map(response),
             by: \.insightID
+        )
+        let sharedDirectionsByInsight = Dictionary(
+            uniqueKeysWithValues: sharedDirectionDTOs.map {
+                ($0.insightID, sharedDirection($0))
+            }
         )
         for status in partnerAnswerStatusDTOs where status.hasAnswered {
             guard !responsesByInsight[
@@ -853,6 +940,7 @@ final class SupabaseRepository: Repository {
                 insight: value,
                 consent: consentByInsight[value.id],
                 responses: responsesByInsight[value.id] ?? [],
+                sharedDirection: sharedDirectionsByInsight[value.id],
                 dismissedBy: Set(
                     dismissalsByInsight[value.id, default: []].map(\.profileID)
                 ),
@@ -1025,9 +1113,23 @@ final class SupabaseRepository: Repository {
         return InsightResponse(
             insightID: dto.insightID,
             profileID: dto.profileID,
-            status: status,
+            status: status == .revealed ? .submitted : status,
             choice: dto.choice,
             note: dto.note
+        )
+    }
+
+    private func sharedDirection(
+        _ dto: SharedDirectionDTO
+    ) -> SharedDirection {
+        SharedDirection(
+            insightID: dto.insightID,
+            key: dto.key,
+            eyebrow: dto.eyebrow,
+            title: dto.title,
+            message: dto.message,
+            symbol: dto.symbol,
+            createdAt: dto.createdAt
         )
     }
 
@@ -1167,7 +1269,6 @@ final class SupabaseRepository: Repository {
             profileID: dto.profileID,
             approach: value,
             note: dto.note,
-            revealedAt: dto.revealedAt,
             createdAt: dto.createdAt
         )
     }

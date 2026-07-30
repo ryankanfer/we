@@ -27,7 +27,7 @@ nonisolated enum PreviewData {
             body: "Choose separately. WE will look for a shared direction without exposing either answer.",
             evidence: "A small check-in for this evening.",
             source: "A moment for tonight",
-            actionTitle: "Choose privately",
+            actionTitle: "Choose what feels right",
             options: [
                 "Quiet and close",
                 "Easy, with no decisions",
@@ -46,7 +46,7 @@ nonisolated enum PreviewData {
             body: "Choose the shape you are quietly hoping for. WE will find the part that can belong to both of you.",
             evidence: "A little intention before the calendar fills itself.",
             source: "Your shared rhythm",
-            actionTitle: "Choose privately",
+            actionTitle: "Choose what feels right",
             options: [
                 "Mostly rest",
                 "Something new",
@@ -65,7 +65,7 @@ nonisolated enum PreviewData {
             body: "Answer privately. WE will suggest one adjustment without turning care into a score.",
             evidence: "Three active responsibilities are currently being carried.",
             source: "Life · current shared load",
-            actionTitle: "Choose privately",
+            actionTitle: "Choose what feels right",
             options: [
                 "I can take one thing",
                 "Let's do one thing together",
@@ -84,7 +84,7 @@ nonisolated enum PreviewData {
             body: "The plan already exists. This is about the quality you want to protect inside it.",
             evidence: "Coming up on August 15.",
             source: "Ahead · next shared plan",
-            actionTitle: "Choose privately",
+            actionTitle: "Choose what feels right",
             options: [
                 "Calm and spacious",
                 "A little special",

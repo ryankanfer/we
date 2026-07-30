@@ -35,6 +35,8 @@
 	<true/>
 	<key>NSAccentColorName</key>
 	<string>AccentColor</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>SUPABASE_PUBLISHABLE_KEY</key>
 	<string>sb_publishable__suAVQyAW3B9BmcN7srkrA_ZlIfZxuY</string>
 	<key>SUPABASE_URL</key>

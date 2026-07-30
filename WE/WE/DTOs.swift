@@ -156,14 +156,12 @@ nonisolated struct ApproachDTO: Decodable, Sendable {
     let profileID: String
     let approach: String
     let note: String?
-    let revealedAt: String?
     let createdAt: String
 
     enum CodingKeys: String, CodingKey {
         case id, approach, note
         case planID = "plan_id"
         case profileID = "profile_id"
-        case revealedAt = "revealed_at"
         case createdAt = "created_at"
     }
 }
@@ -466,6 +464,47 @@ nonisolated struct ResponseDTO: Decodable, Sendable {
     }
 }
 
+nonisolated struct SharedDirectionDTO: Decodable, Sendable {
+    let insightID: String
+    let coupleID: String
+    let key: String
+    let eyebrow: String
+    let title: String
+    let message: String
+    let symbol: String
+    let createdAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case insightID = "insight_id"
+        case coupleID = "couple_id"
+        case key = "direction_key"
+        case eyebrow, title, message, symbol
+        case createdAt = "created_at"
+    }
+}
+
+nonisolated struct PrivateProposalDTO: Decodable, Sendable {
+    let id: String
+    let ownerID: String
+    let title: String
+    let offeredTitle: String
+    let offeredQuestion: String
+    let offeredOptions: [String]
+    let preparationMethod: String
+    let preparedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case ownerID = "owner_id"
+        case title = "proposal_title"
+        case offeredTitle = "offered_title"
+        case offeredQuestion = "offered_question"
+        case offeredOptions = "offered_options"
+        case preparationMethod = "preparation_method"
+        case preparedAt = "prepared_at"
+    }
+}
+
 nonisolated struct ReflectionDTO: Decodable, Sendable {
     let id: String
     let coupleID: String
@@ -529,6 +568,36 @@ nonisolated struct SubmitResponseParameters: Encodable, Sendable {
         case insightID = "p_insight"
         case choice = "p_choice"
         case note = "p_note"
+    }
+}
+
+nonisolated struct ClaimPrivateProposalParameters: Encodable, Sendable {
+    let localID: UUID
+    let sourceNote: String
+    let title: String
+    let offeredTitle: String
+    let offeredQuestion: String
+    let offeredOptions: [String]
+    let preparationMethod: String
+    let createdAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case localID = "p_local_id"
+        case sourceNote = "p_source_note"
+        case title = "p_title"
+        case offeredTitle = "p_offered_title"
+        case offeredQuestion = "p_offered_question"
+        case offeredOptions = "p_offered_options"
+        case preparationMethod = "p_preparation_method"
+        case createdAt = "p_created_at"
+    }
+}
+
+nonisolated struct OfferPrivateProposalParameters: Encodable, Sendable {
+    let proposalID: String
+
+    enum CodingKeys: String, CodingKey {
+        case proposalID = "p_proposal"
     }
 }
 

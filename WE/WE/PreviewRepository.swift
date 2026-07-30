@@ -10,6 +10,8 @@ actor PreviewRepository: Repository {
     private let choosingHueSnapshot: RelationshipSnapshot
     private let configuredSignUpResult: SignUpResult?
     private let acceptedDeletionPassword: String?
+    private var privateProposals: [String: PrivateProposal] = [:]
+    private var offeredProposalIDs: Set<String> = []
 
     init(
         scenario: PreviewScenario = .ready,
@@ -127,6 +129,49 @@ actor PreviewRepository: Repository {
             hueChosenAt: ISO8601DateFormatter().string(from: Date())
         )
         snapshot = replacing(membership: updated)
+    }
+
+    func loadPrivateProposals(
+        for user: AuthenticatedUser
+    ) async throws -> [SavedPrivateProposal] {
+        guard currentUser?.id == user.id else {
+            throw RepositoryError.invalidSession(user)
+        }
+        return privateProposals.values
+            .map {
+                SavedPrivateProposal(
+                    serverID: $0.id.uuidString.lowercased(),
+                    proposal: $0
+                )
+            }
+            .sorted { $0.preparedAt > $1.preparedAt }
+    }
+
+    func claimPrivateProposal(_ proposal: PrivateProposal) async throws
+        -> String
+    {
+        guard currentUser != nil else {
+            throw RepositoryError.invalidData(
+                "an account is required to keep this proposal"
+            )
+        }
+        let id = proposal.id.uuidString.lowercased()
+        privateProposals[id] = proposal
+        return id
+    }
+
+    func offerPrivateProposal(id: String) async throws {
+        guard privateProposals[id] != nil else {
+            throw RepositoryError.invalidData(
+                "the private proposal has not been kept"
+            )
+        }
+        guard snapshot.couple != nil else {
+            throw RepositoryError.invalidData(
+                "a WE space is required before offering this"
+            )
+        }
+        offeredProposalIDs.insert(id)
     }
 
     func createPlan(_ input: PlanInput, coupleID: String) async throws {
@@ -467,25 +512,9 @@ actor PreviewRepository: Repository {
                 profileID: userID,
                 approach: approach,
                 note: note,
-                revealedAt: nil,
                 createdAt: ISO8601DateFormatter.we.string(from: Date())
             )
         )
-        if values.filter({ $0.planID == planID }).count == 2 {
-            let revealedAt = ISO8601DateFormatter.we.string(from: Date())
-            values = values.map { value in
-                guard value.planID == planID else { return value }
-                return PlanApproach(
-                    id: value.id,
-                    planID: value.planID,
-                    profileID: value.profileID,
-                    approach: value.approach,
-                    note: value.note,
-                    revealedAt: value.revealedAt ?? revealedAt,
-                    createdAt: value.createdAt
-                )
-            }
-        }
         snapshot = replacing(v2: replacingV2(current, approaches: values))
     }
 
@@ -708,6 +737,7 @@ actor PreviewRepository: Repository {
             insight: current.insight,
             consent: consent,
             responses: responses,
+            sharedDirection: next.sharedDirection,
             dismissedBy: next.dismissedBy,
             declinedBy: next.declinedBy
         )

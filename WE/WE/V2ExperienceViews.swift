@@ -198,7 +198,7 @@ private struct SuggestionReviewSheet: View {
                         Label(reference.label, systemImage: "link")
                     }
                     Label(
-                        "No private reflections or unrevealed answers",
+                        "Uses only shared plans and responsibilities. No private reflections or answers.",
                         systemImage: "lock.shield"
                     )
                 }
@@ -1319,29 +1319,13 @@ struct ApproachEditor: View {
                     )
                 }
 
-                if let partnerApproach {
-                    Section("\(session.partnerName)’s approach") {
-                        LabeledContent(
-                            "How",
-                            value: partnerApproach.approach.title
-                        )
-                        if let note = partnerApproach.note {
-                            Text(note)
-                        }
-                        Label(
-                            "Opened because both of you named an approach",
-                            systemImage: "person.2.fill"
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-                } else {
-                    Section {
-                        Label(
-                            "Held privately until both of you name an approach",
-                            systemImage: "lock"
-                        )
-                    }
+                Section {
+                    Label(
+                        "This choice and note remain owner-only. WE never shows them to \(session.partnerName).",
+                        systemImage: "lock.shield"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("Approach")
@@ -1376,14 +1360,6 @@ struct ApproachEditor: View {
     private var myApproach: PlanApproach? {
         session.v2State.approaches.first {
             $0.planID == plan.id && $0.profileID == session.user?.id
-        }
-    }
-
-    private var partnerApproach: PlanApproach? {
-        session.v2State.approaches.first {
-            $0.planID == plan.id
-                && $0.profileID != session.user?.id
-                && $0.revealedAt != nil
         }
     }
 }

@@ -2,6 +2,9 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var session: AppSession
+    @EnvironmentObject private var softStart: SoftStartCoordinator
+    @EnvironmentObject private var externalSurfaces:
+        ExternalSurfaceController
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsProfile = false
     @State private var showsPartnerArrival = false
@@ -19,7 +22,7 @@ struct ContentView: View {
                         message: "Add SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY to the WE scheme, or set WE_REPOSITORY to preview."
                     )
                 case .signedOut:
-                    SignInView()
+                    signedOutView
                 case .verificationPending(let email):
                     VerificationPendingView(email: email)
                 case .resettingPassword:
@@ -85,6 +88,12 @@ struct ContentView: View {
                 showsPartnerArrival = true
             }
         }
+        .task(id: externalSurfaceSyncKey) {
+            await syncExternalSurfaces()
+        }
+        .task(id: softStartClaimKey) {
+            await claimSoftStartIfNeeded()
+        }
     }
 
     private var showsAuthenticatedProfileButton: Bool {
@@ -93,6 +102,102 @@ struct ContentView: View {
             true
         default:
             false
+        }
+    }
+
+    private var externalSurfaceSyncKey: String {
+        let sync = session.snapshot?.syncedAt.timeIntervalSince1970 ?? 0
+        return "\(session.user?.id ?? "signed-out"):\(sync):\(session.state)"
+    }
+
+    private var softStartClaimKey: String {
+        let proposalID = softStart.pendingClaim?.proposal.id.uuidString
+            ?? "none"
+        let offerID = softStart.pendingOfferProposalID ?? "none"
+        let coupleID = session.snapshot?.membership?.coupleID ?? "solo"
+        return "\(session.user?.id ?? "signed-out"):\(proposalID):\(offerID):\(coupleID)"
+    }
+
+    private func claimSoftStartIfNeeded() async {
+        guard session.user != nil else { return }
+
+        if let pendingOfferID = softStart.pendingOfferProposalID,
+           session.snapshot?.membership != nil {
+            if await session.offerPrivateProposal(id: pendingOfferID) {
+                _ = softStart.markOfferPublished()
+            }
+            return
+        }
+
+        guard
+              let claim = softStart.pendingClaim,
+              let serverID = await session.claimPrivateProposal(
+                  claim.proposal
+              ) else {
+            return
+        }
+        let marked = softStart.markClaimed(
+            serverID: serverID,
+            intent: claim.intent
+        )
+        if marked,
+           claim.intent == .offerApprovedTopic,
+           session.snapshot?.membership != nil,
+           await session.offerPrivateProposal(id: serverID) {
+            _ = softStart.markOfferPublished()
+        }
+    }
+
+    private func syncExternalSurfaces() async {
+        if session.state == .signedOut {
+            externalSurfaces.clear()
+            return
+        }
+        guard session.state == .ready,
+              let snapshot = session.snapshot else {
+            return
+        }
+
+        if let direction = snapshot.insights
+            .first(where: {
+                $0.sharedDirection != nil
+                    && $0.consent?.resolutionType == nil
+            })?
+            .sharedDirection
+        {
+            let wording = ExplicitlyPermittedSharedWording(
+                sharedDirection: direction
+            )
+            _ = try? await externalSurfaces
+                .publishAndEnsureLiveActivity(
+                    state: .roomAvailable,
+                    expiresAt: Date().addingTimeInterval(2 * 60 * 60),
+                    approvedSharedWording: wording
+                )
+            return
+        }
+
+        if snapshot.insights.contains(where: {
+            $0.consent?.resolutionType != nil
+        }) {
+            externalSurfaces.publish(
+                state: .resolved,
+                expiresAt: Date().addingTimeInterval(60 * 60)
+            )
+        } else {
+            externalSurfaces.publish(
+                state: .quiet,
+                expiresAt: Date().addingTimeInterval(60 * 60)
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var signedOutView: some View {
+        if ProcessInfo.processInfo.environment["WE_SKIP_SOFT_START"] == "1" {
+            SignInView()
+        } else {
+            SoftStartView()
         }
     }
 
@@ -139,163 +244,230 @@ struct ContentView: View {
 
 private struct PartnerArrivalCeremony: View {
     @EnvironmentObject private var session: AppSession
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var joins = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let onComplete: () -> Void
 
     var body: some View {
         ZStack {
-            Color.weCanvas.ignoresSafeArea()
-            WEConfluenceForm(
-                personalHue: personalHue,
-                partnerHue: relationshipPartnerHue(session),
-                connection: joins ? 1 : 0.32
-            )
-            .opacity(0.6)
-            .blur(radius: joins ? 8 : 18)
-            .ignoresSafeArea()
-            LinearGradient(
-                colors: [
-                    Color.weCanvas.opacity(0.65),
-                    .clear,
-                    Color.weCanvas.opacity(0.9),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            WEJourneyBackdrop(state: .shared)
 
-            VStack(spacing: 12) {
-                Spacer()
-                HStack(spacing: joins ? -8 : 54) {
-                    Circle()
-                        .fill(personalHue.color)
-                        .frame(width: 92, height: 92)
-                        .blur(radius: 8)
-                    Circle()
-                        .fill(relationshipPartnerHue(session).color)
-                        .frame(width: 92, height: 92)
-                        .blur(radius: 8)
-                }
-                .animation(
-                    reduceMotion ? nil : .weSettle(duration: 1.4),
-                    value: joins
-                )
+            GeometryReader { viewport in
+                ScrollView {
+                    VStack(spacing: 18) {
+                        Spacer(minLength: 12)
 
-                Text("\(session.partnerName.uppercased()) CHOSE \(relationshipPartnerHue(session).name.uppercased())")
-                    .font(.weCaption)
-                    .tracking(1.8)
-                    .foregroundStyle(.white.opacity(0.5))
-                    .padding(.top, 10)
-                Text("The field is whole.")
-                    .font(.weLargeTitle)
-                    .foregroundStyle(.white)
-                Text("This is yours and \(session.partnerName)’s together. It will move with the two of you from now on.")
-                    .font(.weBody)
-                    .foregroundStyle(.white.opacity(0.62))
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 320)
+                        WEContinuityLine(state: .shared)
+                            .frame(
+                                height: dynamicTypeSize.isAccessibilitySize
+                                    ? 112
+                                    : 180
+                            )
+                            .accessibilityLabel(
+                                "Two private sides with a shared clearing between them"
+                            )
 
-                Button("Begin together", action: onComplete)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(minWidth: 180, minHeight: 52)
-                    .background(
-                        personalHue.controlColor,
-                        in: RoundedRectangle(cornerRadius: 17)
+                        Text("OURS")
+                            .font(.weCaption)
+                            .tracking(1.8)
+                            .foregroundStyle(
+                                Color.weCharcoal.opacity(0.76)
+                            )
+                        Text("A shared space opened.")
+                            .font(.weLargeTitle)
+                            .foregroundStyle(Color.weCharcoal)
+                            .multilineTextAlignment(.center)
+                        Text("You and \(session.partnerName) remain yourselves. What you both choose can now have a place between you.")
+                            .font(.weBody)
+                            .foregroundStyle(
+                                Color.weCharcoal.opacity(0.76)
+                            )
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: 340)
+
+                        Spacer(minLength: 12)
+                    }
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: viewport.size.height
                     )
-                    .padding(.top, 16)
-                Spacer()
-            }
-            .padding(28)
-        }
-        .preferredColorScheme(.dark)
-        .onAppear {
-            if reduceMotion {
-                joins = true
-            } else {
-                withAnimation(.weSettle(duration: 1.4)) {
-                    joins = true
+                    .padding(.horizontal, 28)
                 }
+                .scrollBounceBehavior(.basedOnSize)
+                .scrollIndicators(.hidden)
             }
         }
-    }
-
-    private var personalHue: WEHue {
-        session.snapshot?.membership.map { WEHue($0.hue) } ?? .burgundy
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            Button("Begin together", action: onComplete)
+                .buttonStyle(WEJourneyPrimaryButtonStyle(state: .shared))
+                .padding(.horizontal, 28)
+                .padding(.vertical, 12)
+                .background(Color.wePearl.opacity(0.96))
+        }
+        .preferredColorScheme(.light)
     }
 }
 
 private struct PairingView: View {
     @EnvironmentObject private var session: AppSession
+    @EnvironmentObject private var softStart: SoftStartCoordinator
     @State private var joinCode = ""
     @State private var selectedArchive: RelationshipArchive?
 
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.weCanvas.ignoresSafeArea()
-                WEConfluenceForm(
-                    personalHue: .burgundy,
-                    partnerHue: .sage,
-                    connection: 0.08
-                )
-                .opacity(0.38)
-                .blur(radius: 18)
-                .ignoresSafeArea()
-                LinearGradient(
-                    colors: [
-                        Color.weCanvas.opacity(0.58),
-                        Color.weCanvas.opacity(0.32),
-                        Color.weCanvas.opacity(0.97),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
+                WEJourneyBackdrop(state: .privateState)
 
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text("06 · THE OTHER HALF")
+                    VStack(alignment: .leading, spacing: 20) {
+                        HStack {
+                            Text("YOUR SIDE")
+                                .font(.weCaption)
+                                .tracking(1.8)
+                                .foregroundStyle(Color.wePearl.opacity(0.7))
+                            Spacer()
+                            Label("Private", systemImage: "lock.fill")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(Color.wePearl.opacity(0.7))
+                        }
+
+                        Text("Your side is ready.")
+                            .font(.weLargeTitle)
+                            .foregroundStyle(Color.wePearl)
+                        Text("You can keep what you began here. Invite your partner only when a shared space would be useful.")
+                            .font(.weBody)
+                            .foregroundStyle(Color.wePearl.opacity(0.72))
+
+                        if let proposal = softStart.proposal {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("PREPARED FOR YOU")
+                                    .font(.weCaption)
+                                    .tracking(1.5)
+                                    .foregroundStyle(Color.wePearl.opacity(0.6))
+                                Text(proposal.title)
+                                    .font(.weTitle)
+                                    .foregroundStyle(Color.wePearl)
+                                Label(
+                                    "Prepared on this iPhone from your note",
+                                    systemImage: "iphone.gen3"
+                                )
+                                .font(.footnote)
+                                .foregroundStyle(Color.wePearl.opacity(0.64))
+                                WEContinuityLine(state: .privateState)
+                                    .frame(height: 46)
+                            }
+                            .padding(18)
+                            .background(
+                                Color.white.opacity(0.07),
+                                in: RoundedRectangle(
+                                    cornerRadius: 20,
+                                    style: .continuous
+                                )
+                            )
+                            .overlay {
+                                RoundedRectangle(
+                                    cornerRadius: 20,
+                                    style: .continuous
+                                )
+                                .stroke(Color.weChampagne.opacity(0.34))
+                            }
+                        } else if softStart.pendingOfferProposalID == nil,
+                                  let saved = session.privateProposals.first {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Label(
+                                    "SAVED ON YOUR SIDE",
+                                    systemImage: "lock.fill"
+                                )
+                                .font(.weCaption)
+                                .tracking(1.4)
+                                .foregroundStyle(Color.wePearl.opacity(0.64))
+                                Text(saved.title)
+                                    .font(.weTitle)
+                                    .foregroundStyle(Color.wePearl)
+                                Text(
+                                    "Protected by your account. This view does not load your original note."
+                                )
+                                .font(.footnote)
+                                .foregroundStyle(Color.wePearl.opacity(0.64))
+                                if session.privateProposals.count > 1 {
+                                    Text(
+                                        "\(session.privateProposals.count) proposals are kept on your side."
+                                    )
+                                    .font(.footnote)
+                                    .foregroundStyle(
+                                        Color.wePearl.opacity(0.64)
+                                    )
+                                }
+                            }
+                            .padding(18)
+                            .background(
+                                Color.white.opacity(0.07),
+                                in: RoundedRectangle(
+                                    cornerRadius: 20,
+                                    style: .continuous
+                                )
+                            )
+                            .overlay {
+                                RoundedRectangle(
+                                    cornerRadius: 20,
+                                    style: .continuous
+                                )
+                                .stroke(Color.weChampagne.opacity(0.34))
+                            }
+                        } else if softStart.pendingOfferProposalID != nil {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Label(
+                                    "APPROVED OFFER READY",
+                                    systemImage: "checkmark.shield"
+                                )
+                                .font(.weCaption)
+                                .tracking(1.4)
+                                .foregroundStyle(Color.wePearl.opacity(0.64))
+                                Text(
+                                    "Your exact preview is protected. The original note has been removed from this iPhone and will not cross."
+                                )
+                                .font(.weBody)
+                                .foregroundStyle(Color.wePearl)
+                            }
+                            .padding(18)
+                            .background(
+                                Color.white.opacity(0.07),
+                                in: RoundedRectangle(
+                                    cornerRadius: 20,
+                                    style: .continuous
+                                )
+                            )
+                        }
+
+                        Text("WHEN YOU ARE READY")
                             .font(.weCaption)
                             .tracking(1.8)
-                            .foregroundStyle(.white.opacity(0.58))
-
-                        missingField
-                            .padding(.vertical, 42)
-
-                        Text("Half the field is missing.")
-                            .font(.weLargeTitle)
-                            .foregroundStyle(.white)
-                        Text("Create your shared side, then send the invitation. When your partner chooses their color, the field completes.")
+                            .foregroundStyle(Color.wePearl.opacity(0.58))
+                            .padding(.top, 8)
+                        Text("Create an invitation. Your note and private proposal do not travel with it.")
                             .font(.weBody)
-                            .foregroundStyle(.white.opacity(0.64))
-                            .padding(.top, 12)
+                            .foregroundStyle(Color.wePearl.opacity(0.68))
 
                         Button {
-                            Task { await session.createCouple() }
+                            Task { await createSharedSpace() }
                         } label: {
                             Label {
-                                workingLabel("Create and send the invitation")
+                                workingLabel("Create an invitation")
                             } icon: {
                                 Image(systemName: "square.and.arrow.up")
                             }
                             .frame(maxWidth: .infinity, minHeight: 54)
                         }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.white)
-                        .background(
-                            WEHue.burgundy.controlColor,
-                            in: RoundedRectangle(cornerRadius: 17)
+                        .buttonStyle(
+                            WEJourneyPrimaryButtonStyle(state: .privateState)
                         )
                         .disabled(session.isWorking)
-                        .padding(.top, 24)
 
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("OPEN AN INVITATION")
+                            Text("HAVE A JOIN CODE?")
                                 .font(.weCaption)
                                 .tracking(1.5)
-                                .foregroundStyle(.white.opacity(0.44))
+                                .foregroundStyle(Color.wePearl.opacity(0.64))
                             HStack(spacing: 10) {
                                 TextField("JOIN CODE", text: $joinCode)
                                     .textInputAutocapitalization(.characters)
@@ -322,20 +494,19 @@ private struct PairingView: View {
                                         )
                                     }
                                 Button("Join") {
-                                    Task { await session.joinCouple(code: joinCode) }
+                                    Task { await joinSharedSpace() }
                                 }
                                 .buttonStyle(.bordered)
-                                .tint(.white)
+                                .tint(.wePearl)
                                 .frame(minHeight: 44)
                                 .disabled(session.isWorking || joinCode.isEmpty)
                             }
                         }
-                        .padding(.top, 28)
 
                         SessionMessageView()
 
                         if !session.archives.isEmpty {
-                            Divider().overlay(.white.opacity(0.12))
+                            Divider().overlay(Color.wePearl.opacity(0.12))
                             VStack(alignment: .leading, spacing: 12) {
                                 Text("Past relationships")
                                     .font(.weHeadline)
@@ -354,9 +525,8 @@ private struct PairingView: View {
 
                         Button("Sign out") { Task { await session.signOut() } }
                             .buttonStyle(.plain)
-                            .foregroundStyle(.white.opacity(0.46))
+                            .foregroundStyle(Color.wePearl.opacity(0.54))
                             .frame(minHeight: 44)
-                            .padding(.top, 12)
                     }
                     .frame(maxWidth: 430)
                     .padding(.horizontal, 26)
@@ -369,174 +539,202 @@ private struct PairingView: View {
         }
     }
 
-    private var missingField: some View {
-        ZStack(alignment: .bottomLeading) {
-            RoundedRectangle(cornerRadius: 26)
-                .fill(Color.weCanvas.opacity(0.62))
-            WEConfluenceForm(
-                personalHue: .burgundy,
-                partnerHue: .sage,
-                connection: 0.02
-            )
-            .mask {
-                HStack(spacing: 0) {
-                    Rectangle()
-                    Color.clear
-                }
-            }
-            Rectangle()
-                .fill(.white.opacity(0.16))
-                .frame(width: 1)
-                .frame(maxHeight: .infinity)
-                .frame(maxWidth: .infinity)
-            VStack(alignment: .leading, spacing: 3) {
-                Text((session.snapshot?.profile.name ?? "YOUR SIDE").uppercased())
-                    .font(.weCaption)
-                    .tracking(1.5)
-                    .foregroundStyle(.white.opacity(0.5))
-                Text("is waiting for you.")
-                    .font(.weHeadline)
-                    .foregroundStyle(.white)
-            }
-            .padding(18)
-        }
-        .frame(height: 206)
-        .clipShape(RoundedRectangle(cornerRadius: 26))
-        .overlay {
-            RoundedRectangle(cornerRadius: 26)
-                .stroke(.white.opacity(0.14))
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Half of the shared field is waiting")
-    }
-
     @ViewBuilder
     private func workingLabel(_ title: String) -> some View {
-        if session.isWorking { ProgressView().tint(.white) } else { Text(title) }
+        if session.isWorking {
+            ProgressView().tint(Color.wePrivateInk)
+        } else {
+            Text(title)
+        }
+    }
+
+    private func createSharedSpace() async {
+        let pendingOfferID = softStart.pendingOfferProposalID
+        await session.createCouple()
+        guard session.errorMessage == nil,
+              let pendingOfferID else {
+            return
+        }
+        if await session.offerPrivateProposal(id: pendingOfferID) {
+            _ = softStart.markOfferPublished()
+        }
+    }
+
+    private func joinSharedSpace() async {
+        let pendingOfferID = softStart.pendingOfferProposalID
+        await session.joinCouple(code: joinCode)
+        guard session.errorMessage == nil,
+              let pendingOfferID else {
+            return
+        }
+        if await session.offerPrivateProposal(id: pendingOfferID) {
+            _ = softStart.markOfferPublished()
+        }
     }
 }
 
 private struct PartnerWaitingView: View {
     @EnvironmentObject private var session: AppSession
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var copied = false
 
     private var code: String { session.snapshot?.couple?.joinCode ?? "" }
 
     var body: some View {
         ZStack {
-            Color.weCanvas.ignoresSafeArea()
-            WEConfluenceForm(
-                personalHue: personalHue,
-                partnerHue: .sage,
-                connection: 0.05
-            )
-            .opacity(0.48)
-            .blur(radius: 20)
-            .ignoresSafeArea()
-            LinearGradient(
-                colors: [
-                    Color.weCanvas.opacity(0.52),
-                    Color.weCanvas.opacity(0.34),
-                    Color.weCanvas.opacity(0.98),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            WEJourneyBackdrop(state: .offered)
 
-            VStack(alignment: .leading, spacing: 0) {
-                Label("YOUR SIDE IS READY", systemImage: "circle.fill")
-                    .font(.weCaption)
-                    .tracking(1.8)
-                    .foregroundStyle(.white.opacity(0.58))
-                    .symbolRenderingMode(.monochrome)
-                    .tint(personalHue.color)
+            GeometryReader { viewport in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Label("INVITATION READY", systemImage: "lock.open")
+                            .font(.weCaption)
+                            .tracking(1.8)
+                            .foregroundStyle(
+                                Color.weCharcoal.opacity(0.76)
+                            )
 
-                Spacer()
+                        Spacer(minLength: 20)
 
-                Text("WE is holding one thing\nfor your partner.")
-                    .font(.weLargeTitle)
-                    .foregroundStyle(.white)
-                Text("You can start using your side now. Anything you write stays yours. WE will not show, summarise, or read it.")
-                    .font(.weBody)
-                    .foregroundStyle(.white.opacity(0.64))
-                    .padding(.top, 14)
+                        WEContinuityLine(state: .offered)
+                            .frame(
+                                height: dynamicTypeSize.isAccessibilitySize
+                                    ? 64
+                                    : 92
+                            )
+                            .padding(.bottom, 24)
 
-                VStack(alignment: .leading, spacing: 10) {
-                    Label("HELD ON YOUR SIDE", systemImage: "lock.fill")
-                        .font(.weCaption)
-                        .tracking(1.4)
-                        .foregroundStyle(.white.opacity(0.6))
-                    Text("A private reflection, and one moment waiting for both of you.")
-                        .font(.weTitle)
-                        .foregroundStyle(.white)
-                }
-                .padding(18)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    Color.weCanvas.opacity(0.5),
-                    in: RoundedRectangle(cornerRadius: 20)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: 20)
-                        .stroke(.white.opacity(0.13))
-                }
-                .padding(.top, 22)
+                        Text("The invitation is at\nthe threshold.")
+                            .font(.weLargeTitle)
+                            .foregroundStyle(Color.weCharcoal)
+                        Text("Send the code when you are ready. It contains no note, proposal, answer, or private context.")
+                            .font(.weBody)
+                            .foregroundStyle(
+                                Color.weCharcoal.opacity(0.76)
+                            )
+                            .padding(.top, 14)
 
-                Text(code)
-                    .font(.system(.title2, design: .monospaced, weight: .semibold))
-                    .tracking(3)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 18)
-                    .textSelection(.enabled)
-                    .accessibilityLabel("Join code \(code)")
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label(
+                                "WHAT CROSSES",
+                                systemImage: "checkmark.shield"
+                            )
+                            .font(.weCaption)
+                            .tracking(1.4)
+                            .foregroundStyle(
+                                Color.weCharcoal.opacity(0.76)
+                            )
+                            Text(
+                                "An invitation to create a WE space. Nothing else."
+                            )
+                            .font(.weHeadline)
+                            .foregroundStyle(Color.weCharcoal)
+                        }
+                        .padding(18)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            Color.white.opacity(0.54),
+                            in: RoundedRectangle(cornerRadius: 20)
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 20)
+                                .stroke(Color.weChampagne.opacity(0.46))
+                        }
+                        .padding(.top, 22)
 
-                HStack(spacing: 12) {
-                    ShareLink(item: "Join me in WE with code \(code)") {
-                        Label("Send the invitation", systemImage: "square.and.arrow.up")
-                            .frame(maxWidth: .infinity, minHeight: 54)
+                        Text(code)
+                            .font(
+                                .system(
+                                    .title2,
+                                    design: .monospaced,
+                                    weight: .semibold
+                                )
+                            )
+                            .tracking(3)
+                            .foregroundStyle(Color.weCharcoal)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 18)
+                            .textSelection(.enabled)
+                            .accessibilityLabel("Join code \(code)")
+
+                        invitationActions
+                            .padding(.top, 12)
+                            .sensoryFeedback(.success, trigger: copied)
+
+                        Text("WE will stay still until they choose.")
+                            .font(.footnote)
+                            .foregroundStyle(
+                                Color.weCharcoal.opacity(0.76)
+                            )
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 14)
+
+                        SessionMessageView()
+                        Button("Sign out") {
+                            Task { await session.signOut() }
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(
+                            Color.weCharcoal.opacity(0.76)
+                        )
+                        .frame(minHeight: 44)
+                        .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(personalHue.controlColor)
-
-                    Button {
-                        UIPasteboard.general.string = code
-                        copied = true
-                    } label: {
-                        Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
-                            .frame(minHeight: 54)
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(.white)
+                    .frame(
+                        maxWidth: 440,
+                        minHeight: max(0, viewport.size.height - 50),
+                        alignment: .topLeading
+                    )
+                    .padding(.horizontal, 26)
+                    .padding(.top, 24)
+                    .padding(.bottom, 26)
                 }
-                .padding(.top, 12)
-                .sensoryFeedback(.success, trigger: copied)
-
-                ProgressView("Waiting for your partner")
-                    .controlSize(.small)
-                    .tint(.white)
-                    .foregroundStyle(.white.opacity(0.48))
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 14)
-
-                SessionMessageView()
-                Button("Sign out") { Task { await session.signOut() } }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.white.opacity(0.46))
-                    .frame(minHeight: 44)
-                    .frame(maxWidth: .infinity)
+                .scrollBounceBehavior(.basedOnSize)
+                .scrollIndicators(.hidden)
             }
-            .frame(maxWidth: 440)
-            .padding(.horizontal, 26)
-            .padding(.top, 24)
-            .padding(.bottom, 26)
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
     }
 
-    private var personalHue: WEHue {
-        session.snapshot?.membership.map { WEHue($0.hue) } ?? .burgundy
+    @ViewBuilder
+    private var invitationActions: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(spacing: 12) {
+                sendInvitationButton
+                copyInvitationButton
+            }
+        } else {
+            HStack(spacing: 12) {
+                sendInvitationButton
+                copyInvitationButton
+            }
+        }
+    }
+
+    private var sendInvitationButton: some View {
+        ShareLink(item: "Join me in WE with code \(code)") {
+            Label(
+                "Send the invitation",
+                systemImage: "square.and.arrow.up"
+            )
+            .frame(maxWidth: .infinity, minHeight: 54)
+        }
+        .buttonStyle(WEJourneyPrimaryButtonStyle(state: .shared))
+    }
+
+    private var copyInvitationButton: some View {
+        Button {
+            UIPasteboard.general.string = code
+            copied = true
+        } label: {
+            Label(
+                copied ? "Copied" : "Copy",
+                systemImage: copied ? "checkmark" : "doc.on.doc"
+            )
+            .frame(maxWidth: .infinity, minHeight: 54)
+        }
+        .buttonStyle(.bordered)
+        .tint(.weCharcoal)
     }
 }
 
@@ -554,5 +752,8 @@ private struct VerificationPendingView: View {
 }
 
 #Preview {
-    ContentView().environmentObject(AppSession(repository: PreviewRepository()))
+    ContentView()
+        .environmentObject(AppSession(repository: PreviewRepository()))
+        .environmentObject(SoftStartCoordinator())
+        .environmentObject(ExternalSurfaceController())
 }

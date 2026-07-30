@@ -46,6 +46,11 @@ struct DesignTokenTests {
     private static let inkSecondary = (0xC7 / 255.0, 0xC2 / 255.0, 0xB8 / 255.0)
     private static let inkTertiary = (0x98 / 255.0, 0x92 / 255.0, 0x89 / 255.0)
     private static let inkFaint = (0x7D / 255.0, 0x78 / 255.0, 0x6F / 255.0)
+    private static let privateInk = (0x17 / 255.0, 0x30 / 255.0, 0x40 / 255.0)
+    private static let pearl = (0xF2 / 255.0, 0xEE / 255.0, 0xE6 / 255.0)
+    private static let warmStone = (0xD8 / 255.0, 0xD0 / 255.0, 0xC4 / 255.0)
+    private static let champagne = (0xC7 / 255.0, 0xA2 / 255.0, 0x58 / 255.0)
+    private static let charcoal = (0x1E / 255.0, 0x30 / 255.0, 0x3A / 255.0)
 
     /// AA body text.
     private static let aa = 4.5
@@ -67,6 +72,51 @@ struct DesignTokenTests {
         #expect(Self.contrast(Self.ink, Self.canvas) >= Self.aa)
         #expect(Self.contrast(Self.inkSecondary, Self.canvas) >= Self.aa)
         #expect(Self.contrast(Self.inkTertiary, Self.canvas) >= Self.aa)
+    }
+
+    @Test
+    func journeyTextClearsAAOnBothArchitecturalPlanes() {
+        let privateMetadata = Self.over(
+            Self.pearl,
+            0.64,
+            Self.privateInk
+        )
+        let lightSecondaryOnPearl = Self.over(
+            Self.charcoal,
+            0.76,
+            Self.pearl
+        )
+        let lightSecondaryOnWarmStone = Self.over(
+            Self.charcoal,
+            0.76,
+            Self.warmStone
+        )
+
+        #expect(
+            Self.contrast(privateMetadata, Self.privateInk) >= Self.aa
+        )
+        #expect(
+            Self.contrast(lightSecondaryOnPearl, Self.pearl) >= Self.aa
+        )
+        #expect(
+            Self.contrast(lightSecondaryOnWarmStone, Self.warmStone)
+                >= Self.aa
+        )
+        #expect(
+            Self.contrast(Self.privateInk, Self.champagne) >= Self.aa
+        )
+    }
+
+    @Test
+    func widgetTextPlaneRemainsLegibleOverItsLightestBackdrop() {
+        let worstCaseTextPlane = Self.over(
+            Self.privateInk,
+            0.94,
+            Self.warmStone
+        )
+        #expect(
+            Self.contrast(Self.pearl, worstCaseTextPlane) >= Self.aa
+        )
     }
 
     /// The atmosphere tints the surface differently for each personal hue.
@@ -130,21 +180,40 @@ struct DesignTokenTests {
         }
     }
 
-    /// The confluence reports state: separate at `open`, merged at `revealed`.
+    /// The legacy editorial confluence reports proximity, while the
+    /// trust-bearing continuity line keeps both sides visually intact.
     /// If this ordering breaks, the canvas starts lying about consent.
     @Test
     func connectionRisesMonotonicallyWithTrust() {
         let ordered: [TrustPhase] = [
-            .open, .waiting, .answering, .held, .revealed
+            .open, .waiting, .answering, .held, .shared
         ]
         let values = ordered.map(\.confluenceConnection)
         #expect(values == values.sorted())
         #expect(TrustPhase.open.confluenceConnection < 0.25)
-        #expect(TrustPhase.revealed.confluenceConnection == 1)
+        #expect(TrustPhase.shared.confluenceConnection == 1)
         // A decline must not read as further along than a live invitation.
         #expect(
             TrustPhase.declined.confluenceConnection
                 < TrustPhase.invited.confluenceConnection
+        )
+    }
+
+    @Test
+    func journeyStatesHaveDistinctNonIdentityMergingDescriptions() {
+        let descriptions = WEJourneyState.allCases.map(
+            \.accessibilityDescription
+        )
+
+        #expect(Set(descriptions).count == WEJourneyState.allCases.count)
+        #expect(
+            WEJourneyState.shared.accessibilityDescription
+                .contains("two intact sides")
+        )
+        #expect(
+            descriptions.allSatisfy {
+                !$0.localizedCaseInsensitiveContains("merge")
+            }
         )
     }
 }

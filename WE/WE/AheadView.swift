@@ -107,7 +107,7 @@ struct AheadView: View {
                     )
 
                 VStack(alignment: .leading, spacing: 7) {
-                    Text("CHOOSE PRIVATELY")
+                    Text("A QUESTION FOR YOU")
                         .font(.weCaption)
                         .tracking(1.2)
                         .foregroundStyle(Color("WEBurgundy"))
@@ -224,22 +224,22 @@ struct AheadView: View {
             approachBeat(
                 active: true,
                 complete: hasAnswered,
-                title: "One private question, each of you",
+                title: "One private intention, on your side",
                 detail: hasAnswered
-                    ? "Held. Waiting for the other side."
-                    : "Opens before the plan. Neither answer is visible."
+                    ? "Saved only for you."
+                    : "Your choice and note will never be shown."
             )
             approachBeat(
                 active: hasAnswered,
                 complete: false,
-                title: "WE finds what you both want to protect",
-                detail: "Runs only when both answers are held."
+                title: "Carry the quality into the plan",
+                detail: "A quiet prompt for you, never a verdict about both of you."
             )
             approachBeat(
                 active: false,
                 complete: false,
-                title: "On the day: one card, nothing else",
-                detail: "The quality you agreed to protect, without logistics."
+                title: "On the day: one private reminder",
+                detail: "Your own intention, without logistics or comparison."
             )
 
             Button(

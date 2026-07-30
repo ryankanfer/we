@@ -3,10 +3,9 @@ import SwiftUI
 extension TrustPhase {
     /// How near the two fields sit while the relationship is in this phase.
     ///
-    /// The confluence is not decoration — `connection` *is* the state display.
-    /// Two separate fields drift at `open` and merge into one at `revealed`,
-    /// so the surface shows how far a thing has travelled toward being shared
-    /// before a single word of copy is read.
+    /// Legacy editorial artwork still reads this value, but trust-bearing
+    /// surfaces use the architectural continuity line instead. A shared state
+    /// means room opened between two sides, never that identities merged.
     var confluenceConnection: CGFloat {
         switch self {
         case .hidden: 0.18
@@ -16,7 +15,7 @@ extension TrustPhase {
         case .invited: 0.30
         case .answering: 0.44
         case .held: 0.62
-        case .revealed: 1
+        case .shared, .revealed: 1
         case .resolved: 1
         }
     }

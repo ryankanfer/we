@@ -71,16 +71,16 @@ final class WEUITests: XCTestCase {
         app.buttons["accountSubmitButton"].tap()
 
         XCTAssertTrue(
-            app.staticTexts["Half the field is missing."]
+            app.staticTexts["Your side is ready."]
                 .waitForExistence(timeout: 3)
         )
-        let createSpace = app.buttons["Create and send the invitation"]
+        let createSpace = app.buttons["Create an invitation"]
         createSpace.tap()
         XCTAssertTrue(
             app.staticTexts.matching(
                 NSPredicate(
                     format: "label CONTAINS %@",
-                    "WE is holding one thing"
+                    "invitation is at"
                 )
             ).firstMatch
                 .waitForExistence(timeout: 3)
@@ -121,7 +121,7 @@ final class WEUITests: XCTestCase {
             app.staticTexts.matching(
                 NSPredicate(
                     format: "label CONTAINS %@",
-                    "WE is holding one thing"
+                    "invitation is at"
                 )
             ).firstMatch
                 .waitForExistence(timeout: 4)
@@ -208,15 +208,122 @@ final class WEUITests: XCTestCase {
         )
         app.buttons["Continue"].tap()
         XCTAssertTrue(
-            app.staticTexts["Nothing crosses without both."].exists
+            app.staticTexts["You see what crosses."].exists
         )
         app.buttons["Continue"].tap()
         XCTAssertTrue(
-            app.staticTexts["What opens, opens together."].exists
+            app.staticTexts["Shared is a new space."].exists
         )
-        app.buttons["Hold to join"].press(forDuration: 0.5)
+        app.buttons["Enter WE"].tap()
         XCTAssertTrue(
             app.buttons["primaryTab.Today"].waitForExistence(timeout: 4)
+        )
+    }
+
+    @MainActor
+    func testTrustPromiseAndInvitationRemainReachableAtAccessibilityTextSize()
+        throws
+    {
+        let promiseApp = launch(
+            scenario: "ready",
+            skipsPromise: false,
+            accessibilityTextSize: true
+        )
+
+        for expectedTitle in [
+            "Yours stays yours.",
+            "You see what crosses.",
+        ] {
+            XCTAssertTrue(
+                promiseApp.staticTexts[expectedTitle]
+                    .waitForExistence(timeout: 4)
+            )
+            let continueButton = promiseApp.buttons["Continue"]
+            scrollUntilVisible(continueButton, in: promiseApp, maxSwipes: 8)
+            XCTAssertTrue(continueButton.isHittable)
+            continueButton.tap()
+        }
+
+        XCTAssertTrue(
+            promiseApp.staticTexts["Shared is a new space."]
+                .waitForExistence(timeout: 4)
+        )
+        let enterButton = promiseApp.buttons["Enter WE"]
+        scrollUntilVisible(enterButton, in: promiseApp, maxSwipes: 8)
+        XCTAssertTrue(enterButton.isHittable)
+        promiseApp.terminate()
+
+        let waitingApp = launch(
+            scenario: "waiting",
+            accessibilityTextSize: true
+        )
+        let sendButton = waitingApp.buttons["Send the invitation"]
+        scrollUntilVisible(sendButton, in: waitingApp, maxSwipes: 10)
+        XCTAssertTrue(sendButton.isHittable)
+        let copyButton = waitingApp.buttons["Copy"]
+        scrollUntilVisible(copyButton, in: waitingApp, maxSwipes: 4)
+        XCTAssertTrue(copyButton.isHittable)
+    }
+
+    @MainActor
+    func testSoftStartDeliversValueBeforeAccountAndPreviewsExactOffer()
+        throws
+    {
+        let app = launch(
+            scenario: "signedout",
+            skipsSoftStart: false
+        )
+        resetSoftStartIfNeeded(in: app)
+
+        let privateInput = app.textViews["softStart.input"]
+        XCTAssertTrue(privateInput.waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            app.staticTexts.matching(
+                NSPredicate(
+                    format: "label CONTAINS %@",
+                    "Begin with"
+                )
+            ).firstMatch.exists
+        )
+        XCTAssertFalse(app.textFields["Email"].exists)
+
+        let privateNote = "I would love a quieter Friday evening."
+        privateInput.tap()
+        privateInput.typeText(privateNote)
+        app.buttons["softStart.prepare"].tap()
+
+        XCTAssertTrue(
+            app.staticTexts.matching(
+                NSPredicate(
+                    format: "label CONTAINS %@",
+                    "One thing you"
+                )
+            ).firstMatch.waitForExistence(timeout: 12)
+        )
+        XCTAssertTrue(
+            app.staticTexts.matching(
+                NSPredicate(
+                    format: "label BEGINSWITH %@",
+                    "Prepared on this iPhone"
+                )
+            ).firstMatch.exists
+        )
+        XCTAssertFalse(app.textFields["Email"].exists)
+
+        app.buttons["proposal.offer"].tap()
+        XCTAssertTrue(
+            app.staticTexts["Offer only this"]
+                .waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(app.staticTexts["A quieter Friday"].exists)
+        XCTAssertTrue(app.staticTexts["How should Friday feel?"].exists)
+        XCTAssertTrue(app.staticTexts["Quiet · Open · Social"].exists)
+        XCTAssertFalse(app.textViews[privateNote].exists)
+
+        app.buttons["offer.confirm"].tap()
+        XCTAssertTrue(
+            app.staticTexts["Welcome back."]
+                .waitForExistence(timeout: 3)
         )
     }
 
@@ -226,12 +333,11 @@ final class WEUITests: XCTestCase {
         let insight = app.staticTexts["How should tonight feel?"]
         XCTAssertTrue(insight.waitForExistence(timeout: 4))
 
+        let chooseButton = app.buttons["Choose what feels right"]
+        XCTAssertTrue(chooseButton.waitForExistence(timeout: 2))
+        chooseButton.tap()
         XCTAssertTrue(
-            app.staticTexts["A private choice is ready"].exists
-        )
-        app.buttons["Choose privately"].tap()
-        XCTAssertTrue(
-            app.staticTexts["Choose what is true for you."]
+            app.staticTexts["Choose what feels right."]
                 .waitForExistence(timeout: 2)
         )
         app.buttons["Out of the house"].tap()
@@ -257,7 +363,7 @@ final class WEUITests: XCTestCase {
         )
 
         app.buttons["Open shared horizons"].tap()
-        XCTAssertTrue(app.staticTexts["CHOOSE PRIVATELY"].exists)
+        XCTAssertTrue(app.staticTexts["A QUESTION FOR YOU"].exists)
         XCTAssertTrue(
             app.staticTexts["How should tonight feel?"].exists
         )
@@ -295,7 +401,9 @@ final class WEUITests: XCTestCase {
     private func launch(
         scenario: String,
         skipsPromise: Bool = true,
-        reduceMotion: Bool = false
+        reduceMotion: Bool = false,
+        skipsSoftStart: Bool = true,
+        accessibilityTextSize: Bool = false
     ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["WE_REPOSITORY"] = "preview"
@@ -304,13 +412,33 @@ final class WEUITests: XCTestCase {
             "correct-password"
         app.launchEnvironment["WE_DISABLE_CREDENTIAL_PROMPTS"] = "1"
         app.launchEnvironment["WE_SKIP_PROMISE"] = skipsPromise ? "1" : "0"
+        app.launchEnvironment["WE_SKIP_SOFT_START"] =
+            skipsSoftStart ? "1" : "0"
         app.launchArguments += [
             "-hasSeenLivingConfluencePromise", skipsPromise ? "YES" : "NO",
             "-UIAccessibilityReduceMotionEnabled",
             reduceMotion ? "YES" : "NO"
         ]
+        if accessibilityTextSize {
+            app.launchArguments += [
+                "-UIPreferredContentSizeCategoryName",
+                "UICTContentSizeCategoryAccessibilityExtraExtraExtraLarge",
+            ]
+        }
         app.launch()
         return app
+    }
+
+    @MainActor
+    private func resetSoftStartIfNeeded(in app: XCUIApplication) {
+        if app.buttons["offer.confirm"].waitForExistence(timeout: 1) {
+            app.buttons["Your proposal"].tap()
+        }
+
+        if app.buttons["proposal.keep"].waitForExistence(timeout: 1) {
+            app.buttons["Delete and start again"].tap()
+            app.sheets.buttons["Delete and start again"].tap()
+        }
     }
 
     @MainActor

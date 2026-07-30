@@ -26,6 +26,7 @@ final class AppSession: ObservableObject {
     @Published private(set) var connectionState: ConnectionState
     @Published private(set) var user: AuthenticatedUser?
     @Published private(set) var snapshot: RelationshipSnapshot?
+    @Published private(set) var privateProposals: [SavedPrivateProposal] = []
     @Published private(set) var isWorking = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var noticeMessage: String?
@@ -156,6 +157,7 @@ final class AppSession: ObservableObject {
             case .verificationPending(let email):
                 self.user = nil
                 self.snapshot = nil
+                self.privateProposals = []
                 self.state = .verificationPending(email)
             }
         }
@@ -200,6 +202,7 @@ final class AppSession: ObservableObject {
                 self.stopObservingRelationship()
                 self.user = recoveringUser
                 self.snapshot = nil
+                self.privateProposals = []
                 self.state = .resettingPassword
             }
         }
@@ -238,6 +241,7 @@ final class AppSession: ObservableObject {
         }
         user = nil
         snapshot = nil
+        privateProposals = []
         cachedAt = nil
         state = .signedOut
     }
@@ -254,6 +258,7 @@ final class AppSession: ObservableObject {
             )
             self.user = nil
             self.snapshot = nil
+            self.privateProposals = []
             self.cachedAt = nil
             self.noticeMessage = "Your account and live WE space were deleted."
             self.state = .signedOut
@@ -293,6 +298,59 @@ final class AppSession: ObservableObject {
         guard let membership = snapshot?.membership else { return }
         await perform {
             try await self.repository.updateHue(hue, membership: membership)
+        }
+    }
+
+    /// Moves a pre-account proposal into owner-only storage. This deliberately
+    /// does not reload the shared relationship snapshot because the claimed
+    /// source remains outside couple membership.
+    func claimPrivateProposal(_ proposal: PrivateProposal) async -> String? {
+        guard user != nil else { return nil }
+        guard connectionState == .online else {
+            errorMessage = RepositoryError.offline.localizedDescription
+            return nil
+        }
+        isWorking = true
+        errorMessage = nil
+        defer { isWorking = false }
+        do {
+            let proposalID = try await repository.claimPrivateProposal(
+                proposal
+            )
+            privateProposals.removeAll { $0.id == proposalID }
+            privateProposals.insert(
+                SavedPrivateProposal(
+                    serverID: proposalID,
+                    proposal: proposal
+                ),
+                at: 0
+            )
+            noticeMessage = "Your proposal is protected on your side."
+            return proposalID
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    /// Publishes only the frozen safe preview created during the claim. The
+    /// repository cannot derive an offer from the source note at this step.
+    func offerPrivateProposal(id: String) async -> Bool {
+        guard user != nil else { return false }
+        guard connectionState == .online else {
+            errorMessage = RepositoryError.offline.localizedDescription
+            return false
+        }
+        isWorking = true
+        errorMessage = nil
+        defer { isWorking = false }
+        do {
+            try await repository.offerPrivateProposal(id: id)
+            noticeMessage = "Only the approved topic was offered."
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
         }
     }
 
@@ -583,13 +641,21 @@ final class AppSession: ObservableObject {
         authRoutingGeneration expectedGeneration: Int? = nil
     ) async throws {
         do {
-            let loaded = try await repository.loadRelationship(for: user)
+            async let relationshipRequest =
+                repository.loadRelationship(for: user)
+            async let proposalsRequest =
+                repository.loadPrivateProposals(for: user)
+            let (loaded, loadedPrivateProposals) = try await (
+                relationshipRequest,
+                proposalsRequest
+            )
             if let expectedGeneration,
                expectedGeneration != authRoutingGeneration {
                 return
             }
             self.user = user
             snapshot = loaded
+            privateProposals = loadedPrivateProposals
             cachedAt = nil
             connectionState = connectivity.isOnline ? .online : .offline
             try? await cache.save(loaded, userID: user.id)
@@ -605,6 +671,7 @@ final class AppSession: ObservableObject {
                let cached = try? await cache.load(userID: user.id) {
                 self.user = user
                 snapshot = cached.snapshot
+                privateProposals = []
                 cachedAt = cached.savedAt
                 connectionState = .offline
                 route(cached.snapshot)
@@ -636,6 +703,7 @@ final class AppSession: ObservableObject {
            let cached = try? await cache.load(userID: storedUser.id) {
             user = storedUser
             snapshot = cached.snapshot
+            privateProposals = []
             cachedAt = cached.savedAt
             connectionState = .offline
             route(cached.snapshot)
@@ -653,6 +721,7 @@ final class AppSession: ObservableObject {
         try? await repository.signOut()
         user = nil
         snapshot = nil
+        privateProposals = []
         cachedAt = nil
         noticeMessage = "Your session expired. Sign in again."
         state = .signedOut

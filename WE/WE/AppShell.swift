@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 struct AppShell: View {
@@ -89,6 +90,13 @@ struct AppShell: View {
         }
         .onChange(of: showsProfile, initial: true) { _, _ in
             syncModalDepth()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: WEDeepLinkRouter.didRequestToday
+            )
+        ) { _ in
+            selection = .we
         }
     }
 

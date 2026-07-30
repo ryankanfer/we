@@ -12,9 +12,7 @@ struct WEView: View {
 
     var body: some View {
         ZStack {
-            Color.weCanvas.ignoresSafeArea()
-            WEAtmosphere(connection: fieldConnection)
-                .opacity(0.38)
+            WEJourneyBackdrop(state: .privateState)
 
             GeometryReader { viewport in
                 ScrollView {
@@ -31,7 +29,7 @@ struct WEView: View {
                             .padding(.horizontal, 20)
                             .padding(.top, 30)
                             .padding(.bottom, 36)
-                            .background(Color.weCanvas)
+                            .background(Color.wePrivateInk)
                         }
                     }
                 }
@@ -105,7 +103,7 @@ struct WEView: View {
 
     private func phasePriority(_ phase: TrustPhase) -> Int {
         switch phase {
-        case .revealed: 0
+        case .shared, .revealed: 0
         case .answering: 1
         case .held: 2
         case .invited: 3
@@ -129,12 +127,16 @@ struct WEView: View {
     }
 
     private func todayFocusScene(minHeight: CGFloat) -> some View {
-        WECinematicFocusScene(
-            artwork: heroArtwork,
-            minHeight: minHeight,
-            focalPoint: heroArtwork == .horizon ? .bottom : .center,
-            intensity: 0.96
-        ) {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color.weDuskBlue.opacity(0.34),
+                    Color.wePrivateInk.opacity(0.12),
+                    Color.wePrivateInk,
+                ],
+                startPoint: .topTrailing,
+                endPoint: .bottomLeading
+            )
             VStack(alignment: .leading, spacing: 0) {
                 header
 
@@ -172,6 +174,7 @@ struct WEView: View {
             .padding(.top, 18)
             .padding(.bottom, 72)
         }
+        .frame(minHeight: minHeight)
     }
 
     private func presenceState(
@@ -219,7 +222,7 @@ struct WEView: View {
         switch projection.phase {
         case .held, .waiting, .invited:
             return .vessel
-        case .revealed, .resolved:
+        case .shared, .revealed, .resolved:
             return .horizon
         default:
             return .confluence
@@ -483,34 +486,40 @@ struct WEView: View {
             .disabled(selectedMomentNumber <= 1)
             .accessibilityLabel("Previous shared moment")
 
-            HStack(spacing: 7) {
-                ForEach(activeMoments) { record in
-                    Button {
-                        selectMoment(id: record.id)
-                    } label: {
-                        Capsule()
-                            .fill(
-                                record.id == selectedMomentID
-                                    ? .white
-                                    : .white.opacity(0.28)
-                            )
-                            .frame(
-                                width: record.id == selectedMomentID ? 22 : 7,
-                                height: 7
-                            )
-                            .frame(minWidth: 16, minHeight: 44)
+            ScrollView(.horizontal) {
+                HStack(spacing: 0) {
+                    ForEach(activeMoments) { record in
+                        Button {
+                            selectMoment(id: record.id)
+                        } label: {
+                            Capsule()
+                                .fill(
+                                    record.id == selectedMomentID
+                                        ? .white
+                                        : .white.opacity(0.28)
+                                )
+                                .frame(
+                                    width: record.id == selectedMomentID
+                                        ? 22
+                                        : 7,
+                                    height: 7
+                                )
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(
+                            "Shared moment \(momentNumber(for: record))"
+                        )
+                        .accessibilityAddTraits(
+                            record.id == selectedMomentID ? .isSelected : []
+                        )
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(
-                        "Shared moment \(momentNumber(for: record))"
-                    )
-                    .accessibilityAddTraits(
-                        record.id == selectedMomentID ? .isSelected : []
-                    )
                 }
             }
-
-            Spacer()
+            .scrollIndicators(.hidden)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .padding(.trailing, 4)
 
             Text("\(selectedMomentNumber) of \(activeMoments.count)")
                 .font(.weMeta)
@@ -588,6 +597,11 @@ struct WEView: View {
 
 private struct InsightEvidenceDisclosure: View {
     let insight: Insight
+    var state: WEJourneyState = .privateState
+
+    private var palette: WEJourneyPalette {
+        .palette(for: state)
+    }
 
     var body: some View {
         DisclosureGroup {
@@ -595,19 +609,19 @@ private struct InsightEvidenceDisclosure: View {
                 Text(insight.evidence)
                 Label(insight.source, systemImage: "link")
                 Label(
-                    "Did not read private reflections or unrevealed answers",
+                    "Did not read private reflections or expose either answer",
                     systemImage: "lock.shield"
                 )
             }
             .font(.weSubheadline)
-            .foregroundStyle(.white.opacity(0.72))
+            .foregroundStyle(palette.secondaryInk)
             .padding(.top, 8)
         } label: {
             Label("Why this surfaced", systemImage: "info.circle")
                 .font(.subheadline.weight(.medium))
-                .foregroundStyle(.white.opacity(0.78))
+                .foregroundStyle(palette.secondaryInk)
         }
-        .tint(.white.opacity(0.72))
+        .tint(palette.secondaryInk)
         .accessibilityHint(
             "Shows the shared evidence and excluded private data"
         )
@@ -638,16 +652,19 @@ private struct SharedMomentPage: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(record.insight.title)
                     .font(.system(.title2, design: .serif, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(palette.ink)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Text(record.insight.body)
                     .font(.weSubheadline)
-                    .foregroundStyle(.white.opacity(0.72))
+                    .foregroundStyle(palette.secondaryInk)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            InsightEvidenceDisclosure(insight: record.insight)
+            InsightEvidenceDisclosure(
+                insight: record.insight,
+                state: visualState
+            )
 
             if let projection {
                 momentControls(projection)
@@ -655,21 +672,37 @@ private struct SharedMomentPage: View {
 
             SessionMessageView()
         }
-        .padding(.vertical, 12)
+        .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            palette.background.opacity(0.97),
+            in: RoundedRectangle(cornerRadius: 26, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .stroke(palette.accent.opacity(0.34), lineWidth: 1)
+        }
+        .overlay(alignment: .bottom) {
+            WEContinuityLine(state: visualState)
+                .frame(height: 54)
+                .padding(.horizontal, 18)
+                .offset(y: 32)
+                .accessibilityHidden(true)
+        }
+        .padding(.bottom, 24)
         .animation(
             .weSettle(duration: 0.45, reduceMotion: reduceMotion),
             value: projection?.phase
         )
         .sensoryFeedback(.selection, trigger: selectedOption)
-        .sensoryFeedback(.success, trigger: projection?.phase == .revealed)
+        .sensoryFeedback(.success, trigger: projection?.phase == .shared)
     }
 
     private var eyebrowLabel: some View {
         Text(eyebrow)
             .font(.weMeta)
             .tracking(1.4)
-            .foregroundStyle(.white.opacity(0.6))
+            .foregroundStyle(palette.secondaryInk)
     }
 
     private var projection: TrustProjection? {
@@ -693,24 +726,44 @@ private struct SharedMomentPage: View {
     }
 
     private var privacyLabel: some View {
-        Label("Answers stay private", systemImage: "lock.fill")
+        Label("Your answer stays private", systemImage: "lock.fill")
             .font(.caption.weight(.medium))
-            .foregroundStyle(.white.opacity(0.72))
+            .foregroundStyle(palette.secondaryInk)
             .labelStyle(.titleAndIcon)
             .accessibilityLabel(
-                "Answers stay private until both people submit"
+                "Your answer is never shown to your partner. Only a shared direction can open."
             )
+    }
+
+    private var visualState: WEJourneyState {
+        guard let projection else { return .privateState }
+        switch projection.phase {
+        case .hidden, .resolved:
+            return WEJourneyState.resolved
+        case .open, .answering:
+            return WEJourneyState.privateState
+        case .waiting, .invited:
+            return WEJourneyState.offered
+        case .declined, .held:
+            return WEJourneyState.held
+        case .shared, .revealed:
+            return WEJourneyState.shared
+        }
+    }
+
+    private var palette: WEJourneyPalette {
+        .palette(for: visualState)
     }
 
     @ViewBuilder
     private func momentControls(_ projection: TrustProjection) -> some View {
         switch projection.phase {
-        case .hidden, .resolved:
+        case .hidden:
             EmptyView()
         case .open:
             quietStatus(
-                "Open this together",
-                "Your partner sees only the invitation."
+                "Offer this topic",
+                "Your partner will see the question and choices—never an answer from you."
             )
             primary("Invite \(partnerName)") {
                 await session.requestReveal(insightID: record.id)
@@ -726,9 +779,9 @@ private struct SharedMomentPage: View {
         case .invited:
             quietStatus(
                 "\(partnerName) opened a moment for both of you",
-                "Nothing is revealed until you each choose."
+                "You can join without seeing their answer. Your answer will stay private too."
             )
-            primary("Choose privately") {
+            primary("Join this moment") {
                 await session.acceptReveal(insightID: record.id)
             }
             secondary("Not now") {
@@ -743,15 +796,10 @@ private struct SharedMomentPage: View {
                 await session.acceptReveal(insightID: record.id)
             }
         case .answering:
-            quietStatus(
-                "A private choice is ready",
-                "Choose on your side. WE opens only the direction that can belong to both of you."
-            )
-
             NavigationLink {
                 InsightDetailView(insightID: record.id)
             } label: {
-                Text("Choose privately")
+                Text("Choose what feels right")
                     .font(.body.weight(.semibold))
                     .frame(maxWidth: .infinity, minHeight: 50)
             }
@@ -759,8 +807,12 @@ private struct SharedMomentPage: View {
             .accessibilityIdentifier("today.openMoment")
         case .held:
             heldState
+        case .shared:
+            sharedState(projection)
         case .revealed:
-            revealedState(projection)
+            sharedState(projection)
+        case .resolved:
+            resolvedState(projection)
         }
     }
 
@@ -782,52 +834,51 @@ private struct SharedMomentPage: View {
 
     private var heldState: some View {
         VStack(alignment: .leading, spacing: 14) {
-            WECinematicArt(
-                artwork: .vessel,
-                height: 220,
-                intensity: 0.9
-            )
-            .accessibilityLabel("Your private answer is held")
+            WEContinuityLine(state: .held)
+                .frame(height: 120)
+                .accessibilityLabel(
+                    "Two private answers are held on separate sides"
+                )
             quietStatus(
                 "Your answer is held",
-                "WE will open only the shared direction after \(partnerName) answers too."
+                "It will never be shown. If \(partnerName) answers too, WE will prepare a separate shared direction."
             )
         }
     }
 
     @ViewBuilder
-    private func revealedState(_ projection: TrustProjection) -> some View {
-        if let interpretation = SharedMomentInterpreter.interpretation(
-            for: record.insight,
-            mine: projection.myResponse.choice,
-            partner: projection.partnerResponse?.choice
-        ) {
+    private func sharedState(_ projection: TrustProjection) -> some View {
+        if let direction = projection.sharedDirection {
             VStack(alignment: .leading, spacing: 14) {
-                WECinematicArt(
-                    artwork: .horizon,
-                    height: 210,
-                    focalPoint: .bottom,
-                    intensity: 0.92
-                )
-
-                Image(systemName: interpretation.symbol)
-                    .font(.largeTitle)
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(.white)
+                WEContinuityLine(state: .shared)
+                    .frame(height: 150)
                     .accessibilityHidden(true)
 
-                Text(interpretation.eyebrow)
+                Image(systemName: direction.symbol)
+                    .font(.largeTitle)
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(Color.weSharedOlive)
+                    .accessibilityHidden(true)
+
+                Text(direction.eyebrow)
                     .font(.weCaption)
                     .tracking(1.4)
-                    .foregroundStyle(.white.opacity(0.64))
+                    .foregroundStyle(palette.secondaryInk)
 
-                Text(interpretation.title)
+                Text(direction.title)
                     .font(.weTitle)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(palette.ink)
 
-                Text(interpretation.message)
+                Text(direction.message)
                     .font(.weBody)
-                    .foregroundStyle(.white.opacity(0.76))
+                    .foregroundStyle(palette.secondaryInk)
+
+                Label(
+                    "Prepared by WE from two private submissions. Neither answer was copied into this direction.",
+                    systemImage: "checkmark.shield"
+                )
+                .font(.footnote)
+                .foregroundStyle(palette.secondaryInk)
             }
             .accessibilityElement(children: .combine)
 
@@ -835,7 +886,7 @@ private struct SharedMomentPage: View {
                 await session.resolveInsight(
                     insightID: record.id,
                     type: .settled,
-                    choice: interpretation.title
+                    choice: direction.title
                 )
             }
             secondary("Let this moment rest") {
@@ -847,17 +898,23 @@ private struct SharedMomentPage: View {
             }
         } else {
             quietStatus(
-                "Both answers are ready",
-                "Open the full reflection to hold what each of you shared."
+                "Preparing shared room",
+                "Both answers remain private. WE is preparing a separate direction."
             )
-            NavigationLink {
-                InsightDetailView(insightID: record.id)
-            } label: {
-                Text("Open together")
-                    .font(.body.weight(.semibold))
-                    .frame(maxWidth: .infinity, minHeight: 50)
-            }
-            .buttonStyle(WEFocusPrimaryButtonStyle())
+        }
+    }
+
+    private func resolvedState(
+        _ projection: TrustProjection
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            WEContinuityLine(state: .resolved)
+                .frame(height: 72)
+                .accessibilityHidden(true)
+            quietStatus(
+                "This moment can rest",
+                resolutionMessage(projection.resolution)
+            )
         }
     }
 
@@ -868,10 +925,10 @@ private struct SharedMomentPage: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.weHeadline)
-                .foregroundStyle(.white)
+                .foregroundStyle(palette.ink)
             Text(message)
                 .font(.weSubheadline)
-                .foregroundStyle(.white.opacity(0.7))
+                .foregroundStyle(palette.secondaryInk)
         }
         .accessibilityElement(children: .combine)
     }
@@ -891,7 +948,7 @@ private struct SharedMomentPage: View {
         }
         .font(.body.weight(.semibold))
         .frame(maxWidth: .infinity, minHeight: 50)
-        .buttonStyle(WEFocusPrimaryButtonStyle())
+        .buttonStyle(WEJourneyPrimaryButtonStyle(state: visualState))
         .disabled(!session.canMutate)
     }
 
@@ -905,8 +962,23 @@ private struct SharedMomentPage: View {
             Text(title)
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
-        .buttonStyle(WESecondaryButtonStyle(tintColor: .white.opacity(0.78)))
+        .buttonStyle(WEJourneySecondaryButtonStyle(state: visualState))
         .disabled(!session.canMutate)
+    }
+
+    private func resolutionMessage(
+        _ resolution: TrustResolution?
+    ) -> String {
+        switch resolution?.type {
+        case .settled:
+            "You kept the shared direction."
+        case .released:
+            "You released the shared direction."
+        case .leftOpen:
+            "You left the shared direction open."
+        case nil:
+            "The shared direction has resolved."
+        }
     }
 
     private var personalHue: WEHue {
@@ -1042,25 +1114,20 @@ struct InsightDetailView: View {
         let projection = session.projection(for: record)
         return ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                if projection?.phase == .revealed || projection?.phase == .resolved,
-
-                   record.insight.kind != .logistical
-                   || projection?.matched == true
-                   || SharedMomentInterpreter.interpretation(
-                       for: record.insight,
-                       mine: projection?.myResponse.choice,
-                       partner: projection?.partnerResponse?.choice
-                   ) != nil
+                if projection?.phase == .shared
+                    || projection?.phase == .revealed
+                    || projection?.phase == .resolved
                 {
-                    WEConfluenceForm(
-                        personalHue: hue,
-                        partnerHue: relationshipPartnerHue(session),
-                        connection: 1
+                    WEContinuityLine(
+                        state: projection?.phase == .resolved
+                            ? .resolved
+                            : .shared
                     )
                     .frame(height: 170)
-                    .mask(RoundedRectangle(cornerRadius: 28, style: .continuous))
                     .transition(.opacity)
-                    .accessibilityLabel("Both answers opened together")
+                    .accessibilityLabel(
+                        "A shared direction between two private sides"
+                    )
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -1074,7 +1141,10 @@ struct InsightDetailView: View {
                         .foregroundStyle(Color("WEFaint"))
                 }
 
-                InsightEvidenceDisclosure(insight: record.insight)
+                InsightEvidenceDisclosure(
+                    insight: record.insight,
+                    state: detailVisualState(projection)
+                )
 
                 if let projection {
                     trustControls(projection, record: record)
@@ -1088,7 +1158,7 @@ struct InsightDetailView: View {
             .weSettle(duration: 0.6, reduceMotion: reduceMotion),
             value: projection?.phase
         )
-        .sensoryFeedback(.success, trigger: projection?.phase == .revealed)
+        .sensoryFeedback(.success, trigger: projection?.phase == .shared)
     }
 
     @ViewBuilder
@@ -1102,7 +1172,7 @@ struct InsightDetailView: View {
         case .open:
             statusCard(
                 title: "Open this together?",
-                message: "Your partner will see the invitation, never an answer you have not mutually revealed."
+                message: "Your partner will see the topic and choices. Neither answer will ever be shown."
             )
             primary("Ask to open together") { await session.requestReveal(insightID: record.id) }
             Button("Not for me") { Task { await session.dismissSuggestion(insightID: record.id) } }
@@ -1137,7 +1207,7 @@ struct InsightDetailView: View {
         case .answering:
             let action = session.questionAction(for: record)
             statusCard(
-                title: "Answer privately.",
+                title: "Choose what feels right.",
                 message: action.explanation
             )
             optionPicker(record)
@@ -1157,67 +1227,112 @@ struct InsightDetailView: View {
         case .held:
             statusCard(
                 title: "Your answer is held safely.",
-                message: "It will reveal only after your partner submits too."
+                message: "It stays owner-only. If your partner submits too, WE will create a separate shared direction."
             )
-        case .revealed:
-            if record.insight.kind == .logistical {
-                if let interpretation = SharedMomentInterpreter.interpretation(
-                    for: record.insight,
-                    mine: projection.myResponse.choice,
-                    partner: projection.partnerResponse?.choice
-                ) {
-                    statusCard(
-                        title: interpretation.title,
-                        message: interpretation.message
-                    )
-                    primary("Keep this direction") {
-                        await session.resolveInsight(
-                            insightID: record.id,
-                            type: .settled,
-                            choice: interpretation.title
-                        )
-                    }
-                } else {
-                    statusCard(
-                        title: "No mutual match this round.",
-                        message: "Neither preference is shown. There is nothing to explain or decline."
-                    )
-                    primary("Let this round rest") {
-                        await session.resolveInsight(
-                            insightID: record.id,
-                            type: .released,
-                            choice: nil
-                        )
-                    }
-                }
-            } else {
-                statusCard(
-                    title: projection.matched == true ? "You chose the same thing." : "You see this differently.",
-                    message: "Both answers arrived before either was revealed."
-                )
-                answerCard("You", projection.myResponse.choice, note: projection.myResponse.note)
-                answerCard("Your partner", projection.partnerResponse?.choice, note: projection.partnerResponse?.note)
-                primary("Mark this settled") {
-                    await session.resolveInsight(
-                        insightID: record.id,
-                        type: .settled,
-                        choice: projection.matched == true ? projection.myResponse.choice : nil
-                    )
-                }
-                HStack(spacing: 12) {
-                    Button("Leave open") { Task { await session.resolveInsight(insightID: record.id, type: .leftOpen) } }
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                    Button("Release it") { Task { await session.resolveInsight(insightID: record.id, type: .released) } }
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                }
-                .buttonStyle(.bordered)
-                .disabled(!session.canMutate)
-            }
+        case .shared, .revealed:
+            sharedDirectionControls(projection, record: record)
         case .resolved:
             statusCard(
                 title: "Held together.",
                 message: resolutionMessage(projection.resolution)
             )
+        }
+    }
+
+    @ViewBuilder
+    private func sharedDirectionControls(
+        _ projection: TrustProjection,
+        record: InsightRecord
+    ) -> some View {
+        if let direction = projection.sharedDirection {
+            VStack(alignment: .leading, spacing: 12) {
+                Label {
+                    Text("PREPARED BY WE")
+                        .foregroundStyle(
+                            Color.weCharcoal.opacity(0.76)
+                        )
+                } icon: {
+                    Image(systemName: "checkmark.shield")
+                        .foregroundStyle(Color.weSharedOlive)
+                }
+                .font(.weCaption)
+                .tracking(1.3)
+                Text(direction.title)
+                    .font(.weTitle)
+                    .foregroundStyle(Color.weCharcoal)
+                Text(direction.message)
+                    .font(.weBody)
+                    .foregroundStyle(Color.weCharcoal.opacity(0.72))
+                Text(
+                    "Source: two private submissions. Approval boundary: both people submitted. Neither answer or note was copied into this result."
+                )
+                .font(.footnote)
+                .foregroundStyle(Color.weCharcoal.opacity(0.76))
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                Color.wePearl,
+                in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(Color.weSharedOlive.opacity(0.52))
+            }
+
+            primary("Keep this direction") {
+                await session.resolveInsight(
+                    insightID: record.id,
+                    type: .settled,
+                    choice: direction.title
+                )
+            }
+
+            HStack(spacing: 12) {
+                Button("Leave open") {
+                    Task {
+                        await session.resolveInsight(
+                            insightID: record.id,
+                            type: .leftOpen
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 44)
+                Button("Release it") {
+                    Task {
+                        await session.resolveInsight(
+                            insightID: record.id,
+                            type: .released
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+            .disabled(!session.canMutate)
+        } else {
+            statusCard(
+                title: "Preparing shared room.",
+                message: "Both answers remain private while WE prepares a separate direction."
+            )
+        }
+    }
+
+    private func detailVisualState(
+        _ projection: TrustProjection?
+    ) -> WEJourneyState {
+        guard let projection else { return .privateState }
+        switch projection.phase {
+        case .hidden, .open, .answering:
+            return .privateState
+        case .waiting, .invited:
+            return .offered
+        case .declined, .held:
+            return .held
+        case .shared, .revealed:
+            return .shared
+        case .resolved:
+            return .resolved
         }
     }
 
@@ -1249,47 +1364,6 @@ struct InsightDetailView: View {
         }
         .buttonStyle(WEPrimaryButtonStyle())
         .disabled(!session.canMutate)
-    }
-
-    private func answerCard(_ person: String, _ value: String?, note: String?) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(person).foregroundStyle(Color("WEFaint")).font(.subheadline)
-                Spacer()
-                Text(value ?? "No answer").fontWeight(.semibold).font(.weBody)
-            }
-            if let note, !note.isEmpty {
-                Divider()
-                Text("“\(note)”")
-                    .font(.subheadline.italic())
-                    .foregroundStyle(Color("WEInk"))
-            }
-        }
-        .padding(14)
-        .background(Color("WEInk").opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-
-    private func matchCard(_ value: String?) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "heart.fill")
-                .foregroundStyle(Color("WEBurgundy"))
-                .frame(width: 44, height: 44)
-                .background(
-                    Color("WEBurgundy").opacity(0.1),
-                    in: Circle()
-                )
-                .accessibilityHidden(true)
-            Text(value ?? "A shared choice")
-                .font(.weHeadline)
-                .foregroundStyle(Color("WEInk"))
-            Spacer(minLength: 4)
-        }
-        .padding(14)
-        .background(
-            Color("WECard"),
-            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-        )
-        .accessibilityElement(children: .combine)
     }
 
     private func resolutionMessage(_ resolution: TrustResolution?) -> String {

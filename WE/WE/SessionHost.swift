@@ -175,18 +175,26 @@ actor SimulationStore {
                 insight: record.insight,
                 consent: record.consent,
                 responses: record.responses.map { response in
-                    guard response.profileID != viewer.userID,
-                          response.status != .revealed else {
-                        return response
+                    if response.profileID == viewer.userID {
+                        return InsightResponse(
+                            insightID: response.insightID,
+                            profileID: response.profileID,
+                            status: response.status == .revealed
+                                ? .submitted : response.status,
+                            choice: response.choice,
+                            note: response.note
+                        )
                     }
                     return InsightResponse(
                         insightID: response.insightID,
                         profileID: response.profileID,
-                        status: response.status,
+                        status: response.status == .revealed
+                            ? .submitted : response.status,
                         choice: nil,
                         note: nil
                     )
                 },
+                sharedDirection: record.sharedDirection,
                 dismissedBy: record.dismissedBy.intersection(
                     [viewer.userID]
                 ),
@@ -206,7 +214,7 @@ actor SimulationStore {
             anchors: v2.anchors,
             handoffs: v2.handoffs,
             approaches: v2.approaches.filter {
-                $0.profileID == viewer.userID || $0.revealedAt != nil
+                $0.profileID == viewer.userID
             },
             events: v2.events,
             seasons: v2.seasons,
@@ -570,25 +578,9 @@ actor SimulationStore {
                 profileID: viewer.userID,
                 approach: approach,
                 note: note,
-                revealedAt: nil,
                 createdAt: Self.timestamp
             )
         )
-        if values.filter({ $0.planID == planID }).count == 2 {
-            let revealedAt = Self.timestamp
-            values = values.map { value in
-                guard value.planID == planID else { return value }
-                return PlanApproach(
-                    id: value.id,
-                    planID: value.planID,
-                    profileID: value.profileID,
-                    approach: value.approach,
-                    note: value.note,
-                    revealedAt: value.revealedAt ?? revealedAt,
-                    createdAt: value.createdAt
-                )
-            }
-        }
         replace(approaches: values)
     }
 
@@ -812,6 +804,7 @@ actor SimulationStore {
                     note: $0.value.note
                 )
             },
+            sharedDirection: state.sharedDirection,
             dismissedBy: state.dismissedBy,
             declinedBy: state.declinedBy
         )

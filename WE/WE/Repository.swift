@@ -43,6 +43,12 @@ protocol Repository {
     func joinCouple(code: String) async throws
     func updateProfile(name: String, userID: String) async throws
     func updateHue(_ hue: MemberHue, membership: Membership) async throws
+    func loadPrivateProposals(
+        for user: AuthenticatedUser
+    ) async throws -> [SavedPrivateProposal]
+    func claimPrivateProposal(_ proposal: PrivateProposal) async throws
+        -> String
+    func offerPrivateProposal(id: String) async throws
 
     func createPlan(_ input: PlanInput, coupleID: String) async throws
     func updatePlan(id: String, input: PlanInput) async throws
@@ -110,6 +116,26 @@ protocol Repository {
 }
 
 extension Repository {
+    func loadPrivateProposals(
+        for user: AuthenticatedUser
+    ) async throws -> [SavedPrivateProposal] {
+        []
+    }
+
+    func claimPrivateProposal(_ proposal: PrivateProposal) async throws
+        -> String
+    {
+        throw RepositoryError.invalidData(
+            "private proposals are unavailable"
+        )
+    }
+
+    func offerPrivateProposal(id: String) async throws {
+        throw RepositoryError.invalidData(
+            "offering a private proposal is unavailable"
+        )
+    }
+
     func setPresence(_ mode: PresenceMode) async throws {
         throw RepositoryError.invalidData("presence is unavailable")
     }

@@ -5,6 +5,8 @@ struct WEApp: App {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @StateObject private var host: SessionHost
+    @StateObject private var softStart: SoftStartCoordinator
+    @StateObject private var externalSurfaces: ExternalSurfaceController
     @State private var visualEngine = VisualEngineCoordinator()
     @AppStorage("hasSeenLivingConfluencePromise")
     private var hasSeenPromise = false
@@ -12,6 +14,10 @@ struct WEApp: App {
 
     init() {
         _host = StateObject(wrappedValue: SessionHost())
+        _softStart = StateObject(wrappedValue: SoftStartCoordinator())
+        _externalSurfaces = StateObject(
+            wrappedValue: ExternalSurfaceController()
+        )
     }
 
     var body: some Scene {
@@ -22,6 +28,8 @@ struct WEApp: App {
                 }
                 .environmentObject(host.session)
                 .environmentObject(host)
+                .environmentObject(softStart)
+                .environmentObject(externalSurfaces)
                 .accessibilityHidden(showsPromise)
                 .allowsHitTesting(!showsPromise)
 
@@ -56,7 +64,9 @@ struct WEApp: App {
                 await host.restore()
             }
             .onOpenURL { url in
-                Task { await host.session.handleAuthCallback(url) }
+                if !WEDeepLinkRouter.handle(url) {
+                    Task { await host.session.handleAuthCallback(url) }
+                }
             }
         }
     }
@@ -72,6 +82,16 @@ struct WEApp: App {
         if ProcessInfo.processInfo.environment["WE_SKIP_PROMISE"] == "1" {
             return false
         }
-        return !hasSeenPromise || isReplayingPromise
+        if isReplayingPromise {
+            return true
+        }
+        guard !hasSeenPromise else { return false }
+        switch host.session.state {
+        case .needsCouple, .waitingForPartner, .choosingHue, .ready:
+            return true
+        case .loading, .unconfigured, .signedOut, .verificationPending,
+                .resettingPassword, .failed:
+            return false
+        }
     }
 }

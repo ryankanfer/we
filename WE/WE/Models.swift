@@ -109,6 +109,8 @@ nonisolated enum ResponseStatus: String, Codable, Sendable {
     case none
     case draft
     case submitted
+    /// Read-only compatibility for snapshots created before answers became
+    /// permanently owner-only. New writes never create this state.
     case revealed
 }
 
@@ -138,6 +140,7 @@ nonisolated struct InsightRecord: Identifiable, Codable, Hashable, Sendable {
     let insight: Insight
     let consent: InsightConsent?
     let responses: [InsightResponse]
+    var sharedDirection: SharedDirection? = nil
     let dismissedBy: Set<String>
     let declinedBy: Set<String>
 
@@ -246,11 +249,10 @@ nonisolated struct RelationshipArchiveSnapshot: Codable, Hashable, Sendable {
     var events: [RelationshipEvent] = []
     var seasons: [Season] = []
     var handoffs: [ResponsibilityHandoff] = []
-    var approaches: [PlanApproach] = []
 
     enum CodingKeys: String, CodingKey {
         case plans, responsibilities, resolutions, anchors, events, seasons
-        case handoffs, approaches
+        case handoffs
     }
 
     init(
@@ -260,8 +262,7 @@ nonisolated struct RelationshipArchiveSnapshot: Codable, Hashable, Sendable {
         anchors: [Anchor] = [],
         events: [RelationshipEvent] = [],
         seasons: [Season] = [],
-        handoffs: [ResponsibilityHandoff] = [],
-        approaches: [PlanApproach] = []
+        handoffs: [ResponsibilityHandoff] = []
     ) {
         self.plans = plans
         self.responsibilities = responsibilities
@@ -270,7 +271,6 @@ nonisolated struct RelationshipArchiveSnapshot: Codable, Hashable, Sendable {
         self.events = events
         self.seasons = seasons
         self.handoffs = handoffs
-        self.approaches = approaches
     }
 
     init(from decoder: Decoder) throws {
@@ -302,10 +302,6 @@ nonisolated struct RelationshipArchiveSnapshot: Codable, Hashable, Sendable {
         handoffs = try values.decodeIfPresent(
             [ResponsibilityHandoff].self,
             forKey: .handoffs
-        ) ?? []
-        approaches = try values.decodeIfPresent(
-            [PlanApproach].self,
-            forKey: .approaches
         ) ?? []
     }
 }

@@ -1,264 +1,223 @@
-import CoreMotion
-import Combine
 import SwiftUI
-import UIKit
 
+/// The trust promise shown after account creation.
+///
+/// Two people remain visually intact throughout. The final beat creates a
+/// third shared clearing between them; it never depicts one person merging
+/// into the other.
 struct LivingConfluencePromise: View {
+    private struct Beat {
+        let eyebrow: String
+        let title: String
+        let detail: String
+        let state: WEJourneyState
+    }
+
     let onComplete: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
-    @StateObject private var motion = PromiseMotion()
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var beat = 0
-    @State private var dragOffset: CGSize = .zero
-    @State private var joined = false
-    @State private var joinArmed = false
     @State private var hapticTrigger = 0
 
-    private let copy = [
-        ("PRIVATE", "Yours stays yours.", "A private reflection begins on your side. You decide whether it ever moves."),
-        ("SHARED", "Nothing crosses without both.", "Your partner can come close. The boundary opens only through mutual consent."),
-        ("MUTUAL", "What opens, opens together.", "Hold deliberately to join the two fields into WE.")
+    private let beats = [
+        Beat(
+            eyebrow: "MINE",
+            title: "Yours stays yours.",
+            detail: "A thought begins on your side. You decide whether any prepared wording ever leaves it.",
+            state: .privateState
+        ),
+        Beat(
+            eyebrow: "OFFERED",
+            title: "You see what crosses.",
+            detail: "WE shows the exact topic first. Nothing moves past the threshold until you approve it.",
+            state: .offerPreview
+        ),
+        Beat(
+            eyebrow: "OURS",
+            title: "Shared is a new space.",
+            detail: "Your answers remain private. When both of you consent, WE opens a direction between two intact sides.",
+            state: .shared
+        ),
     ]
 
     var body: some View {
         ZStack {
-            Color.weCanvas.ignoresSafeArea()
-            promiseField
-                .ignoresSafeArea()
-            LinearGradient(
-                colors: [
-                    Color.weCanvas.opacity(0.7),
-                    Color.weCanvas.opacity(0.18),
-                    Color.weCanvas.opacity(0.7),
-                    Color.weCanvas.opacity(0.98),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            WEJourneyBackdrop(state: current.state)
 
-            VStack(spacing: 0) {
-                topBar
-                Spacer(minLength: 180)
-                copyBlock
-                action
+            GeometryReader { viewport in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        topBar
+                        Spacer(minLength: 24)
+                        architecture
+                        Spacer(minLength: 28)
+                        copyBlock
+                        action
+                    }
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: max(0, viewport.size.height - 40),
+                        alignment: .topLeading
+                    )
+                    .padding(.horizontal, 24)
+                    .padding(.top, 12)
+                    .padding(.bottom, 28)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .scrollIndicators(.hidden)
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 28)
         }
-        .preferredColorScheme(.dark)
-        .sensoryFeedback(.impact(weight: .light), trigger: hapticTrigger)
-        .onAppear { motion.start() }
-        .onDisappear { motion.stop() }
+        .preferredColorScheme(
+            current.state == .privateState ? .dark : .light
+        )
+        .sensoryFeedback(.selection, trigger: hapticTrigger)
     }
 
     private var topBar: some View {
-        HStack {
+        let palette = WEJourneyPalette.palette(for: current.state)
+        return HStack {
             Text(String(format: "%02d", beat + 1))
-                .foregroundStyle(.white.opacity(0.48))
-            Text(copy[beat].0)
-                .foregroundStyle(.white.opacity(0.76))
+            Text(current.eyebrow)
             Spacer()
-            Button(isLastBeat ? "Close" : "Skip") { onComplete() }
-                .foregroundStyle(.white.opacity(0.72))
+            Button(isLastBeat ? "Close" : "Skip", action: onComplete)
                 .frame(minHeight: 44)
         }
         .font(.caption.weight(.semibold))
         .tracking(1.4)
-        .padding(.top, 10)
+        .foregroundStyle(palette.secondaryInk)
     }
 
-    private var promiseField: some View {
-        GeometryReader { proxy in
-            let parallax = reduceMotion ? CGSize.zero : motion.offset
-            ZStack {
-                WEConfluenceForm(
-                    personalHue: .burgundy,
-                    partnerHue: .sage,
-                    connection: connection
-                )
-                .opacity(0.78)
-                .scaleEffect(1.25)
-                .offset(
-                    x: parallax.width + dragOffset.width * 0.12,
-                    y: parallax.height + dragOffset.height * 0.12
+    private var architecture: some View {
+        let palette = WEJourneyPalette.palette(for: current.state)
+        return VStack(spacing: 18) {
+            HStack(spacing: 16) {
+                side(
+                    title: "Mine",
+                    color: .weDuskBlue,
+                    palette: palette
                 )
 
-                if beat == 0 {
-                    Circle()
-                        .fill(.white.opacity(0.001))
-                        .frame(
-                            width: min(proxy.size.width, 300),
-                            height: 300
+                if current.state == .shared {
+                    VStack(spacing: 8) {
+                        Text("Ours")
+                            .font(.weMeta)
+                            .tracking(1.2)
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .fill(Color.white.opacity(0.62))
+                            .overlay {
+                                Image(systemName: "arrow.left.and.right")
+                                    .symbolRenderingMode(.hierarchical)
+                                    .foregroundStyle(Color.weSharedOlive)
+                            }
+                    }
+                    .foregroundStyle(palette.secondaryInk)
+                    .frame(maxWidth: 92)
+                    .transition(.opacity)
+                } else {
+                    Rectangle()
+                        .fill(
+                            current.state == .offerPreview
+                                ? Color.weChampagne
+                                : palette.secondaryInk.opacity(0.22)
                         )
-                        .contentShape(Circle())
-                        .offset(dragOffset)
-                        .gesture(
-                            DragGesture()
-                                .onChanged { dragOffset = $0.translation }
-                                .onEnded { _ in
-                                    withAnimation(promiseAnimation) {
-                                        dragOffset = .zero
-                                    }
-                                }
+                        .frame(width: 1)
+                        .accessibilityLabel(
+                            current.state == .offerPreview
+                                ? "Consent threshold"
+                                : "Private boundary"
                         )
-                        .accessibilityLabel("Private fluid field")
-                        .accessibilityHint("Drag to feel your private side respond")
                 }
+
+                side(
+                    title: "Theirs",
+                    color: .weChampagne,
+                    palette: palette
+                )
             }
-            .animation(promiseAnimation, value: connection)
+            .frame(height: dynamicTypeSize.isAccessibilitySize ? 160 : 250)
+
+            WEContinuityLine(state: current.state)
+                .frame(height: 64)
         }
-        .accessibilityElement(children: voiceOverEnabled ? .ignore : .contain)
-        .accessibilityLabel(copy[beat].1 + " " + copy[beat].2)
+        .animation(
+            reduceMotion ? nil : .weSettle(duration: 0.45),
+            value: beat
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(current.state.accessibilityDescription)
+    }
+
+    private func side(
+        title: String,
+        color: Color,
+        palette: WEJourneyPalette
+    ) -> some View {
+        VStack(spacing: 10) {
+            Text(title)
+                .font(.weMeta)
+                .tracking(1.2)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(palette.secondaryBackground.opacity(0.28))
+                .overlay(alignment: .leading) {
+                    Rectangle()
+                        .fill(color)
+                        .frame(width: 2)
+                        .padding(.vertical, 24)
+                }
+                .overlay {
+                    Circle()
+                        .fill(color)
+                        .frame(width: 10, height: 10)
+                }
+        }
+        .foregroundStyle(palette.secondaryInk)
+        .frame(maxWidth: .infinity)
     }
 
     private var copyBlock: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(copy[beat].1)
+        let palette = WEJourneyPalette.palette(for: current.state)
+        return VStack(alignment: .leading, spacing: 10) {
+            Text(current.title)
                 .font(.weLargeTitle)
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.leading)
-            Text(copy[beat].2)
+                .foregroundStyle(palette.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(current.detail)
                 .font(.weBody)
-                .foregroundStyle(.white.opacity(0.66))
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: 330, alignment: .leading)
+                .foregroundStyle(palette.secondaryInk)
+                .frame(maxWidth: 360, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .id(beat)
         .transition(.opacity)
     }
 
-    @ViewBuilder
     private var action: some View {
-        if isLastBeat {
-            if voiceOverEnabled {
-                Button {
-                    completePromise(delay: 0)
-                } label: {
-                    Label(
-                        "Complete the promise",
-                        systemImage: "checkmark"
-                    )
-                    .frame(maxWidth: .infinity, minHeight: 54)
-                }
-                .buttonStyle(.plain)
-                .background(
-                    WEHue.burgundy.controlColor,
-                    in: RoundedRectangle(cornerRadius: 17)
-                )
-                .accessibilityHint(
-                    "Opens WE after the Private, Shared, and Mutual promise"
-                )
-                .padding(.top, 26)
+        Button(isLastBeat ? "Enter WE" : "Continue") {
+            if isLastBeat {
+                onComplete()
             } else {
-                Button {
-                    if joinArmed {
-                        completePromise(delay: reduceMotion ? 0 : 0.45)
-                    } else {
-                        joinArmed = true
-                        hapticTrigger += 1
-                    }
-                } label: {
-                    Label(
-                        joined
-                            ? "Promise held"
-                            : joinArmed
-                                ? "Activate again to join"
-                                : "Hold to join",
-                        systemImage: joined ? "checkmark" : "hand.tap"
-                    )
-                    .frame(maxWidth: .infinity, minHeight: 54)
-                }
-                .buttonStyle(.plain)
-                .background(
-                    WEHue.burgundy.controlColor,
-                    in: RoundedRectangle(cornerRadius: 17)
-                )
-                .simultaneousGesture(
-                    LongPressGesture(
-                        minimumDuration: reduceMotion ? 0.25 : 1.2
-                    )
-                    .onEnded { _ in
-                        completePromise(delay: reduceMotion ? 0 : 0.45)
-                    }
-                )
-                .accessibilityHint(
-                    "Press and hold, or activate twice, to complete the promise"
-                )
-                .padding(.top, 26)
-            }
-        } else {
-            Button {
                 hapticTrigger += 1
-                withAnimation(promiseAnimation) {
+                withAnimation(
+                    reduceMotion
+                        ? nil
+                        : .weSettle(duration: 0.4)
+                ) {
                     beat += 1
                 }
-            } label: {
-                Label("Continue", systemImage: "arrow.right")
-                    .frame(maxWidth: .infinity, minHeight: 54)
             }
-            .buttonStyle(.plain)
-            .background(
-                WEHue.burgundy.controlColor,
-                in: RoundedRectangle(cornerRadius: 17)
-            )
-            .padding(.top, 26)
         }
+        .buttonStyle(WEJourneyPrimaryButtonStyle(state: current.state))
+        .padding(.top, 26)
+        .accessibilityHint(
+            isLastBeat
+                ? "Completes the privacy and consent promise"
+                : "Shows the next privacy and consent promise"
+        )
     }
 
-    private var connection: CGFloat {
-        switch beat {
-        case 0: 0.08
-        case 1: 0.42
-        default: joined ? 1 : 0.62
-        }
-    }
-
-    private var isLastBeat: Bool { beat == copy.count - 1 }
-
-    private var promiseAnimation: Animation? {
-        reduceMotion
-            ? .easeInOut(duration: 0.2)
-            : .weSettle(duration: 0.8, reduceMotion: false)
-    }
-
-    private func completePromise(delay: TimeInterval) {
-        guard !joined else { return }
-        joined = true
-        hapticTrigger += 1
-        if delay == 0 {
-            onComplete()
-        } else {
-            DispatchQueue.main.asyncAfter(
-                deadline: .now() + delay,
-                execute: onComplete
-            )
-        }
-    }
-}
-
-@MainActor
-private final class PromiseMotion: ObservableObject {
-    @Published var offset: CGSize = .zero
-    private let manager = CMMotionManager()
-
-    func start() {
-        guard manager.isDeviceMotionAvailable else { return }
-        manager.deviceMotionUpdateInterval = 1.0 / 30.0
-        manager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
-            guard let motion else { return }
-            self?.offset = CGSize(
-                width: motion.attitude.roll * 10,
-                height: motion.attitude.pitch * 10
-            )
-        }
-    }
-
-    func stop() {
-        manager.stopDeviceMotionUpdates()
-    }
+    private var current: Beat { beats[beat] }
+    private var isLastBeat: Bool { beat == beats.count - 1 }
 }
 
 #Preview {
