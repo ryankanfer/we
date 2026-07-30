@@ -23,7 +23,12 @@ struct FieldTodayZone: View {
     @Environment(FieldStore.self) private var store
 
     var body: some View {
-        FieldZoneScaffold(zone: .we) {
+        FieldZoneScaffold(
+            zone: .we,
+            headerMeta: DateFormatter.fieldDayMonth
+                .string(from: store.now)
+                .uppercased()
+        ) {
             VStack(alignment: .leading, spacing: 0) {
                 // One hairline under the Today header, purely as a signal that
                 // the space is jointly held. This is a sanctioned use of the

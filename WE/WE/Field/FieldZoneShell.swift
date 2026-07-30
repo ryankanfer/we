@@ -219,6 +219,9 @@ struct FieldZoneScaffold<Content: View>: View {
     var horizontalPadding: CGFloat = FieldMetrics.screenSide
     /// Us carries a top-centred glow; Life and Today do not.
     var background: AnyView?
+    /// Header-right metadata, at ink 0.32. Only Today carries any — it shows
+    /// the date, because it is the one zone whose content is about right now.
+    var headerMeta: String?
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -229,12 +232,23 @@ struct FieldZoneScaffold<Content: View>: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    FieldLabel(
-                        zone.label,
-                        font: FieldType.zoneLabel,
-                        tracking: FieldTracking.zoneLabel,
-                        color: .fieldInk(.monoLabel)
-                    )
+                    HStack(alignment: .firstTextBaseline) {
+                        FieldLabel(
+                            zone.label,
+                            font: FieldType.zoneLabel,
+                            tracking: FieldTracking.zoneLabel,
+                            color: .fieldInk(.monoLabel)
+                        )
+
+                        if let headerMeta {
+                            Spacer()
+                            Text(headerMeta)
+                                .font(FieldType.zoneLabel)
+                                .tracking(FieldTracking.zoneLabel)
+                                .foregroundStyle(.fieldInk(.headerMeta))
+                                .accessibilityHidden(true)
+                        }
+                    }
                     .padding(.bottom, 24)
 
                     content
