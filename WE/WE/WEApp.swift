@@ -22,51 +22,65 @@ struct WEApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ZStack {
-                ContentView {
-                    isReplayingPromise = true
-                }
-                .environmentObject(host.session)
-                .environmentObject(host)
-                .environmentObject(softStart)
-                .environmentObject(externalSurfaces)
-                .accessibilityHidden(showsPromise)
-                .allowsHitTesting(!showsPromise)
+            // The handoff build runs behind a flag until the cutover is
+            // decided — it and AppShell disagree about the bottom tab bar,
+            // and only one of them can be right. See Field/FieldEntry.swift.
+            switch FieldEntry.Mode.current {
+            case .zones:
+                FieldZoneShell()
+            case .gallery:
+                FieldGallery()
+            case .off:
+                liveApp
+            }
+        }
+    }
 
-                if showsPromise {
-                    LivingConfluencePromise {
-                        hasSeenPromise = true
-                        isReplayingPromise = false
-                    }
-                    .transition(.opacity)
-                    .zIndex(10)
+    private var liveApp: some View {
+        ZStack {
+            ContentView {
+                isReplayingPromise = true
+            }
+            .environmentObject(host.session)
+            .environmentObject(host)
+            .environmentObject(softStart)
+            .environmentObject(externalSurfaces)
+            .accessibilityHidden(showsPromise)
+            .allowsHitTesting(!showsPromise)
+
+            if showsPromise {
+                LivingConfluencePromise {
+                    hasSeenPromise = true
+                    isReplayingPromise = false
                 }
+                .transition(.opacity)
+                .zIndex(10)
             }
-            .environment(\.visualEngine, visualEngine)
-            .animation(
-                .weSettle(duration: 0.45, reduceMotion: reduceMotion),
-                value: showsPromise
-            )
-            // The Promise sits above everything, so it owns the screen while
-            // it is up — anything underneath must stop drawing.
-            .onChange(of: showsPromise, initial: true) { _, shows in
-                visualEngine.visibleSurface = shows ? .promise : .we
-            }
-            // These live in the environment, not in ProcessInfo, so they have
-            // to be pushed down rather than read from the coordinator.
-            .onChange(of: reduceMotion, initial: true) { _, _ in
-                syncAccessibility()
-            }
-            .onChange(of: reduceTransparency) { _, _ in
-                syncAccessibility()
-            }
-            .task {
-                await host.restore()
-            }
-            .onOpenURL { url in
-                if !WEDeepLinkRouter.handle(url) {
-                    Task { await host.session.handleAuthCallback(url) }
-                }
+        }
+        .environment(\.visualEngine, visualEngine)
+        .animation(
+            .weSettle(duration: 0.45, reduceMotion: reduceMotion),
+            value: showsPromise
+        )
+        // The Promise sits above everything, so it owns the screen while
+        // it is up — anything underneath must stop drawing.
+        .onChange(of: showsPromise, initial: true) { _, shows in
+            visualEngine.visibleSurface = shows ? .promise : .we
+        }
+        // These live in the environment, not in ProcessInfo, so they have
+        // to be pushed down rather than read from the coordinator.
+        .onChange(of: reduceMotion, initial: true) { _, _ in
+            syncAccessibility()
+        }
+        .onChange(of: reduceTransparency) { _, _ in
+            syncAccessibility()
+        }
+        .task {
+            await host.restore()
+        }
+        .onOpenURL { url in
+            if !WEDeepLinkRouter.handle(url) {
+                Task { await host.session.handleAuthCallback(url) }
             }
         }
     }
