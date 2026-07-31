@@ -153,6 +153,16 @@ final class FieldStore {
     /// Set when the user taps WRONG PLACE — the corrective picker.
     var correctingReceipt: FieldReceipt?
 
+    /// Category subtitles the on-device model has written, and the shape of
+    /// the items each was written about.
+    ///
+    /// Ephemeral on purpose: a sentence describing a list that has since
+    /// changed is worse than no sentence, and regenerating costs one model
+    /// call. The fingerprint is what stops an unrelated capture re-running
+    /// all five.
+    private(set) var writtenSubtitles: [LifeCategory: String] = [:]
+    private var subtitleFingerprints: [LifeCategory: Int] = [:]
+
     /// Overridden in previews and UI tests so the fixed sample date holds.
     var now: Date
 
@@ -282,6 +292,73 @@ final class FieldStore {
     /// `weekSynthesis`. Ours still shows everything both partners have
     /// mentioned; it just does not pretend to have planned their Friday.
     var oursPayoff: FieldOursPayoff? { nil }
+
+    /// Writes any category subtitle whose items have changed shape.
+    ///
+    /// Sequential rather than concurrent: five simultaneous sessions on a
+    /// small on-device model is a worse experience than five quick ones, and
+    /// nothing on screen is waiting — each line replaces its derived version
+    /// the moment it arrives.
+    func refreshSubtitles() async {
+        guard FieldCategoryVoice.isAvailable else { return }
+
+        for category in LifeCategory.allCases {
+            let items = openItems(in: category)
+            let fingerprint = Self.fingerprint(items)
+
+            guard subtitleFingerprints[category] != fingerprint else { continue }
+
+            guard !items.isEmpty else {
+                subtitleFingerprints[category] = fingerprint
+                writtenSubtitles[category] = nil
+                continue
+            }
+
+            let written = await FieldCategoryVoice.subtitle(
+                for: category,
+                items: items,
+                now: now
+            )
+
+            // Recorded either way. A category that produced nothing usable
+            // should not be retried on every appearance.
+            subtitleFingerprints[category] = fingerprint
+            writtenSubtitles[category] = written
+        }
+    }
+
+    /// Changes exactly when some category's subtitle could need rewriting.
+    var subtitleRefreshKey: Int {
+        Self.fingerprint(state.lifeItems)
+    }
+
+    /// What the subtitle was written about. Titles and completion only —
+    /// re-ranking does not change what the sentence says, so it must not
+    /// trigger a regeneration.
+    private static func fingerprint(_ items: [LifeItem]) -> Int {
+        var hasher = Hasher()
+        for item in items.sorted(by: { $0.id < $1.id }) {
+            hasher.combine(item.id)
+            hasher.combine(item.title)
+            hasher.combine(item.isDone)
+        }
+        return hasher.finalize()
+    }
+
+    /// The line under a category word, on Life and again in its room.
+    ///
+    /// Prefers the written version once the model has produced one, and falls
+    /// back to the derived summary until then — so the text is real from the
+    /// first frame and improves in place, with no spinner and no reflow.
+    func subtitle(for category: LifeCategory) -> String {
+        writtenSubtitles[category] ?? summary(for: category)
+    }
+
+    /// What a category room shows: the few things that earned an explanation,
+    /// and everything else, quietly.
+    func digest(for category: LifeCategory) -> FieldCategoryDigest.Result {
+        FieldCategoryDigest.digest(for: category, context: selectorContext)
+    }
 
     /// The five categories, ordered by attention needed.
     ///

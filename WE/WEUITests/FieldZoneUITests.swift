@@ -39,6 +39,61 @@ final class FieldZoneUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["TODAY"].waitForExistence(timeout: 4))
     }
 
+    // MARK: Category rooms
+
+    @MainActor
+    func testACategoryOpensItsRoomAndCloses() throws {
+        let app = launchZones()
+        XCTAssertTrue(
+            app.buttons["field.nav.life"].waitForExistence(timeout: 8)
+        )
+        app.buttons["field.nav.life"].tap()
+        settleOnLife(app)
+
+        let care = app.buttons["field.life.care"]
+        XCTAssertTrue(waitForHittable(care))
+        care.tap()
+
+        // Asserted on content. Neither the sheet's root nor its close button
+        // surfaces by identifier through a plain-styled Button, but the rows
+        // are unambiguous: Life itself never lists an item, so seeing one
+        // means the room is up.
+        XCTAssertTrue(
+            app.staticTexts["Miso's teeth"].waitForExistence(timeout: 6),
+            "tapping a category should open its room"
+        )
+        XCTAssertTrue(app.staticTexts["Dylan's birthday — Sunday"].exists)
+
+        app.buttons["Done"].firstMatch.tap()
+        XCTAssertTrue(
+            app.staticTexts["Miso's teeth"].waitForNonExistence(timeout: 4)
+        )
+    }
+
+    /// The pull-for-Reminders gesture lives on the same screen as the
+    /// category buttons. A tap must not start it, and it must still work.
+    @MainActor
+    func testTappingACategoryDoesNotOpenReminders() throws {
+        let app = launchZones()
+        XCTAssertTrue(
+            app.buttons["field.nav.life"].waitForExistence(timeout: 8)
+        )
+        app.buttons["field.nav.life"].tap()
+        settleOnLife(app)
+
+        let food = app.buttons["field.life.food"]
+        XCTAssertTrue(waitForHittable(food))
+        food.tap()
+
+        // If the pull gesture had fired instead, the Reminders takeover
+        // would be up and this row would not be.
+        XCTAssertTrue(
+            app.staticTexts["Send the grocery list"]
+                .waitForExistence(timeout: 6),
+            "a tap should open the room, not the Reminders takeover"
+        )
+    }
+
     // MARK: The account route
     //
     // This is the one that blocks submission: Apple requires in-app account
@@ -233,6 +288,32 @@ final class FieldZoneUITests: XCTestCase {
     }
 
     // MARK: Launch
+
+    /// All three zones stay mounted in the paging TabView, so a category
+    /// button exists — and even reports itself hittable — while the page is
+    /// still sliding into place. Tapping then lands on whatever is actually
+    /// in front. Waiting for the zone label and letting the transition finish
+    /// is what makes the tap go where it looks like it goes.
+    @MainActor
+    private func settleOnLife(_ app: XCUIApplication) {
+        _ = app.staticTexts["LIFE"].waitForExistence(timeout: 4)
+        usleep(1_200_000)
+    }
+
+    /// Existence is not enough on a paging TabView — every zone is mounted at
+    /// once, so an element can exist while another page is in front of it.
+    @MainActor
+    private func waitForHittable(
+        _ element: XCUIElement,
+        timeout: TimeInterval = 8
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.exists, element.isHittable { return true }
+            usleep(200_000)
+        }
+        return false
+    }
 
     private func launchOnboarding() -> XCUIApplication {
         let app = XCUIApplication()

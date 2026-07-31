@@ -674,6 +674,248 @@ struct FieldStoreTests {
     }
 }
 
+// MARK: - Category rooms
+//
+// The band split is the whole defence against a room becoming the wall Life
+// was designed to avoid, so it is tested rather than eyeballed.
+
+@MainActor
+@Suite("Category rooms")
+struct FieldCategoryDigestTests {
+    private func context(
+        now: Date = FieldSampleData.today,
+        lifeItems: [LifeItem] = FieldSampleData.lifeItems
+    ) -> FieldTodaySelector.Context {
+        FieldTodaySelector.Context(
+            now: now,
+            identity: FieldSampleData.identity,
+            partners: FieldSampleData.partners,
+            lifeItems: lifeItems,
+            clusters: FieldSampleData.clusters,
+            horizons: FieldSampleData.horizons,
+            heldTopics: [],
+            standingRules: []
+        )
+    }
+
+    /// However bad the week, the room opens to something readable in one
+    /// breath.
+    @Test
+    func theExplainedBandIsCapped() {
+        // Ten things, all closing tonight — the worst case the ranking can
+        // produce.
+        let crowded = (0..<10).map { index in
+            LifeItem(
+                id: "urgent-\(index)",
+                title: "Thing \(index)",
+                category: .care,
+                owner: .a,
+                dueOn: FieldSampleData.date(2025, 8, 13),
+                closesAt: FieldSampleData.date(2025, 8, 13, hour: 21),
+                clusterID: nil,
+                source: .captured,
+                detail: nil,
+                isTimeCritical: true,
+                isDone: false
+            )
+        }
+
+        let result = FieldCategoryDigest.digest(
+            for: .care,
+            context: context(lifeItems: crowded)
+        )
+
+        #expect(result.pressing.count == FieldCategoryDigest.pressingLimit)
+        #expect(result.quiet.count == 7)
+        #expect(result.total == 10)
+    }
+
+    /// A calm category renders calm — nothing is promoted just to fill the
+    /// band.
+    @Test
+    func nothingPressingLeavesEveryItemQuiet() {
+        let distant = (0..<4).map { index in
+            LifeItem(
+                id: "someday-\(index)",
+                title: "Someday \(index)",
+                category: .home,
+                owner: .a,
+                dueOn: nil,
+                closesAt: nil,
+                clusterID: nil,
+                source: .captured,
+                detail: nil,
+                isTimeCritical: false,
+                isDone: false
+            )
+        }
+
+        let result = FieldCategoryDigest.digest(
+            for: .home,
+            context: context(lifeItems: distant)
+        )
+
+        #expect(result.pressing.isEmpty)
+        #expect(result.quiet.count == 4)
+    }
+
+    /// Completed things are not in a room at all.
+    @Test
+    func doneItemsDoNotAppear() {
+        let settled = FieldSampleData.lifeItems.map { item -> LifeItem in
+            var copy = item
+            copy.isDone = true
+            return copy
+        }
+
+        let result = FieldCategoryDigest.digest(
+            for: .food,
+            context: context(lifeItems: settled)
+        )
+
+        #expect(result.isEmpty)
+    }
+
+    /// Every explained row says something, and a cut-off says it first.
+    @Test
+    func aCutOffTonightIsWhatGetsSaid() {
+        let result = FieldCategoryDigest.digest(
+            for: .food,
+            context: context()
+        )
+
+        guard let groceries = result.pressing.first(where: {
+            $0.item.id == "groceries"
+        }) else {
+            Issue.record("the grocery window should have earned an explanation")
+            return
+        }
+        #expect(groceries.reason == "Closes 9 PM.")
+    }
+
+    /// Overdue upkeep states the fact and does not nag about it.
+    @Test
+    func overdueUpkeepIsStatedFlatly() {
+        let filter = FieldSampleData.lifeItems.first { $0.id == "filter" }
+        guard let filter else {
+            Issue.record("expected the air filter in the seed")
+            return
+        }
+
+        let reason = FieldCategoryDigest.briefReason(
+            for: filter,
+            candidate: FieldTodaySelector.Candidate(
+                origin: .life(filter),
+                priority: 0.2,
+                timePressure: 0.15,
+                unblockingValue: 0.1,
+                reachability: 1
+            ),
+            context: context()
+        )
+
+        #expect(reason == "Two months over.")
+    }
+
+    /// Only the item an occasion is actually waiting on says so. Two
+    /// occasions may each have a lead — what must not happen is two items of
+    /// the *same* occasion both claiming it, which is the same sentence twice
+    /// explaining nothing about either.
+    @Test
+    func onlyOneItemPerClusterClaimsToBeTheBlocker() {
+        for category in LifeCategory.allCases {
+            let result = FieldCategoryDigest.digest(
+                for: category,
+                context: context()
+            )
+
+            let claimedClusters = result.pressing
+                .filter { $0.reason?.contains("wait") == true }
+                .compactMap { $0.item.clusterID }
+
+            #expect(
+                claimedClusters.count == Set(claimedClusters).count,
+                "\(category.word) has two items claiming the same occasion"
+            )
+        }
+    }
+
+    /// The subtitle falls back to the derived summary until something is
+    /// written, and never to nothing.
+    @Test
+    func subtitleFallsBackToTheDerivedSummary() {
+        let store = FieldStore()
+        #expect(store.writtenSubtitles[.food] == nil)
+        #expect(store.subtitle(for: .food) == store.summary(for: .food))
+        #expect(!store.subtitle(for: .food).isEmpty)
+    }
+
+    /// The fingerprint is what stops an unrelated change re-running five
+    /// model calls, so it has to move for the right reasons and only those.
+    @Test
+    func theRefreshKeyTracksItemsNotRanking() {
+        let store = FieldStore()
+        let before = store.subtitleRefreshKey
+
+        // Re-reading, and time passing, change the ranking but not the words.
+        store.now = FieldSampleData.date(2025, 8, 13, hour: 20)
+        #expect(store.subtitleRefreshKey == before)
+
+        // Completing something changes what there is to say.
+        store.complete("groceries")
+        #expect(store.subtitleRefreshKey != before)
+    }
+
+    /// A model answer that came back as a list, or too long to fit one line,
+    /// is refused rather than truncated.
+    @Test
+    func unusableGenerationsAreRefused() {
+        #expect(FieldCategoryVoice.sanitized("") == nil)
+        #expect(FieldCategoryVoice.sanitized("- one\n- two") == nil)
+        #expect(
+            FieldCategoryVoice.sanitized(
+                String(repeating: "x", count: 200)
+            ) == nil
+        )
+        #expect(
+            FieldCategoryVoice.sanitized("\"Two things close today.\"")
+                == "Two things close today."
+        )
+    }
+
+    /// An item with nothing true to say about it says nothing.
+    @Test
+    func anUnremarkableItemGetsNoReason() {
+        let quiet = LifeItem(
+            id: "quiet",
+            title: "Sometime",
+            category: .home,
+            owner: .a,
+            dueOn: nil,
+            closesAt: nil,
+            clusterID: nil,
+            source: .captured,
+            detail: nil,
+            isTimeCritical: false,
+            isDone: false
+        )
+
+        let reason = FieldCategoryDigest.briefReason(
+            for: quiet,
+            candidate: FieldTodaySelector.Candidate(
+                origin: .life(quiet),
+                priority: 0.1,
+                timePressure: 0.08,
+                unblockingValue: 0.2,
+                reachability: 1
+            ),
+            context: context(lifeItems: [quiet])
+        )
+
+        #expect(reason == nil)
+    }
+}
+
 // MARK: - Delivering the moment (6c)
 //
 // `decide` answers "would I speak now"; these cover "when, and with what",

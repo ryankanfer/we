@@ -17,6 +17,10 @@ import SwiftUI
 struct FieldLifeZone: View {
     @Environment(FieldStore.self) private var store
     @State private var isAtTop = true
+    /// Which category room is open. Local `@State`, not store state: a
+    /// hand-built `Binding` over an `@Observable` property does not drive
+    /// `.sheet(item:)` reliably, and this is ephemeral to the screen anyway.
+    @State private var openCategory: LifeCategory?
 
     var body: some View {
         FieldZoneScaffold(zone: .life) {
@@ -41,6 +45,9 @@ struct FieldLifeZone: View {
         }
         // Pull down anywhere on Life. The gesture is simultaneous so it never
         // fights the vertical scroll — it only fires from the top.
+        //
+        // It does not fight the category buttons either: a drag of 24pt or
+        // more is not a tap, so the two cannot both fire.
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)
                 .onEnded { value in
@@ -51,6 +58,15 @@ struct FieldLifeZone: View {
                     store.openReminders()
                 }
         )
+        .sheet(item: $openCategory) { category in
+            FieldCategoryRoom(category: category)
+                .environment(store)
+        }
+        // Keyed on the items, not on appearance: revisiting Life should not
+        // re-run the model, and adding something should.
+        .task(id: store.subtitleRefreshKey) {
+            await store.refreshSubtitles()
+        }
     }
 
     // MARK: The synthesis block
@@ -156,7 +172,22 @@ struct FieldLifeZone: View {
         }
     }
 
+    /// Tapping a category word opens its room.
+    ///
+    /// A plain `Button` so the row looks exactly as it did — no highlight, no
+    /// chevron, nothing added to the page. Life stays a set of words; the
+    /// detail is behind them.
     private func categoryRow(_ category: LifeCategory) -> some View {
+        Button {
+            openCategory = category
+        } label: {
+            categoryLabel(category)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens \(category.word)")
+    }
+
+    private func categoryLabel(_ category: LifeCategory) -> some View {
         let count = store.openItems(in: category).count
         let pressured = store.isPressured(category)
         let hasNothingPressing = !pressured && count == 0
@@ -183,7 +214,7 @@ struct FieldLifeZone: View {
                 }
             }
 
-            Text(store.summary(for: category))
+            Text(store.subtitle(for: category))
                 .font(FieldType.body)
                 .foregroundStyle(
                     hasNothingPressing

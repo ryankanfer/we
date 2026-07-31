@@ -66,7 +66,11 @@ enum FieldTodaySelector {
 
     /// Below this, the app says nothing rather than manufacturing a reason to
     /// speak. Engagement is not a goal.
-    private static let surfacingThreshold = 0.42
+    ///
+    /// Shared with `FieldCategoryDigest`, deliberately: an item earns an
+    /// explanation inside a category room for the same reason it would have
+    /// earned the whole of Today. One bar, not two.
+    static let surfacingThreshold = 0.42
 
     // MARK: Ranking
 
@@ -895,6 +899,189 @@ enum FieldMomentScheduler {
     /// hour, never as a compliance metric about the users.
     static func hourExplanation(_ moment: FieldDailyMoment) -> String {
         moment.hourRationale
+    }
+}
+
+// MARK: - A category, read closely
+//
+// What a Life category room shows. Life itself stays calm and enumerates
+// nothing — "an early version put the full Reminders list inline and it
+// swamped the page" — so the detail lives one tap behind each category word.
+//
+// The room splits into two bands rather than explaining every row, because a
+// reason under all of them would recreate exactly the wall the zone avoids.
+
+enum FieldCategoryDigest {
+    /// An item that earned an explanation, and the explanation.
+    struct Row: Identifiable, Hashable, Sendable {
+        var item: LifeItem
+        /// Nil when nothing about this item is worth saying out loud.
+        var reason: String?
+
+        var id: String { item.id }
+    }
+
+    struct Result: Hashable, Sendable {
+        /// Ranked, explained, and never more than `pressingLimit`.
+        var pressing: [Row]
+        /// Everything else, in the same ranked order. Titles only.
+        var quiet: [LifeItem]
+
+        var isEmpty: Bool { pressing.isEmpty && quiet.isEmpty }
+        var total: Int { pressing.count + quiet.count }
+    }
+
+    /// Three is a judgement, not a constraint of the data: a category having a
+    /// terrible week should still open to something a person can read in one
+    /// breath. The rest drop to quiet rather than disappearing.
+    static let pressingLimit = 3
+
+    static func digest(
+        for category: LifeCategory,
+        context: FieldTodaySelector.Context
+    ) -> Result {
+        // Ranked by the same weighting Today uses, so the room agrees with
+        // the rest of the app about what matters. Horizons are dropped —
+        // they are not Life items and do not belong in a category.
+        let ranked = FieldTodaySelector.rank(context).compactMap { candidate
+            -> (LifeItem, FieldTodaySelector.Candidate)? in
+            guard case .life(let item) = candidate.origin,
+                  item.category == category
+            else { return nil }
+            return (item, candidate)
+        }
+
+        // `rank` drops anything held or suppressed by a standing rule, which
+        // is correct for Today but would silently lose items here. A room is
+        // where you go to see what is actually in a category.
+        let rankedIDs = Set(ranked.map(\.0.id))
+        let unranked = context.lifeItems.filter {
+            $0.category == category && !$0.isDone && !rankedIDs.contains($0.id)
+        }
+
+        var pressing: [Row] = []
+        var quiet: [LifeItem] = []
+        // Only the top-ranked item of a cluster is the one others wait on.
+        // Without this every member of the same occasion says "three things
+        // wait on this", which is not false so much as useless — the same
+        // sentence three times, explaining nothing about any of them.
+        var claimedClusters: Set<String> = []
+
+        for (item, candidate) in ranked {
+            if pressing.count < pressingLimit,
+               candidate.priority >= FieldTodaySelector.surfacingThreshold {
+                let leadsCluster: Bool
+                if let clusterID = item.clusterID {
+                    leadsCluster = claimedClusters.insert(clusterID).inserted
+                } else {
+                    leadsCluster = false
+                }
+
+                pressing.append(
+                    Row(
+                        item: item,
+                        reason: briefReason(
+                            for: item,
+                            candidate: candidate,
+                            context: context,
+                            leadsCluster: leadsCluster
+                        )
+                    )
+                )
+            } else {
+                quiet.append(item)
+            }
+        }
+
+        return Result(pressing: pressing, quiet: quiet + unranked)
+    }
+
+    /// One short line, true when read beside four others.
+    ///
+    /// `FieldTodaySelector.reason(for:candidate:context:)` cannot be reused:
+    /// its copy is written for the single thing surfaced today and says so —
+    /// "nothing else today has a cut-off", "it is the only thing between now
+    /// and then". Repeated down a list those become false. This states a fact
+    /// about the item alone, or says nothing.
+    /// - Parameter leadsCluster: whether this is the item its occasion is
+    ///   actually waiting on. Only the lead may say so; the rest fall through
+    ///   to their own dates.
+    static func briefReason(
+        for item: LifeItem,
+        candidate: FieldTodaySelector.Candidate,
+        context: FieldTodaySelector.Context,
+        leadsCluster: Bool = false
+    ) -> String? {
+        let calendar = context.calendar
+
+        // A cut-off inside the day is the one thing that cannot be recovered
+        // tomorrow, so it always speaks first.
+        if let closesAt = item.closesAt,
+           calendar.isDate(closesAt, inSameDayAs: context.now) {
+            return "Closes \(DateFormatter.fieldClock.string(from: closesAt))."
+        }
+
+        // Named without a pronoun — the app knows the name and has no business
+        // guessing anything else.
+        if candidate.reachability < 0.5,
+           let away = context.partners.first(where: {
+               $0.owner == item.owner && $0.isAway(on: context.now)
+           }),
+           let window = away.awayWindow(on: context.now) {
+            let back = DateFormatter.fieldWeekday.string(from: window.end)
+            return "\(away.name)'s — away until \(back)."
+        }
+
+        guard let dueOn = item.dueOn else {
+            // Nothing of its own to report, so its relationship to the rest
+            // of the occasion is the only thing left worth saying. Last,
+            // deliberately: a date is concrete and specific to this item,
+            // where "three things wait on this" is true of several at once
+            // and reads as the same sentence repeated.
+            if leadsCluster,
+               candidate.unblockingValue > candidate.timePressure,
+               let clusterID = item.clusterID,
+               let cluster = context.clusters.first(where: {
+                   $0.id == clusterID
+               }) {
+                let waiting = cluster.items(from: context.lifeItems).count - 1
+                if waiting > 0 {
+                    return "\(waiting.spelled.capitalized) "
+                        + "\(waiting == 1 ? "thing waits" : "things wait") "
+                        + "on this."
+                }
+            }
+            return nil
+        }
+        let days = calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: context.now),
+            to: calendar.startOfDay(for: dueOn)
+        ).day ?? 0
+
+        if days < 0 {
+            // Overdue upkeep decays rather than escalating, so this states the
+            // fact flatly and does not nag about it.
+            //
+            // Rounded, not truncated: the air filter is 59 days over and the
+            // domain calls that "two months over" in its own copy. Calendar
+            // month arithmetic would call it one, which is how a true fact
+            // ends up sounding like a lie.
+            let over = -days
+            if over >= 28 {
+                let months = max(1, Int((Double(over) / 30.44).rounded()))
+                return "\(months.spelled.capitalized) "
+                    + "\(months == 1 ? "month" : "months") over."
+            }
+            return "\(over.spelled.capitalized) "
+                + "\(over == 1 ? "day" : "days") over."
+        }
+
+        if days == 0 { return "Today." }
+        if days <= 7 {
+            return "Lands \(DateFormatter.fieldWeekday.string(from: dueOn))."
+        }
+        return nil
     }
 }
 
