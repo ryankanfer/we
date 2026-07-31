@@ -243,7 +243,8 @@ struct FieldCaptureField: View {
                     store.submitCapture()
                 } label: {
                     Text(phrase)
-                        .font(.system(size: 12, design: .serif))
+                        .font(FieldType.button)
+                        .tracking(FieldTracking.button)
                         .foregroundStyle(.fieldInk(.monoLabel))
                         .padding(.horizontal, 11)
                         .padding(.vertical, 7)

@@ -48,8 +48,8 @@ final class VisualEngineCoordinator {
         case filament
     }
 
-    /// Where a generative layer lives. Distinct from `AppShell.Destination`
-    /// because several of these are not tabs.
+    /// Where a generative layer lives. Predates the zones, and now only the
+    /// pre-couple surfaces still lease one.
     enum Surface: Hashable, Sendable {
         case we
         case life
@@ -69,7 +69,7 @@ final class VisualEngineCoordinator {
 
     // MARK: - Observed state
 
-    /// The destination currently on screen. Mirrored from `AppShell`.
+    /// The destination currently on screen. Pushed down by `WEApp`.
     var visibleSurface: Surface = .we
 
     /// Incremented by each presented sheet or cover. A surface underneath a

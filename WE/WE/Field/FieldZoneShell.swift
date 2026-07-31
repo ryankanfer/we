@@ -23,7 +23,9 @@ import SwiftUI
 @MainActor
 struct FieldZoneShell: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @State private var store: FieldStore
+    @State private var showsAccount = false
 
     // Constructed in the body, not as a default argument. Default argument
     // expressions are evaluated in a nonisolated context, so `= FieldStore()`
@@ -60,6 +62,17 @@ struct FieldZoneShell: View {
         .animation(.fieldZone(reduceMotion), value: store.activeZone)
         .animation(.fieldZone(reduceMotion), value: store.remindersOpen)
         .task { await store.load() }
+        // Both directions matter: backgrounding is the last chance to write
+        // an accurate moment, and foregrounding is when yesterday's may have
+        // gone stale.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .background || phase == .active else { return }
+            Task { await store.refreshDailyMoment() }
+        }
+        .fullScreenCover(isPresented: $showsAccount) {
+            FieldAccountView()
+                .environment(store)
+        }
     }
 
     // MARK: The pager
@@ -150,30 +163,38 @@ struct FieldZoneShell: View {
 
     /// 40 × 40pt circle, 1px border at ink .5, fill ink .06, the wordmark in
     /// 11pt mono at .14em. Present on every zone.
+    ///
+    /// Tap returns to Today; long-press opens the account. The handoff allows
+    /// no chrome for settings, so the mark carries it — but a long-press does
+    /// not exist for VoiceOver, so the accessibility action below is the only
+    /// route for those users and is not optional.
     private var weMark: some View {
-        Button {
-            store.returnHome()
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(FieldPalette.ink.opacity(0.06))
-                    .overlay {
-                        Circle().strokeBorder(FieldRule.mark, lineWidth: 1)
-                    }
-                    .frame(width: 40, height: 40)
+        // Not a `Button`: a Button consumes the long press, so tap and
+        // long-press have to be attached as peers to the same shape.
+        ZStack {
+            Circle()
+                .fill(FieldPalette.ink.opacity(0.06))
+                .overlay {
+                    Circle().strokeBorder(FieldRule.mark, lineWidth: 1)
+                }
+                .frame(width: 40, height: 40)
 
-                Text("WE")
-                    .font(FieldType.mark)
-                    .tracking(FieldTracking.mark)
-                    .foregroundStyle(.fieldInk(.headline))
-            }
-            .frame(width: 48, height: 48)
-            .contentShape(Circle())
+            Text("WE")
+                .font(FieldType.mark)
+                .tracking(FieldTracking.mark)
+                .foregroundStyle(.fieldInk(.headline))
         }
-        .buttonStyle(.plain)
+        .frame(width: 48, height: 48)
+        .contentShape(Circle())
+        .onTapGesture { store.returnHome() }
+        .onLongPressGesture(minimumDuration: 0.5) { showsAccount = true }
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
         .accessibilityLabel("WE")
         .accessibilityHint("Returns to Today")
         .accessibilityIdentifier("field.nav.we")
+        .accessibilityAction { store.returnHome() }
+        .accessibilityAction(named: "Account") { showsAccount = true }
     }
 
     /// A 48 × 1pt track containing a 16pt segment filled with the blend,

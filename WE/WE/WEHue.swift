@@ -184,3 +184,22 @@ extension WEHue {
     }
 }
 
+/// The partner's hue for the current session, or the neutral default when
+/// there is no partner to read one from.
+///
+/// Lived in `WEView` until the zones replaced it. It belongs here — this is
+/// the view layer for `MemberHue`, and `ProductComponents` is the only
+/// caller left.
+@MainActor
+func relationshipPartnerHue(_ session: AppSession) -> WEHue {
+    guard let snapshot = session.snapshot,
+          let user = session.user,
+          let partner = snapshot.members.first(
+              where: { $0.id != user.id }
+          )
+    else {
+        return .partnerDefault
+    }
+    return WEHue(partner.hue)
+}
+

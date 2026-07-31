@@ -31,6 +31,10 @@ import Supabase
 private struct IdentityRow: Codable {
     let swatch_a: String
     let swatch_b: String
+    // Nullable: every onboarding question is skippable.
+    let lives_together: Bool?
+    let saving_for: String?
+    let looks_after: String?
 }
 
 private struct AwayWindowRow: Codable {
@@ -274,7 +278,10 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             personA: row.flatMap { FieldSwatch(rawValue: $0.swatch_a) } ?? .clay,
             personB: row.flatMap { FieldSwatch(rawValue: $0.swatch_b) } ?? .slate,
             nameA: nameA,
-            nameB: nameB
+            nameB: nameB,
+            livesTogether: row?.lives_together,
+            savingFor: row?.saving_for,
+            looksAfter: row?.looks_after
         )
     }
 
@@ -581,12 +588,20 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
     }
 
     func setIdentity(_ identity: FieldIdentity) async throws {
+        // A skipped question writes null rather than "", so the two stay
+        // distinguishable after a round trip.
         _ = try await client
             .from("field_identity")
             .upsert([
                 "couple_id": AnyJSON.string(coupleID.uuidString),
                 "swatch_a": .string(identity.personA.rawValue),
                 "swatch_b": .string(identity.personB.rawValue),
+                "lives_together": identity.livesTogether
+                    .map(AnyJSON.bool) ?? .null,
+                "saving_for": identity.savingFor
+                    .map(AnyJSON.string) ?? .null,
+                "looks_after": identity.looksAfter
+                    .map(AnyJSON.string) ?? .null,
             ], onConflict: "couple_id")
             .execute()
     }

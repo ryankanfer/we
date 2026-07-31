@@ -26,51 +26,52 @@ line height is already correct. The fallback is visibly wrong — the system
 serif is heavier at 300 and its italic is not Newsreader's — but nothing
 breaks, and no layout has to change when the real faces land.
 
-## Adding them
+## What actually shipped
 
-1. Download from Google Fonts and take the static instances, not the variable
-   files. SwiftUI resolves named faces more predictably.
+Ten faces in `WE/WE/Field/FONTS/`, listed under `UIAppFonts` in
+`WE/Config/WE-Info.plist`. The target uses a file system synchronized group, so
+the files needed no project edit.
 
-   ```
-   Newsreader-Light.ttf
-   Newsreader-LightItalic.ttf
-   Newsreader-Regular.ttf
-   Newsreader-Italic.ttf
-   IBMPlexMono-Regular.ttf
-   IBMPlexMono-Medium.ttf
-   ```
+```
+Newsreader_14pt-Light.ttf        Newsreader_36pt-Light.ttf
+Newsreader_14pt-LightItalic.ttf  Newsreader_36pt-LightItalic.ttf
+Newsreader_14pt-Regular.ttf      Newsreader_36pt-Regular.ttf
+Newsreader_14pt-Italic.ttf       Newsreader_36pt-Italic.ttf
+IBMPlexMono-Regular.ttf          IBMPlexMono-Medium.ttf
+```
 
-2. Drop them into `WE/WE/Field/Fonts/`. The target uses a file system
-   synchronized group, so they are picked up without editing the project file.
+**There is no plain "Newsreader" family.** Google ships it as optical-size cuts
+— 9, 14, 24, 36, 60pt — each its own family, and the variable file registers as
+`Newsreader 16pt`. Nothing is named `Newsreader-Light`. So `FieldType.serif`
+picks the cut by size:
 
-3. Add to `WE/Config/WE-Info.plist`:
+```swift
+let opsz = size >= 20 ? "Newsreader36pt" : "Newsreader14pt"
+```
 
-   ```xml
-   <key>UIAppFonts</key>
-   <array>
-     <string>Newsreader-Light.ttf</string>
-     <string>Newsreader-LightItalic.ttf</string>
-     <string>Newsreader-Regular.ttf</string>
-     <string>Newsreader-Italic.ttf</string>
-     <string>IBMPlexMono-Regular.ttf</string>
-     <string>IBMPlexMono-Medium.ttf</string>
-   </array>
-   ```
+which is what `font-optical-sizing: auto` did in the browser the handoff was
+drawn in. The 42pt hero and 44pt horizon get the display cut and stay thin at
+weight 300; labels get the text cut.
 
-4. Repeat step 3 in `WE/Config/WEWidgets-Info.plist`. The ambient widget draws
-   the same type and will silently fall back otherwise — which is the failure
-   mode most likely to ship unnoticed, because the widget is not on screen
-   during development.
+Two traps, both of which cost a build here:
 
-5. Verify the PostScript names match what `FieldType` asks for. They usually
-   do, but Newsreader's italics have been inconsistent across releases:
+- **The availability probe needs the exact family name.**
+  `UIFont.fontNames(forFamilyName:)` returns empty for `"IBMPlexMono"` — the
+  real family is `"IBM Plex Mono"`, with spaces. Get it wrong and every screen
+  silently renders the system fallback with no error anywhere.
+- **Two `OFL.txt` files collide.** Resources flatten into the bundle root, so
+  Newsreader's and Plex's licences cannot both keep the name. They ship as
+  `Newsreader-OFL.txt` and `IBMPlexMono-OFL.txt`.
 
-   ```swift
-   UIFont.fontNames(forFamilyName: "Newsreader")
-   ```
+`WEWidgets-Info.plist` deliberately does **not** list them. Nothing in
+`WEWidgets/` or `WEShared/` references `FieldType` or `FieldPalette` — the
+ambient widget draws its own type. Add them there if that changes.
 
-   If a name differs, correct the string in `FieldType.serif(_:_:italic:)`
-   rather than renaming the file.
+To verify registration rather than assuming it:
+
+```swift
+UIFont.fontNames(forFamilyName: "Newsreader 36pt")
+```
 
 ## Licensing
 

@@ -34,7 +34,12 @@ struct ContentView: View {
                 case .choosingHue:
                     hueOnboarding
                 case .ready:
-                    AppShell(onReplayPromise: onReplayPromise)
+                    // Unreachable: `WEApp` hands `.ready` to `FieldRoot`
+                    // before ContentView is ever built. The zones are the
+                    // app; what is left here is only what comes before a
+                    // couple exists. Held rather than empty, so a state
+                    // change racing the handover never flashes.
+                    loadingView
                 case .failed(let message):
                     BackendStateView(
                         title: "WE could not load.",
@@ -98,7 +103,11 @@ struct ContentView: View {
 
     private var showsAuthenticatedProfileButton: Bool {
         switch session.state {
-        case .needsCouple, .waitingForPartner, .choosingHue:
+        // `.choosingHue` is 6f, which is full-bleed and drawn in the zones'
+        // language. The old light chrome sat on top of it as a band across
+        // the header, and there is nothing behind this button that onboarding
+        // needs — the account lives on the WE mark once the zones open.
+        case .needsCouple, .waitingForPartner:
             true
         default:
             false
@@ -212,15 +221,16 @@ struct ContentView: View {
         }
     }
 
+    /// 6f. The last screen before the zones, and the first one drawn in their
+    /// language — colour, three questions, and a calendar.
+    ///
+    /// `FieldSwatch` supersedes `MemberHue` in the UI, but `couple_members.hue`
+    /// is still a database column, so finishing writes both: the swatch through
+    /// `FieldStore`, and the nearest legacy hue through the session. See
+    /// CUTOVER.md — that column goes when something migrates it.
     private var hueOnboarding: some View {
-        HueOnboardingView(
-            personalName: session.snapshot?.profile.name ?? "You",
-            partnerName: partnerName,
-            partnerHue: partnerHue,
-            isWorking: session.isWorking,
-            errorMessage: session.errorMessage
-        ) { hue in
-            Task { await session.updateHue(hue.memberHue) }
+        FieldOnboardingRoot { swatch in
+            Task { await session.updateHue(swatch.memberHue) }
         }
     }
 

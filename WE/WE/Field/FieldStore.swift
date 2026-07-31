@@ -290,6 +290,21 @@ final class FieldStore {
         )
     }
 
+    /// Re-plans the one local notification from what is true right now.
+    ///
+    /// Called on every scene-phase change rather than once, because a local
+    /// notification freezes its content when it is scheduled — so the only
+    /// way to avoid a moment arriving about something already done is to
+    /// rewrite it whenever the app has the chance.
+    func refreshDailyMoment() async {
+        await FieldMomentDelivery.refresh(
+            state: state,
+            selection: todaySelection,
+            now: now,
+            calendar: calendar
+        )
+    }
+
     /// The partner who is away right now, if either is. Drives 6b.
     var absentPartner: FieldPartner? {
         state.partners.first { $0.isAway(on: now) }
@@ -534,8 +549,36 @@ final class FieldStore {
         case .b: state.identity.personB = swatch
         case .shared: break
         }
+        persistIdentity()
+    }
+
+    /// The three questions. Each is skippable, and skipping stores nil rather
+    /// than an empty string — "they did not say" is a different fact from
+    /// "they said nothing", and the intelligence should not confuse them.
+    func answerLivesTogether(_ value: Bool?) {
+        state.identity.livesTogether = value
+        persistIdentity()
+    }
+
+    func answerSavingFor(_ value: String) {
+        state.identity.savingFor = trimmedOrNil(value)
+        persistIdentity()
+    }
+
+    func answerLooksAfter(_ value: String) {
+        state.identity.looksAfter = trimmedOrNil(value)
+        persistIdentity()
+    }
+
+    private func persistIdentity() {
         let identity = state.identity
         Task { [backend] in try? await backend?.setIdentity(identity) }
+    }
+
+    /// Whitespace-only input is a skipped question, not an answer.
+    private func trimmedOrNil(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     // MARK: Loading

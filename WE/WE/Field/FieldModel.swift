@@ -169,7 +169,8 @@ struct LifeItem: Identifiable, Codable, Hashable, Sendable {
 
         // A cut-off inside the day is categorically different from a date. It
         // is the only kind of pressure that cannot be recovered tomorrow, so
-        // it floors high rather than ramping from zero.
+        // it floors high rather than ramping from zero, and it owns the band
+        // above `dateCeiling` outright — no due date reaches up into it.
         if let closesAt {
             let hours = closesAt.timeIntervalSince(now) / 3600
             if hours <= 0 { return 1 }
@@ -193,8 +194,16 @@ struct LifeItem: Identifiable, Codable, Hashable, Sendable {
             return max(0.15, 0.55 - Double(-days) / 60)
         }
 
-        return max(0.1, min(1, 1 - Double(days) / 14))
+        // Ramps toward `dateCeiling`, never past it. Due today still ranks
+        // below a window closing tonight, because a date slips to tomorrow
+        // and a window does not.
+        return max(0.1, min(Self.dateCeiling, 1 - Double(days) / 14))
     }
+
+    /// The highest pressure a plain due date can reach. Sits under the 0.85
+    /// floor that a within-the-day cut-off starts at, so the two never trade
+    /// places on a rounding difference.
+    private static let dateCeiling = 0.8
 }
 
 /// An occasion-based grouping with a generated rationale.

@@ -4,19 +4,20 @@
 //
 //  The way into the handoff build, and the gallery of every accepted screen.
 //
-//  The zones are behind a flag rather than swapped in, because the cutover is
-//  a product decision and not a refactor. The existing `AppShell` carries the
-//  live auth, Supabase session, and trust/consent flows; `FieldZoneShell`
-//  carries the handoff's information architecture and violates one thing
-//  AppShell does deliberately — AppShell has a bottom tab bar, and the handoff
-//  forbids it. They cannot both be right, so they are kept apart until the
-//  decision is made.
+//  The cutover has happened. With no `WE_FIELD` set the mode is `.live`, and
+//  `WEApp` hands the screen to `FieldRoot` the moment a couple is ready — the
+//  zones are the app, on real Supabase data. The old tab-bar shell that could
+//  not coexist with them (the handoff forbids a bottom tab bar) is gone.
 //
-//  Run the zones:      WE_FIELD=1
-//  Run the gallery:    WE_FIELD=gallery
+//  The other two modes are development surfaces and are never shipped to:
 //
-//  When the cutover happens, `WEApp` swaps `ContentView` for
-//  `FieldZoneShell` and this file goes away.
+//    WE_FIELD=gallery    the eleven accepted screens, for review
+//    WE_FIELD=seeded     the zones on the fictional couple, no network
+//                        (WE_FIELD=1 is an alias)
+//
+//  What still runs the old way is everything *before* a couple exists — sign
+//  in, verification, password recovery, pairing, hue choice. Those are setup,
+//  not zones, and 6f replaces them. See Field/CUTOVER.md.
 //
 
 import SwiftUI
@@ -85,6 +86,79 @@ struct FieldRoot: View {
             members: snapshot.members,
             firstMemberID: first
         )
+    }
+}
+
+// MARK: - Onboarding (6f)
+//
+// The last screen before the zones, and the first drawn in their language.
+// It needs its own root because it runs while `AppSession` is still
+// `.choosingHue` — the couple exists, so there is a backend to write to, but
+// `FieldRoot` has not taken the screen yet.
+
+@MainActor
+struct FieldOnboardingRoot: View {
+    @EnvironmentObject private var session: AppSession
+    @State private var store: FieldStore?
+
+    /// Called with the swatch they chose, so the caller can keep the legacy
+    /// `couple_members.hue` column in step.
+    var onFinish: (FieldSwatch) -> Void
+
+    var body: some View {
+        Group {
+            if let store {
+                FieldOnboardingView(
+                    onFinish: { onFinish(store.identity.personA) }
+                )
+                .environment(store)
+            } else {
+                FieldPalette.bg.ignoresSafeArea()
+            }
+        }
+        .task(id: session.snapshot?.membership?.coupleID) {
+            guard store == nil else { return }
+            store = FieldStore(backend: backend())
+        }
+    }
+
+    private func backend() -> FieldBackend? {
+        guard let snapshot = session.snapshot,
+              let coupleID = snapshot.membership?.coupleID,
+              let first = snapshot.members.first?.id
+        else { return nil }
+
+        return FieldSupabaseBackend(
+            client: SupabaseClientProvider(
+                configuration: AppEnvironment.current.supabase
+            ).client,
+            coupleID: coupleID,
+            viewerID: snapshot.profile.id,
+            members: snapshot.members,
+            firstMemberID: first
+        )
+    }
+}
+
+extension FieldSwatch {
+    /// The nearest `MemberHue`.
+    ///
+    /// `FieldSwatch` replaced `MemberHue` in the UI, but `couple_members.hue`
+    /// is a database column with its own enum and cannot be dropped without a
+    /// migration — so onboarding writes both until something migrates it.
+    /// Two names overlap; the rest map by warmth, which is the only property
+    /// the two vocabularies actually share.
+    var memberHue: MemberHue {
+        switch self {
+        case .clay: .clay
+        case .rust: .ember
+        case .amber: .ember
+        case .rose: .blush
+        case .slate: .tide
+        case .teal: .tide
+        case .indigo: .plum
+        case .sage: .sage
+        }
     }
 }
 

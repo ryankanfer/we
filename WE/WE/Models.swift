@@ -177,6 +177,16 @@ nonisolated enum ResponsibilityOwner: String, CaseIterable, Codable, Sendable {
     case me
     case partner
     case together
+
+    /// Display name. Lived in `LifeView` until the zones replaced it; Profile
+    /// is the caller that outlasted it.
+    var title: String {
+        switch self {
+        case .me: "Me"
+        case .partner: "Partner"
+        case .together: "Together"
+        }
+    }
 }
 
 nonisolated struct ResponsibilityInput: Equatable, Sendable {

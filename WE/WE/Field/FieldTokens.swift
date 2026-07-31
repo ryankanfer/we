@@ -198,6 +198,13 @@ struct FieldIdentity: Hashable, Codable, Sendable {
     var nameA: String
     var nameB: String
 
+    // The three questions from 6f. Optional because every one is skippable —
+    // a skipped question and an empty answer are different things, and the
+    // whole cold start is meant to cost almost nothing.
+    var livesTogether: Bool?
+    var savingFor: String?
+    var looksAfter: String?
+
     static let seed = FieldIdentity(
         personA: .clay,
         personB: .slate,
@@ -351,14 +358,17 @@ struct FieldAmbient: View {
 // Two families only. Newsreader carries all content; IBM Plex Mono carries
 // labels, dates, counts, and buttons — always uppercase, always letter-spaced.
 //
-// The .ttf files must be added to the target and listed under
-// UIAppFonts in WE-Info.plist. Until they are, `FieldType` falls back to the
-// system serif and the system monospaced face so the layout still reads.
+// The .ttf files live in Field/FONTS and are listed under UIAppFonts in
+// WE-Info.plist. If either family fails to register, `FieldType` falls back to
+// the system serif and the system monospaced face so the layout still reads.
 // See Field/FONTS.md.
 
 enum FieldType {
-    static let serifFamily = "Newsreader"
-    static let monoFamily = "IBMPlexMono"
+    // Newsreader ships as optical-size cuts, so there is no bare "Newsreader"
+    // family to probe — 36pt is the one the display sizes use, and it standing
+    // in for the pair is enough to know the bundle registered.
+    static let serifFamily = "Newsreader 36pt"
+    static let monoFamily = "IBM Plex Mono"
 
     private static let hasSerif: Bool = isAvailable(serifFamily)
     private static let hasMono: Bool = isAvailable(monoFamily)
@@ -382,11 +392,16 @@ enum FieldType {
             let base = Font.system(size: size, weight: weight, design: .serif)
             return italic ? base.italic() : base
         }
+        // Optical size, chosen the way the browser did when the handoff was
+        // rendered: `font-optical-sizing: auto` tracks the point size, so the
+        // display cuts stay thin at 42 and 44 and the text cut keeps its
+        // sturdier fit down at label sizes.
+        let opsz = size >= 20 ? "Newsreader36pt" : "Newsreader14pt"
         let face = switch (weight, italic) {
-        case (.light, false): "Newsreader-Light"
-        case (.light, true): "Newsreader-LightItalic"
-        case (_, true): "Newsreader-Italic"
-        default: "Newsreader-Regular"
+        case (.light, false): "\(opsz)-Light"
+        case (.light, true): "\(opsz)-LightItalic"
+        case (_, true): "\(opsz)-Italic"
+        default: "\(opsz)-Regular"
         }
         return .custom(face, fixedSize: size)
     }
@@ -574,6 +589,71 @@ struct FieldDot: View {
         .opacity(opacity)
         .padding(.top, baselineNudge)
         .accessibilityHidden(true)
+    }
+}
+
+/// One partner's row of four 58pt swatches, headed by their name and current
+/// dot. From 6f: "two rows of four 58pt swatches, each row headed by that
+/// partner's name and current dot. The preview updates live on tap."
+///
+/// Shared by onboarding and the account surface — colour is chosen once, and
+/// changed later in the same gesture, so it must be the same control.
+struct FieldSwatchRow: View {
+    var owner: FieldOwner
+    var identity: FieldIdentity
+    /// Called with the tapped swatch. The caller persists.
+    var choose: (FieldSwatch) -> Void
+
+    var body: some View {
+        let current = owner == .a ? identity.personA : identity.personB
+        let palette: FieldPersonPalette = owner == .a ? .warm : .cool
+
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 9) {
+                FieldDot(
+                    owner: owner,
+                    identity: identity,
+                    size: FieldDotSize.prominentList,
+                    baselineNudge: 0
+                )
+                FieldLabel(identity.name(for: owner))
+            }
+
+            HStack(spacing: 10) {
+                ForEach(palette.swatches) { swatch in
+                    Button {
+                        choose(swatch)
+                    } label: {
+                        Rectangle()
+                            .fill(swatch.color)
+                            .frame(height: 58)
+                            .overlay {
+                                if swatch == current {
+                                    Rectangle()
+                                        .strokeBorder(
+                                            FieldPalette.ink,
+                                            lineWidth: 2
+                                        )
+                                }
+                            }
+                            .clipShape(
+                                RoundedRectangle(
+                                    cornerRadius: FieldMetrics.cardRadius,
+                                    style: .continuous
+                                )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(swatch.name)
+                    .accessibilityAddTraits(
+                        swatch == current ? .isSelected : []
+                    )
+                    .accessibilityIdentifier(
+                        "field.swatch.\(owner.rawValue).\(swatch.rawValue)"
+                    )
+                }
+            }
+        }
     }
 }
 

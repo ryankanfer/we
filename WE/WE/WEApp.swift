@@ -28,10 +28,17 @@ struct WEApp: App {
             // never were. The moment a relationship is ready, FieldRoot owns
             // the screen.
             switch FieldEntry.Mode.current {
+            // Both dev modes get a preview-backed session. The zones
+            // themselves never touch it, but the account surface does, and an
+            // `@EnvironmentObject` that is merely absent traps at runtime —
+            // so the mode that exists to exercise every screen has to be able
+            // to open that one too.
             case .gallery:
                 FieldGallery()
+                    .environmentObject(previewSession)
             case .seeded:
                 FieldZoneShell()
+                    .environmentObject(previewSession)
             case .live:
                 if let snapshot = host.session.snapshot,
                    isReady(host.session.state) {
@@ -52,6 +59,12 @@ struct WEApp: App {
                 }
             }
         }
+    }
+
+    /// Only built when a dev mode asks for it — `WE_FIELD` is unset in every
+    /// shipping run, so this never reaches a user.
+    private var previewSession: AppSession {
+        AppSession(repository: PreviewRepository())
     }
 
     private var liveApp: some View {

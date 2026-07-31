@@ -14,6 +14,7 @@
 import Foundation
 import SwiftUI
 import Testing
+import UserNotifications
 
 #if canImport(UIKit)
 import UIKit
@@ -670,6 +671,156 @@ struct FieldStoreTests {
         let store = FieldStore()
         #expect(store.orderedClusters.first?.id == "dad")
         #expect(store.orderedClusters.last?.id == "upkeep")
+    }
+}
+
+// MARK: - Delivering the moment (6c)
+//
+// `decide` answers "would I speak now"; these cover "when, and with what",
+// which is the part the OS actually acts on.
+
+@Suite("Moment delivery")
+struct FieldMomentDeliveryTests {
+    private let calendar = Calendar.gregorianUS
+
+    private func moment(lastSentOn: Date? = nil) -> FieldDailyMoment {
+        var moment = FieldSampleData.dailyMoment
+        moment.lastSentOn = lastSentOn
+        return moment
+    }
+
+    private func context(now: Date) -> FieldTodaySelector.Context {
+        FieldTodaySelector.Context(
+            now: now,
+            identity: FieldSampleData.identity,
+            partners: FieldSampleData.partners,
+            lifeItems: FieldSampleData.lifeItems,
+            clusters: FieldSampleData.clusters,
+            horizons: FieldSampleData.horizons,
+            heldTopics: [],
+            standingRules: []
+        )
+    }
+
+    /// Before the learned hour, today's slot is still ahead.
+    @Test
+    func schedulesTodayWhenTheHourHasNotPassed() {
+        let now = FieldSampleData.date(2025, 8, 13, hour: 7)
+        let fire = FieldMomentDelivery.nextSend(
+            after: now,
+            moment: moment(),
+            calendar: calendar
+        )
+
+        #expect(fire == FieldSampleData.date(2025, 8, 13, hour: 8, minute: 12))
+    }
+
+    /// After it, the next one is tomorrow — never "right now" to catch up.
+    @Test
+    func rollsToTomorrowOnceTheHourHasPassed() {
+        let now = FieldSampleData.date(2025, 8, 13, hour: 9)
+        let fire = FieldMomentDelivery.nextSend(
+            after: now,
+            moment: moment(),
+            calendar: calendar
+        )
+
+        #expect(fire == FieldSampleData.date(2025, 8, 14, hour: 8, minute: 12))
+    }
+
+    /// "No second attempt" — a day already spoken on is skipped entirely,
+    /// even when the hour is still ahead of `now`.
+    @Test
+    func skipsADayItHasAlreadySpokenOn() {
+        let now = FieldSampleData.date(2025, 8, 13, hour: 7)
+        let fire = FieldMomentDelivery.nextSend(
+            after: now,
+            moment: moment(
+                lastSentOn: FieldSampleData.date(2025, 8, 13, hour: 6)
+            ),
+            calendar: calendar
+        )
+
+        #expect(fire == FieldSampleData.date(2025, 8, 14, hour: 8, minute: 12))
+    }
+
+    /// Nothing needing them is silence, not a "you're all caught up" push.
+    @Test
+    func plansNothingWhenNothingNeedsThem() {
+        let now = FieldSampleData.date(2025, 8, 13, hour: 7)
+        var state = FieldState.seed
+        state.lifeItems = state.lifeItems.map { item in
+            var copy = item
+            copy.isDone = true
+            return copy
+        }
+        state.horizons = state.horizons.map { horizon in
+            var copy = horizon
+            copy.openQuestion = nil
+            return copy
+        }
+        state.heldTopics = FieldSampleData.heldTopics
+
+        var resolvedContext = context(now: now)
+        resolvedContext.lifeItems = state.lifeItems
+        resolvedContext.horizons = state.horizons
+        resolvedContext.heldTopics = state.heldTopics
+
+        let plan = FieldMomentDelivery.plan(
+            state: state,
+            selection: FieldTodaySelector.select(resolvedContext),
+            now: now,
+            calendar: calendar
+        )
+
+        #expect(plan == nil)
+    }
+
+    /// Without permission the app schedules nothing and fails quietly.
+    ///
+    /// The test host is never authorised, so this is the real path here — and
+    /// it is the one most likely to rot, because a missing authorisation
+    /// check produces no error, just a silently dropped request.
+    @Test
+    func schedulesNothingWithoutAuthorisation() async {
+        let center = UNUserNotificationCenter.current()
+        await FieldMomentDelivery.refresh(
+            state: FieldState.seed,
+            selection: FieldTodaySelector.select(
+                context(now: FieldSampleData.date(2025, 8, 13, hour: 7))
+            ),
+            now: FieldSampleData.date(2025, 8, 13, hour: 7),
+            calendar: calendar,
+            center: center
+        )
+
+        let pending = await center.pendingNotificationRequests()
+        #expect(
+            pending.contains { $0.identifier == FieldMomentDelivery.requestIdentifier }
+                == false
+        )
+    }
+
+    /// The notification carries the moment's own words — the app does not
+    /// write a second, punchier version of itself for the lock screen.
+    @Test
+    func carriesTheMomentsOwnWords() {
+        let now = FieldSampleData.date(2025, 8, 13, hour: 7)
+        let selection = FieldTodaySelector.select(context(now: now))
+        guard case .needsYou(let expected) = selection else {
+            Issue.record("expected something to need them")
+            return
+        }
+
+        let plan = FieldMomentDelivery.plan(
+            state: FieldState.seed,
+            selection: selection,
+            now: now,
+            calendar: calendar
+        )
+
+        #expect(plan?.statement == expected.headline)
+        #expect(plan?.detail == expected.reasoning)
     }
 }
 

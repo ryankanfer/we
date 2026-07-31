@@ -219,6 +219,11 @@ struct FieldOnboardingView: View {
     @Environment(FieldStore.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    @State private var savingFor = ""
+    @State private var looksAfter = ""
+    @State private var calendarOutcome: FieldCalendarAccess.Outcome?
+    @State private var isConnectingCalendar = false
+
     var onFinish: () -> Void = {}
 
     var body: some View {
@@ -314,60 +319,18 @@ struct FieldOnboardingView: View {
 
     /// Four 58pt swatches, headed by that partner's name and current dot.
     private func swatchRow(for owner: FieldOwner) -> some View {
-        let name = store.identity.name(for: owner)
-        let current = owner == .a
-            ? store.identity.personA
-            : store.identity.personB
-        let palette: FieldPersonPalette = owner == .a ? .warm : .cool
-
-        return VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 9) {
-                FieldDot(
-                    owner: owner,
-                    identity: store.identity,
-                    size: FieldDotSize.prominentList,
-                    baselineNudge: 0
-                )
-                FieldLabel(name)
-            }
-
-            HStack(spacing: 10) {
-                ForEach(palette.swatches) { swatch in
-                    Button {
-                        store.choose(swatch, for: owner)
-                    } label: {
-                        Rectangle()
-                            .fill(swatch.color)
-                            .frame(height: 58)
-                            .overlay {
-                                if swatch == current {
-                                    Rectangle()
-                                        .strokeBorder(
-                                            FieldPalette.ink,
-                                            lineWidth: 2
-                                        )
-                                }
-                            }
-                            .clipShape(
-                                RoundedRectangle(
-                                    cornerRadius: FieldMetrics.cardRadius,
-                                    style: .continuous
-                                )
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(swatch.name)
-                    .accessibilityAddTraits(
-                        swatch == current ? .isSelected : []
-                    )
-                    .accessibilityIdentifier(
-                        "field.onboarding.\(owner.rawValue).\(swatch.rawValue)"
-                    )
-                }
-            }
+        FieldSwatchRow(owner: owner, identity: store.identity) { swatch in
+            store.choose(swatch, for: owner)
         }
     }
 
+    /// Three questions, and no more. "Resist adding fields — low barrier to
+    /// entry is an explicit product requirement, and the intelligence is
+    /// supposed to earn its knowledge by observation."
+    ///
+    /// Every one is skippable. Leaving a field empty stores nil rather than
+    /// an empty string, so "they did not say" stays distinct from "they said
+    /// nothing".
     private var questions: some View {
         VStack(alignment: .leading, spacing: 0) {
             FieldRuleLine()
@@ -376,42 +339,180 @@ struct FieldOnboardingView: View {
                 .padding(.top, 20)
                 .padding(.bottom, 6)
 
-            ForEach(
-                Array(FieldSampleData.onboardingQuestions.enumerated()),
-                id: \.offset
-            ) { index, question in
-                HStack(alignment: .top, spacing: 12) {
-                    Text("\(index + 1)")
-                        .font(FieldType.dateCount)
-                        .tracking(FieldTracking.dateCount)
-                        .foregroundStyle(.fieldInk(.dateCount))
-                        .padding(.top, 5)
+            question(1, FieldSampleData.onboardingQuestions[0]) {
+                livesTogetherChoice
+            }
 
-                    Text(question)
-                        .font(FieldType.listItemLarge)
-                        .foregroundStyle(.fieldInk(.legend))
-                        .fieldLineHeight(1.35, size: 18)
-                        .fixedSize(horizontal: false, vertical: true)
+            question(2, FieldSampleData.onboardingQuestions[1]) {
+                answerField(
+                    "Nothing in particular",
+                    text: $savingFor,
+                    identifier: "field.onboarding.savingFor"
+                ) { store.answerSavingFor(savingFor) }
+            }
 
-                    Spacer(minLength: 0)
-                }
-                .padding(.vertical, 14)
-                .overlay(alignment: .top) { FieldRuleLine(color: FieldRule.row) }
+            question(3, FieldSampleData.onboardingQuestions[2]) {
+                answerField(
+                    "No one else, for now",
+                    text: $looksAfter,
+                    identifier: "field.onboarding.looksAfter"
+                ) { store.answerLooksAfter(looksAfter) }
             }
         }
+    }
+
+    private func question<Answer: View>(
+        _ number: Int,
+        _ prompt: String,
+        @ViewBuilder answer: () -> Answer
+    ) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(number)")
+                .font(FieldType.dateCount)
+                .tracking(FieldTracking.dateCount)
+                .foregroundStyle(.fieldInk(.dateCount))
+                .padding(.top, 5)
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text(prompt)
+                    .font(FieldType.listItemLarge)
+                    .foregroundStyle(.fieldInk(.legend))
+                    .fieldLineHeight(1.35, size: 18)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                answer()
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 14)
+        .overlay(alignment: .top) { FieldRuleLine(color: FieldRule.row) }
+    }
+
+    /// Yes / no, and neither is preselected — the third state is the one where
+    /// they simply have not said.
+    private var livesTogetherChoice: some View {
+        HStack(spacing: 10) {
+            livesTogetherButton(true)
+            livesTogetherButton(false)
+        }
+    }
+
+    private func livesTogetherButton(_ value: Bool) -> some View {
+        let isChosen: Bool = store.identity.livesTogether == value
+        let tint: Color? = isChosen ? store.identity.personA.color : nil
+
+        return Button(value ? "Yes" : "No") {
+            // Tapping the chosen answer again clears it. Nothing here is
+            // compulsory, including having answered.
+            store.answerLivesTogether(isChosen ? nil : value)
+        }
+        .buttonStyle(FieldOutlinedButtonStyle(tint: tint))
+        .accessibilityAddTraits(isChosen ? .isSelected : [])
+        .accessibilityIdentifier("field.onboarding.livesTogether.\(value)")
+    }
+
+    private func answerField(
+        _ placeholder: String,
+        text: Binding<String>,
+        identifier: String,
+        commit: @escaping () -> Void
+    ) -> some View {
+        TextField(placeholder, text: text)
+            .font(FieldType.captureInput)
+            .foregroundStyle(.fieldInk(.headline))
+            .textFieldStyle(.plain)
+            .submitLabel(.done)
+            .onSubmit(commit)
+            // Committing on blur as well as on submit, because the keyboard's
+            // Done key is not the only way out of a field.
+            .onChange(of: text.wrappedValue) { _, _ in commit() }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                FieldPalette.ink.opacity(0.06),
+                in: RoundedRectangle(
+                    cornerRadius: FieldMetrics.cardRadius,
+                    style: .continuous
+                )
+            )
+            .overlay {
+                RoundedRectangle(
+                    cornerRadius: FieldMetrics.cardRadius,
+                    style: .continuous
+                )
+                .stroke(FieldRule.row, lineWidth: 1)
+            }
+            .accessibilityIdentifier(identifier)
     }
 
     private var closing: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text(FieldSampleData.onboardingClosing)
-                .font(.system(size: 15, design: .serif))
+                .font(FieldType.listItem)
                 .foregroundStyle(.fieldInk(.sectionSubtitle))
-                .fieldLineHeight(1.6, size: 15)
+                .fieldLineHeight(1.6, size: 15.5)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Button("That's us") { onFinish() }
+            calendarStep
+
+            Button("That's us") { finish() }
                 .buttonStyle(FieldFilledButtonStyle())
+                .disabled(isConnectingCalendar)
                 .accessibilityIdentifier("field.onboarding.finish")
         }
+    }
+
+    /// The calendar is offered, never required. Declining is an outcome the
+    /// app acknowledges out loud rather than a dead end it re-asks about.
+    @ViewBuilder
+    private var calendarStep: some View {
+        switch calendarOutcome {
+        case .granted:
+            Text("Connected. I'll watch, and stay out of the way.")
+                .font(FieldType.reasoning)
+                .foregroundStyle(.fieldInk(.reasoning))
+                .fieldLineHeight(1.6, size: 13)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("field.onboarding.calendar.granted")
+
+        case .declined:
+            Text("No calendar, then. I'll learn from what you tell me.")
+                .font(FieldType.reasoning)
+                .foregroundStyle(.fieldInk(.reasoning))
+                .fieldLineHeight(1.6, size: 13)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("field.onboarding.calendar.declined")
+
+        case nil:
+            Button("Connect a calendar") {
+                isConnectingCalendar = true
+                Task {
+                    calendarOutcome = await FieldCalendarAccess.request()
+                    isConnectingCalendar = false
+                }
+            }
+            .buttonStyle(FieldOutlinedButtonStyle())
+            .disabled(isConnectingCalendar)
+            .accessibilityIdentifier("field.onboarding.calendar.connect")
+        }
+    }
+
+    private func finish() {
+        // Commit whatever is in the fields but never got a submit — leaving
+        // the screen is as much an answer as tapping Done.
+        store.answerSavingFor(savingFor)
+        store.answerLooksAfter(looksAfter)
+
+        // Hand over first, then ask. Awaiting the permission sheet before
+        // calling `onFinish` leaves them staring at the setup screen behind a
+        // system dialog, and a decline would strand them there — the way in
+        // must not depend on an answer the app is willing to take "no" for.
+        onFinish()
+
+        // Asked for here and nowhere else. Not at launch: the app is supposed
+        // to earn this, and a permission sheet on first run is the opposite of
+        // earning it.
+        Task { await FieldMomentDelivery.requestAuthorization() }
     }
 }

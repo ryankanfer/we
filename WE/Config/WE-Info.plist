@@ -50,6 +50,21 @@
 	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>If you connect a calendar, I will read what is already on it so I can work the rest out by watching, instead of asking you to enter it. I never add, change, or delete anything.</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Newsreader_14pt-Light.ttf</string>
+		<string>Newsreader_14pt-LightItalic.ttf</string>
+		<string>Newsreader_14pt-Regular.ttf</string>
+		<string>Newsreader_14pt-Italic.ttf</string>
+		<string>Newsreader_36pt-Light.ttf</string>
+		<string>Newsreader_36pt-LightItalic.ttf</string>
+		<string>Newsreader_36pt-Regular.ttf</string>
+		<string>Newsreader_36pt-Italic.ttf</string>
+		<string>IBMPlexMono-Regular.ttf</string>
+		<string>IBMPlexMono-Medium.ttf</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>
