@@ -65,8 +65,14 @@
 		<string>IBMPlexMono-Regular.ttf</string>
 		<string>IBMPlexMono-Medium.ttf</string>
 	</array>
-	<key>UILaunchScreen</key>
-	<dict/>
+	<!--
+	  UILaunchScreen and UILaunchStoryboardName cannot both be present: the
+	  dict wins and the storyboard is ignored, silently. The storyboard is
+	  what carries the full-bleed gradient, which a plist launch screen
+	  cannot express.
+	-->
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

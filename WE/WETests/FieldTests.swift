@@ -674,6 +674,91 @@ struct FieldStoreTests {
     }
 }
 
+// MARK: - Splash and launch (9b)
+
+@Suite("The collapse")
+struct WESplashTests {
+    private let calendar = Calendar.gregorianUS
+    private func at(_ y: Int, _ m: Int, _ d: Int, hour: Int = 9) -> Date {
+        FieldSampleData.date(y, m, d, hour: hour)
+    }
+
+    /// The arrival it was designed for.
+    @Test
+    func playsOnAFirstRun() {
+        #expect(WESplashGate.shouldPlay(lastPlayed: nil, now: at(2026, 7, 31)))
+    }
+
+    /// Reopening an hour later is not an absence, and a ceremony that plays
+    /// anyway is just time between someone and their partner's list.
+    @Test
+    func staysOutOfTheWayOnTheSameDay() {
+        let now = at(2026, 7, 31, hour: 18)
+        #expect(
+            WESplashGate.shouldPlay(
+                lastPlayed: at(2026, 7, 31, hour: 9),
+                now: now,
+                calendar: calendar
+            ) == false
+        )
+    }
+
+    /// A new day is the absence it is meant to mark.
+    @Test
+    func playsAgainAfterADayAway() {
+        #expect(
+            WESplashGate.shouldPlay(
+                lastPlayed: at(2026, 7, 30, hour: 23),
+                now: at(2026, 7, 31, hour: 7),
+                calendar: calendar
+            )
+        )
+    }
+
+    /// A clock that has gone backwards is not evidence of having been away.
+    @Test
+    func aBackwardsClockIsNotAnAbsence() {
+        #expect(
+            WESplashGate.shouldPlay(
+                lastPlayed: at(2026, 8, 2),
+                now: at(2026, 7, 31),
+                calendar: calendar
+            ) == false
+        )
+    }
+
+    /// The hold is allowed to be silent, but not endless — without a ceiling
+    /// a stalled sync has no way out and the offline state is never reached.
+    @Test
+    func theHoldIsBounded() {
+        #expect(WESplashGate.holdCeiling <= .seconds(6))
+        #expect(WESplashGate.holdCeiling >= .seconds(2))
+    }
+
+    /// Every mark number derives from one width, at the source artwork's
+    /// 0.66 scale — 200 viewBox units drawn at 132pt.
+    @Test
+    func lensGeometryMatchesTheSourceArtwork() {
+        let offsets = WELens.centreOffsets(diameter: 132)
+        #expect(abs(offsets.trailing - 17.16) < 0.01)
+        #expect(abs(offsets.leading + 17.16) < 0.01)
+        #expect(abs(WELens.circleRadius(diameter: 132) - 36.96) < 0.01)
+
+        // And it holds at any size, which is the point of deriving it.
+        #expect(abs(WELens.circleRadius(diameter: 264) - 73.92) < 0.01)
+        #expect(abs(WELens.centreOffsets(diameter: 264).trailing - 34.32) < 0.01)
+    }
+
+    /// The launch asset and the collapse's first frame are the same image —
+    /// the seam is prevented by construction, not by matching five stops.
+    @Test
+    func theLaunchGradientAssetExists() {
+        #if canImport(UIKit)
+        #expect(UIImage(named: "WELaunchGradient") != nil)
+        #endif
+    }
+}
+
 // MARK: - Category rooms
 //
 // The band split is the whole defence against a room becoming the wall Life

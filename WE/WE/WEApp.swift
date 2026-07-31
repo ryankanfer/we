@@ -22,6 +22,32 @@ struct WEApp: App {
 
     var body: some Scene {
         WindowGroup {
+            ZStack {
+                content
+
+                // Above everything, and only on an arrival that has earned
+                // it. `showsSplash` starts true and is never set again, so a
+                // warm resume from background can never replay it — the
+                // process starting is the whole signal.
+                if showsSplash {
+                    WESplashView(
+                        identity: host.session.snapshot.map(fieldIdentity),
+                        isWaiting: { host.session.state == .loading }
+                    ) {
+                        splashLastPlayed = Date().timeIntervalSince1970
+                        withAnimation(.easeInOut(duration: 0.40)) {
+                            showsSplash = false
+                        }
+                    }
+                    .transition(.opacity)
+                    .zIndex(100)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
             // The zones are the app. `liveApp` now only carries the states
             // that come *before* a couple exists — sign in, verification,
             // password recovery, pairing — because those are not zones and
@@ -58,7 +84,28 @@ struct WEApp: App {
                     liveApp
                 }
             }
-        }
+    }
+
+    // MARK: The collapse
+
+    @AppStorage(WESplashGate.lastPlayedKey) private var splashLastPlayed = 0.0
+
+    /// Decided once, when the process starts. `@State` is doing real work
+    /// here: it makes "cold start only" true for free, because a warm resume
+    /// does not rebuild this.
+    @State private var showsSplash = WESplashGate.shouldPlay(
+        lastPlayed: UserDefaults.standard.object(
+            forKey: WESplashGate.lastPlayedKey
+        ).flatMap { $0 as? Double }.map(Date.init(timeIntervalSince1970:)),
+        // Never in the dev modes: waiting 1.4s to review a screen is friction
+        // with nothing on the other side of it.
+        now: Date()
+    ) && FieldEntry.Mode.current == .live
+
+    /// The couple's own two colours, for the cross-tint. Before a couple
+    /// exists there is nobody to be, and the collapse stays brand throughout.
+    private func fieldIdentity(_ snapshot: RelationshipSnapshot) -> FieldIdentity {
+        snapshot.emptyFieldState.identity
     }
 
     /// Only built when a dev mode asks for it — `WE_FIELD` is unset in every
