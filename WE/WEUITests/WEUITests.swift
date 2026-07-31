@@ -5,20 +5,6 @@ final class WEUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    /// Skipped, not deleted — they describe behaviour the product still wants
-    /// and no longer has.
-    ///
-    /// `WEApp.showsPromise` still lists `.ready`, but `.ready` never reaches
-    /// `liveApp` any more — `FieldRoot` takes the screen first — so that arm
-    /// is dead. Verified against a clean install that it does not appear for
-    /// `.waitingForPartner` either, so the Promise is currently unreachable
-    /// in every state. Re-enable once it has a home in the zones.
-    static let promiseIsUnreachable = """
-        The Living Confluence Promise has no route since the cutover. \
-        See CUTOVER.md.
-        """
-
-
     // Keep authentication ahead of deletion tests. iOS can retain its
     // password-saving view service between UI test cases after deletion.
     @MainActor
@@ -94,8 +80,6 @@ final class WEUITests: XCTestCase {
 
     @MainActor
     func testLivingConfluencePromiseSupportsReducedMotion() throws {
-        try XCTSkipIf(true, Self.promiseIsUnreachable)
-
         let app = launch(
             scenario: "waiting",
             skipsPromise: false,
@@ -115,8 +99,13 @@ final class WEUITests: XCTestCase {
             app.staticTexts["Shared is a new space."].exists
         )
         app.buttons["Enter WE"].tap()
+        // What this test is about is that all three panels are reachable and
+        // dismissable with Reduce Motion on. Where it lands afterwards
+        // depends on the session state and belongs to other tests.
+        let firstPanel = app.staticTexts["Yours stays yours."]
         XCTAssertTrue(
-            app.buttons["primaryTab.Today"].waitForExistence(timeout: 4)
+            firstPanel.waitForNonExistence(timeout: 4),
+            "the Promise should be gone once it has been entered"
         )
     }
 
@@ -124,8 +113,6 @@ final class WEUITests: XCTestCase {
     func testTrustPromiseAndInvitationRemainReachableAtAccessibilityTextSize()
         throws
     {
-        try XCTSkipIf(true, Self.promiseIsUnreachable)
-
         let promiseApp = launch(
             scenario: "waiting",
             skipsPromise: false,

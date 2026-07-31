@@ -150,6 +150,41 @@ final class FieldZoneUITests: XCTestCase {
         )
     }
 
+    /// Signing out has to actually leave.
+    ///
+    /// Runs against the live route rather than `WE_FIELD=seeded`, because
+    /// seeded mode renders the zones unconditionally and would pass without
+    /// the session ever being consulted.
+    ///
+    /// This failed until `SessionHost` began forwarding the session's own
+    /// changes: `@Published var session` fires only when the reference is
+    /// replaced, so `WEApp` never re-evaluated and the zones stayed put.
+    @MainActor
+    func testSigningOutLeavesTheZones() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["WE_REPOSITORY"] = "preview"
+        app.launchEnvironment["WE_PREVIEW_SCENARIO"] = "ready"
+        app.launchEnvironment["WE_SKIP_PROMISE"] = "1"
+        // Otherwise signing out lands on Soft Start rather than sign in.
+        app.launchEnvironment["WE_SKIP_SOFT_START"] = "1"
+        app.launchEnvironment["WE_DISABLE_CREDENTIAL_PROMPTS"] = "1"
+        app.launchArguments += ["-hasSeenLivingConfluencePromise", "YES"]
+        app.launch()
+
+        let we = app.buttons["field.nav.we"]
+        XCTAssertTrue(we.waitForExistence(timeout: 10))
+        we.press(forDuration: 0.9)
+
+        let signOut = app.buttons["field.account.signOut"]
+        XCTAssertTrue(signOut.waitForExistence(timeout: 4))
+        signOut.tap()
+
+        XCTAssertTrue(
+            app.staticTexts["Welcome back."].waitForExistence(timeout: 8),
+            "signing out should return to sign in, not leave the zones up"
+        )
+    }
+
     // MARK: Onboarding (6f)
 
     @MainActor

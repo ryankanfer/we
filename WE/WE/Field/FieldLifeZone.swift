@@ -57,52 +57,67 @@ struct FieldLifeZone: View {
     //
     // Bordered top and bottom with ink .16, 18pt above and 20pt below.
 
+    /// "The shape of this week" — the intelligence speaking in its own voice
+    /// about the week ahead.
+    ///
+    /// **Nothing generates this yet.** The handoff's sentence, its reasoning,
+    /// and its three metrics are written by hand about the fictional couple,
+    /// and printing them for a real one told them their week was
+    /// front-loaded, that they had committed $540, and that Friday was the
+    /// one to settle — none of it true, none of it theirs.
+    ///
+    /// So it renders only when there is something real to say, which today is
+    /// never. Silence is the app's own rule: it "stays quiet rather than
+    /// manufacturing a reason to speak." Restore this with a generator
+    /// reading `store.state`, not by putting the sample strings back.
+    @ViewBuilder
     private var synthesisBlock: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            FieldRuleLine()
+        if let synthesis = store.weekSynthesis {
+            VStack(alignment: .leading, spacing: 0) {
+                FieldRuleLine()
 
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .center, spacing: 10) {
-                    FieldIntelligenceMark(
-                        identity: store.identity,
-                        diameter: 14
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(alignment: .center, spacing: 10) {
+                        FieldIntelligenceMark(
+                            identity: store.identity,
+                            diameter: 14
+                        )
+                        FieldLabel("The shape of this week")
+                    }
+
+                    Text(synthesis.shape)
+                        .font(FieldType.synthesis)
+                        .foregroundStyle(.fieldInk(.headline))
+                        .fieldLineHeight(1.28, size: 25)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    metricRow(synthesis.metrics)
+
+                    FieldReasoning(
+                        text: synthesis.reasoning,
+                        accent: store.identity.personA.color
                     )
-                    FieldLabel("The shape of this week")
                 }
+                .padding(.top, 18)
+                .padding(.bottom, 20)
 
-                Text(FieldSampleData.weekShape)
-                    .font(FieldType.synthesis)
-                    .foregroundStyle(.fieldInk(.headline))
-                    .fieldLineHeight(1.28, size: 25)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                metricRow
-
-                FieldReasoning(
-                    text: FieldSampleData.weekReasoning,
-                    accent: store.identity.personA.color
-                )
+                FieldRuleLine()
             }
-            .padding(.top, 18)
-            .padding(.bottom, 20)
-
-            FieldRuleLine()
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(
+                "The shape of this week. \(synthesis.shape) "
+                    + synthesis.reasoning
+            )
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            "The shape of this week. \(FieldSampleData.weekShape) "
-                + FieldSampleData.weekReasoning
-        )
     }
 
     /// Three columns, divided by 1pt left borders with 14pt left padding. The
     /// first column carries no divider.
-    private var metricRow: some View {
+    private func metricRow(
+        _ metrics: [FieldWeekSynthesis.Metric]
+    ) -> some View {
         HStack(alignment: .top, spacing: 0) {
-            ForEach(
-                Array(FieldSampleData.weekMetrics.enumerated()),
-                id: \.offset
-            ) { index, metric in
+            ForEach(Array(metrics.enumerated()), id: \.offset) { index, metric in
                 VStack(alignment: .leading, spacing: 6) {
                     Text(metric.figure)
                         .font(FieldType.metric)
@@ -135,15 +150,15 @@ struct FieldLifeZone: View {
 
     private var categories: some View {
         VStack(alignment: .leading, spacing: FieldMetrics.sectionGap) {
-            ForEach(FieldSampleData.categoryOrder) { category in
+            ForEach(store.categoryOrder) { category in
                 categoryRow(category)
             }
         }
     }
 
     private func categoryRow(_ category: LifeCategory) -> some View {
-        let count = FieldSampleData.categoryCounts[category] ?? 0
-        let pressured = FieldSampleData.pressuredCategories.contains(category)
+        let count = store.openItems(in: category).count
+        let pressured = store.isPressured(category)
         let hasNothingPressing = !pressured && count == 0
 
         return VStack(alignment: .leading, spacing: 7) {

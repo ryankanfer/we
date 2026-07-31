@@ -68,7 +68,16 @@ struct FieldRoot: View {
         }
         .task(id: snapshot.membership?.coupleID) {
             guard store == nil else { return }
-            store = FieldStore(backend: backend())
+            // Empty and *now* — explicitly, both of them. The store's own
+            // defaults are the fictional couple on a fixed August date,
+            // which is right for the gallery and wrong for a real person:
+            // it puts someone else's groceries on their screen and dates
+            // every calculation to 2025.
+            store = FieldStore(
+                state: snapshot.emptyFieldState,
+                now: Date(),
+                backend: backend()
+            )
         }
     }
 
@@ -118,7 +127,11 @@ struct FieldOnboardingRoot: View {
         }
         .task(id: session.snapshot?.membership?.coupleID) {
             guard store == nil else { return }
-            store = FieldStore(backend: backend())
+            store = FieldStore(
+                state: session.snapshot?.emptyFieldState,
+                now: Date(),
+                backend: backend()
+            )
         }
     }
 
@@ -136,6 +149,24 @@ struct FieldOnboardingRoot: View {
             viewerID: snapshot.profile.id,
             members: snapshot.members,
             firstMemberID: first
+        )
+    }
+}
+
+extension RelationshipSnapshot {
+    /// A blank slate carrying only the two real names.
+    ///
+    /// The couple's own names are known from the session before any Field
+    /// table has been read, so the app can address them correctly during the
+    /// moment between launch and the first load — rather than calling them
+    /// Ryan and Dylan.
+    var emptyFieldState: FieldState {
+        let viewer = profile.name
+        let partner = members.first { $0.id != profile.id }?.name
+        return .empty(
+            nameA: viewer,
+            nameB: partner ?? "Your partner",
+            now: Date()
         )
     }
 }

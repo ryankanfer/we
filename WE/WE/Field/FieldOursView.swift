@@ -34,10 +34,15 @@ struct FieldOursView: View {
                     list
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
-                    payoffCard
-                        .padding(.bottom, FieldMetrics.sectionGap)
+                    // Both are the app proposing something out of Ours. They
+                    // appear when it has a proposal, and not before — see
+                    // `FieldStore.oursPayoff`.
+                    if let payoff = store.oursPayoff {
+                        payoffCard(payoff)
+                            .padding(.bottom, FieldMetrics.sectionGap)
 
-                    alsoPossible
+                        alsoPossible(payoff.alsoPossible)
+                    }
                 }
                 .padding(.top, 48)
                 .padding(.horizontal, FieldMetrics.screenSide)
@@ -69,7 +74,7 @@ struct FieldOursView: View {
             HStack(alignment: .firstTextBaseline) {
                 FieldLabel("Ours")
                 Spacer()
-                Text("\(FieldSampleData.oursTotal) THINGS")
+                Text("\(store.oursTotal) THINGS")
                     .font(FieldType.dateCount)
                     .tracking(FieldTracking.dateCount)
                     .foregroundStyle(.fieldInk(.headerMeta))
@@ -202,7 +207,9 @@ struct FieldOursView: View {
     // "Every clause of that reasoning cites a different signal: the lists,
     // geography, the coincidence, and the calendar. That is the demo."
 
-    private var payoffCard: some View {
+    private func payoffCard(
+        _ payoff: FieldOursPayoff
+    ) -> some View {
         FieldCard(accent: store.identity.personA.color) {
             VStack(alignment: .leading, spacing: 13) {
                 HStack(spacing: 10) {
@@ -210,26 +217,26 @@ struct FieldOursView: View {
                         identity: store.identity,
                         diameter: 12
                     )
-                    FieldLabel(FieldSampleData.oursPayoff.label)
+                    FieldLabel(payoff.label)
                 }
 
-                Text(FieldSampleData.oursPayoff.headline)
+                Text(payoff.headline)
                     .font(FieldType.cardTitle)
                     .foregroundStyle(.fieldInk(.headline))
                     .fieldLineHeight(1.35, size: 19)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text(FieldSampleData.oursPayoff.reasoning)
+                Text(payoff.reasoning)
                     .font(FieldType.receiptReasoning)
                     .foregroundStyle(.fieldInk(.reasoning))
                     .fieldLineHeight(1.65, size: 13.5)
                     .fixedSize(horizontal: false, vertical: true)
 
                 HStack(spacing: 11) {
-                    Button(FieldSampleData.oursPayoff.hold) {}
+                    Button(payoff.hold) {}
                         .buttonStyle(FieldFilledButtonStyle())
 
-                    Button(FieldSampleData.oursPayoff.alternative) {}
+                    Button(payoff.alternative) {}
                         .buttonStyle(FieldOutlinedButtonStyle(tint: nil))
                 }
                 .padding(.top, 4)
@@ -242,12 +249,12 @@ struct FieldOursView: View {
     //
     // Including "Nothing at all. That's allowed." — the app never insists.
 
-    private var alsoPossible: some View {
+    private func alsoPossible(_ lines: [String]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             FieldLabel("Also possible")
                 .padding(.bottom, 4)
 
-            ForEach(FieldSampleData.alsoPossible, id: \.self) { line in
+            ForEach(lines, id: \.self) { line in
                 Text(line)
                     .font(.system(size: 14.5, design: .serif))
                     .foregroundStyle(.fieldInk(.sectionSubtitle))

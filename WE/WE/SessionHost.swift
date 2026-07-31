@@ -5,12 +5,32 @@ import Foundation
 final class SessionHost: ObservableObject {
     static let simulationEmail = "kanfer.ryan@gmail.com"
 
-    @Published private(set) var session: AppSession
+    @Published private(set) var session: AppSession {
+        didSet { observeSession() }
+    }
     @Published private(set) var mode: AppMode = .actual
     @Published private(set) var viewer: SimulationViewer = .ryan
 
     private let environment: AppEnvironment
     private let simulationStore: SimulationStore
+
+    /// Forwards the session's own changes as changes to the host.
+    ///
+    /// `@Published var session` only fires when the *reference* is replaced,
+    /// never when `session.state` changes inside it — so any view observing
+    /// `SessionHost` and reading `session.state` would never re-render.
+    /// `WEApp` is exactly that view, and the consequences were invisible
+    /// rather than obviously broken: signing out left the zones on screen,
+    /// and the Living Confluence Promise never appeared at all, because the
+    /// switch that chooses between them was evaluated once and never again.
+    private var sessionObserver: AnyCancellable?
+
+    private func observeSession() {
+        sessionObserver = session.objectWillChange.sink {
+            [weak self] _ in
+            self?.objectWillChange.send()
+        }
+    }
 
     convenience init() {
         self.init(environment: .current)
@@ -35,6 +55,10 @@ final class SessionHost: ObservableObject {
         } else {
             session = Self.makeActualSession(environment: environment)
         }
+
+        // `didSet` does not fire for assignments made during init, so the
+        // first session has to be subscribed to by hand.
+        observeSession()
     }
 
     var canUseSimulation: Bool {

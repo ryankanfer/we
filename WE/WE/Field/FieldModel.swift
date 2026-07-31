@@ -206,6 +206,43 @@ struct LifeItem: Identifiable, Codable, Hashable, Sendable {
     private static let dateCeiling = 0.8
 }
 
+/// A proposal built out of Ours — "WE MADE YOU A FRIDAY".
+///
+/// The type exists; nothing produces one yet. The handoff's example cites the
+/// lists, geography, a coincidence, and the calendar in one paragraph, and
+/// that specificity is the feature. A generator has to earn it from the
+/// couple's own state; until one does, `FieldStore.oursPayoff` returns nil and
+/// the card does not appear.
+struct FieldOursPayoff: Hashable, Sendable {
+    var label: String
+    var headline: String
+    var reasoning: String
+    var hold: String
+    var alternative: String
+    /// "Including 'Nothing at all. That's allowed.' — the app never insists."
+    var alsoPossible: [String]
+}
+
+/// What the app has to say about the week ahead, in its own voice.
+///
+/// The type exists; nothing produces one yet. `FieldStore.weekSynthesis`
+/// returns nil until something can generate all three parts from the couple's
+/// real state — a sentence, its reasoning, and three metrics that are true.
+struct FieldWeekSynthesis: Hashable, Sendable {
+    struct Metric: Hashable, Sendable {
+        var figure: String
+        var label: String
+    }
+
+    /// "Front-loaded. Three things land before Sunday, then it opens right up."
+    var shape: String
+    /// The italic line behind an accent border, stating why.
+    var reasoning: String
+    /// Three columns. The handoff's are `3 / BEFORE SUN`, `$540 / COMMITTED`,
+    /// and `Friday / THE ONE TO SETTLE`.
+    var metrics: [Metric]
+}
+
 /// An occasion-based grouping with a generated rationale.
 ///
 /// "Categories are a filing system; occasions are how people actually think."

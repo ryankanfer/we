@@ -53,6 +53,56 @@ struct FieldState: Codable, Hashable, Sendable {
     var dailyMoment: FieldDailyMoment
     var learningSince: Date
 
+    /// What a real couple starts with: nothing.
+    ///
+    /// This is the live default. `seed` is the fictional couple and belongs
+    /// only to the gallery, the previews, and `WE_FIELD=seeded` — reaching a
+    /// real screen it reads as the app inventing a relationship, and until
+    /// this existed that is exactly what happened between launch and the
+    /// first successful load.
+    ///
+    /// Names come from the session so the app can address people correctly
+    /// before it knows anything else about them.
+    static func empty(
+        nameA: String,
+        nameB: String,
+        now: Date
+    ) -> FieldState {
+        FieldState(
+            identity: FieldIdentity(
+                personA: .clay,
+                personB: .slate,
+                nameA: nameA,
+                nameB: nameB
+            ),
+            partners: [],
+            lifeItems: [],
+            clusters: [],
+            oursItems: [],
+            horizons: [],
+            rhythms: [],
+            anchors: [],
+            threads: [],
+            evidence: [],
+            seasons: [],
+            heldTopics: [],
+            standingRules: [],
+            corrections: [],
+            captures: [],
+            // 8:12 is the handoff's learned hour and a defensible first
+            // guess. It moves as soon as there is reply data to move it.
+            dailyMoment: FieldDailyMoment(
+                sendMinute: 8 * 60 + 12,
+                queuedCount: 0,
+                hourRationale: "I haven't learned your hour yet.",
+                replyRateBefore: 0,
+                replyRateAfter: 0,
+                lastSentOn: nil
+            ),
+            learningSince: now
+        )
+    }
+
     static let seed = FieldState(
         identity: FieldSampleData.identity,
         partners: FieldSampleData.partners,
@@ -221,8 +271,53 @@ final class FieldStore {
         }
     }
 
+    /// The week's synthesis, or `nil` when the app has nothing of its own to
+    /// say about it — which is currently always. See `synthesisBlock` in
+    /// `FieldLifeZone`: the handoff's sentence is prose about the fictional
+    /// couple, and no generator has replaced it yet.
+    var weekSynthesis: FieldWeekSynthesis? { nil }
+
+    /// The proposal Ours pays off with, or `nil` when the app has not built
+    /// one — which is currently always, for the same reason as
+    /// `weekSynthesis`. Ours still shows everything both partners have
+    /// mentioned; it just does not pretend to have planned their Friday.
+    var oursPayoff: FieldOursPayoff? { nil }
+
+    /// The five categories, ordered by attention needed.
+    ///
+    /// "The intelligence orders these by attention needed, not alphabetically
+    /// or by a fixed taxonomy." Pressured first, then by how much is open,
+    /// with the handoff's order breaking ties so an empty Life still reads in
+    /// a stable, deliberate sequence rather than shuffling.
+    var categoryOrder: [LifeCategory] {
+        let fallback = LifeCategory.allCases
+        return fallback.sorted { a, b in
+            let pressureA = isPressured(a), pressureB = isPressured(b)
+            if pressureA != pressureB { return pressureA }
+
+            let countA = openItems(in: a).count
+            let countB = openItems(in: b).count
+            if countA != countB { return countA > countB }
+
+            let indexA = fallback.firstIndex(of: a) ?? 0
+            let indexB = fallback.firstIndex(of: b) ?? 0
+            return indexA < indexB
+        }
+    }
+
+    /// A one-line summary of what is actually open in a category.
+    ///
+    /// The handoff writes these by hand for the fictional couple. There is no
+    /// generator behind them, so rather than print someone else's errands
+    /// this names the couple's own most pressing items — and says nothing
+    /// when there are none.
     func summary(for category: LifeCategory) -> String {
-        FieldSampleData.categorySummaries[category] ?? ""
+        let open = openItems(in: category).sorted {
+            $0.pressure(now: now, calendar: calendar)
+                > $1.pressure(now: now, calendar: calendar)
+        }
+        guard !open.isEmpty else { return "" }
+        return open.prefix(2).map(\.title).joined(separator: " · ")
     }
 
     var oursForFilter: [OursItem] {
@@ -230,9 +325,13 @@ final class FieldStore {
     }
 
     func count(for list: OursList) -> Int {
-        FieldSampleData.oursCounts[list]
-            ?? state.oursItems.filter { $0.list == list }.count
+        state.oursItems.filter { $0.list == list }.count
     }
+
+    /// Everything either partner has ever mentioned. Ours is a count of
+    /// appetite, so it is the whole list and not the filtered one.
+    var oursTotal: Int { state.oursItems.count }
+
 
     func horizonTitle(_ id: String?) -> String? {
         guard let id else { return nil }

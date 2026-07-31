@@ -235,7 +235,7 @@ struct FieldUsZone: View {
 
                 Spacer()
 
-                Text("\(FieldSampleData.oursTotal) →")
+                Text("\(store.oursTotal) →")
                     .font(FieldType.dateCount)
                     .tracking(FieldTracking.dateCount)
                     .foregroundStyle(.fieldInk(.dateCount))

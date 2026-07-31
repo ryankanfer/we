@@ -21,16 +21,61 @@ VoiceOver route to deletion.** XCUITest cannot enumerate custom actions, so
 nothing guards it automatically — check it in the Accessibility Inspector
 before shipping.
 
-## Known regression: the Living Confluence Promise
+## The bug that hid behind two others
 
-**It is currently unreachable in every state.** `WEApp.showsPromise` still
-lists `.ready`, but `.ready` goes to `FieldRoot` before `liveApp` is built, so
-that arm is dead — and it does not appear for `.waitingForPartner` either,
-verified against a clean install. The two UI tests covering it are skipped
-rather than deleted, with this file cited as the reason.
+`SessionHost` exposes `@Published private(set) var session: AppSession`, which
+fires only when the *reference* is replaced — never when something inside the
+session changes. `WEApp` reads `host.session.state` to decide between the zones
+and `ContentView`, so that decision was made once at launch and never revisited.
 
-Deciding where it lives now is a product call: it is a trust explainer, and
-the natural homes are before pairing or inside 6f.
+Two symptoms, which looked unrelated:
+
+- **Signing out did nothing.** The session went to `.signedOut`; the zones
+  stayed on screen.
+- **The Living Confluence Promise never appeared**, in any state.
+
+`SessionHost` now forwards the session's `objectWillChange`, and both work.
+`.ready` is still listed in `showsPromise` and is still dead — `FieldRoot`
+takes the screen first — so the Promise now runs for the pre-couple states
+only. Whether it should also greet someone who arrives already paired is a
+product call, not a bug.
+
+Worth remembering when reading anything else here: a nested `ObservableObject`
+publishes nothing to its parent's observers.
+
+## Sample data, and where it is allowed
+
+The fictional couple used to reach real screens. `FieldStore`'s defaults are
+`FieldState.seed` and `FieldSampleData.today`, and the live roots took them —
+so a real couple saw Ryan and Dylan's groceries, and every date calculation ran
+against 13 August 2025.
+
+`FieldState.empty(nameA:nameB:now:)` is the live default now, carrying the
+couple's own names from the session, and both roots pass `Date()` explicitly.
+
+**Where sample data is still correct:**
+
+- `WE_FIELD=gallery` and `WE_FIELD=seeded`, which exist to show the design.
+- Five screens reachable *only* from the gallery — `FieldPresenceView`,
+  `FieldDailyMomentView`, `FieldCorrectionReceiptView`, `FieldDeferralView`,
+  `FieldSeasonClosedView`. Nothing routes to them from a zone, so their
+  narrative is a rendering of the handoff, not something a user is told.
+- Copy quoted from the spec: the onboarding questions, the closing line, and
+  the four canonical capture phrases, which the handoff specifies as a
+  demonstration of classification.
+
+**What now derives from real state:** Life's category counts, ordering, and
+summaries; Ours' totals and filter counts.
+
+**What was removed rather than faked.** "The shape of this week" and the Ours
+payoff card are the app speaking in its own voice, and nothing generates
+either. Printing the handoff's prose told a real couple their week was
+front-loaded and that they had committed $540. `FieldWeekSynthesis` and
+`FieldOursPayoff` now exist as types; `FieldStore.weekSynthesis` and
+`.oursPayoff` return nil, and the blocks do not render. Restore them with a
+generator reading `store.state` — not by putting the strings back. Silence is
+the app's own rule: it "stays quiet rather than manufacturing a reason to
+speak."
 
 ## What still runs the old way, and why
 
