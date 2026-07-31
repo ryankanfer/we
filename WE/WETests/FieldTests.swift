@@ -619,39 +619,100 @@ struct FieldStoreTests {
         #expect(store.remindersOpen == false)
     }
 
-    /// A capture is filed, not just receipted. Without this the receipt is
-    /// theatre.
+    /// Typing shows where it *would* go and files nothing. Nothing crosses
+    /// until it is sent — the app says so out loud in Soft Start.
     @Test
-    func captureMaterialisesIntoItsZone() {
+    func submittingOnlyProposes() {
         let store = FieldStore()
         let before = store.state.oursItems.count
 
         store.captureDraft = "past lives"
         store.submitCapture()
 
-        #expect(store.state.oursItems.count == before + 1)
         #expect(store.lastReceipt != nil)
+        #expect(store.state.oursItems.count == before)
     }
 
-    /// Correcting moves the object as well as the label, and logs the signal.
+    /// A capture is filed, not just receipted. Without this the receipt is
+    /// theatre.
     @Test
-    func correctionMovesTheObjectAndLogsTheSignal() {
+    func sendingFilesItIntoItsZone() {
+        let store = FieldStore()
+        let before = store.state.oursItems.count
+
+        store.captureDraft = "past lives"
+        store.submitCapture()
+        store.send()
+
+        #expect(store.state.oursItems.count == before + 1)
+        #expect(store.lastReceipt == nil)
+    }
+
+    /// And it has to survive a reload.
+    ///
+    /// This is the bug this test exists for: `materialise` only ever inserted
+    /// into local state, so a sent item looked filed and then vanished on the
+    /// next load from Supabase. The backend had `upsert` all along and
+    /// nothing called it.
+    @Test
+    func aSentItemSurvivesAReload() async {
+        let backend = FieldMemoryBackend(state: .seed)
+        let store = FieldStore(state: .seed, backend: backend)
+
+        store.captureDraft = "past lives"
+        store.submitCapture()
+        store.send()
+
+        guard let filed = store.state.oursItems.first(where: {
+            $0.title == "past lives"
+        }) else {
+            Issue.record("expected it in the local list")
+            return
+        }
+
+        // Whatever the store did locally, the question is what the backend
+        // was actually told.
+        try? await Task.sleep(for: .milliseconds(120))
+        let reloaded = try? await backend.load()
+        #expect(reloaded?.oursItems.contains { $0.id == filed.id } == true)
+        #expect(reloaded?.captures.contains { $0.id == filed.id } == true)
+    }
+
+    /// Walking away files nothing, because nothing had been filed.
+    @Test
+    func dismissingSendsNothing() {
+        let store = FieldStore()
+        let before = store.state.oursItems.count
+
+        store.captureDraft = "past lives"
+        store.submitCapture()
+        store.dismissReceipt()
+
+        #expect(store.state.oursItems.count == before)
+        #expect(store.lastReceipt == nil)
+    }
+
+    /// Correcting before sending changes where it is about to go, and logs
+    /// the signal. There is nothing materialised to move.
+    @Test
+    func correctionRetargetsAndLogsTheSignal() {
         let store = FieldStore()
         store.captureDraft = "steak"
         store.submitCapture()
 
-        guard let receipt = store.lastReceipt else {
-            Issue.record("expected a receipt")
-            return
-        }
         let lifeBefore = store.state.lifeItems.count
 
         store.beginCorrection()
         store.correct(to: .life(.food))
 
-        #expect(store.state.lifeItems.count == lifeBefore + 1)
-        #expect(!store.state.oursItems.contains { $0.id == receipt.id })
         #expect(store.state.corrections.count == 1)
+        #expect(store.state.lifeItems.count == lifeBefore)
+
+        store.send()
+        #expect(store.state.lifeItems.count == lifeBefore + 1)
+        #expect(
+            store.state.oursItems.contains { $0.title == "steak" } == false
+        )
     }
 
     /// Onboarding's preview updates live because the identity is the source

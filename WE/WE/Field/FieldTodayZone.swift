@@ -41,15 +41,27 @@ struct FieldTodayZone: View {
                     .padding(.bottom, 30)
                     .accessibilityHidden(true)
 
+                // The hero, then the way in. Capture sits directly under
+                // whatever the app has to say, because saying something back
+                // is the reply to it — everything else on this screen is
+                // context and belongs below.
                 switch store.todaySelection {
-                case .resolved(let headline, let detail, let watching):
-                    resolvedState(headline, detail, watching)
+                case .resolved(let headline, let detail, _):
+                    resolvedHero(headline, detail)
                 case .needsYou(let moment):
                     FieldMomentView(moment: moment)
                 }
 
                 FieldCaptureField()
                     .padding(.top, FieldMetrics.sectionGapLoose)
+
+                if case .resolved(_, _, let watching) = store.todaySelection {
+                    watchingBlock(watching)
+                        .padding(.top, FieldMetrics.sectionGapLoose)
+                        .padding(.bottom, FieldMetrics.sectionGap)
+
+                    horizonBlock
+                }
             }
         }
     }
@@ -58,10 +70,12 @@ struct FieldTodayZone: View {
     //
     // "This screen must feel like a resolution, not an empty state."
 
-    private func resolvedState(
+    /// "Nothing needs you here" — a real state, and the only thing above the
+    /// capture field. What the app is watching, and the horizon, follow the
+    /// capture rather than separating it from the headline.
+    private func resolvedHero(
         _ headline: String,
-        _ detail: String,
-        _ watching: [FieldWatchItem]
+        _ detail: String
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(spacing: 26) {
@@ -91,14 +105,8 @@ struct FieldTodayZone: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .padding(.bottom, 44)
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(headline) \(detail)")
-
-            watchingBlock(watching)
-                .padding(.bottom, FieldMetrics.sectionGap)
-
-            horizonBlock
         }
     }
 

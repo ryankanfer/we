@@ -172,14 +172,21 @@ struct FieldCaptureField: View {
                     .fieldLineHeight(1.65, size: 13.5)
                     .fixedSize(horizontal: false, vertical: true)
 
+                // Send is the affirmative and carries the filled style,
+                // because it is the moment the thing actually crosses into
+                // the shared space. Correcting first costs nothing, which is
+                // why it is the quiet one.
                 HStack(spacing: 11) {
-                    Button("Wrong place") { store.beginCorrection() }
-                        .buttonStyle(FieldOutlinedButtonStyle(tint: nil))
-                        .accessibilityIdentifier("field.receipt.wrong")
+                    Button("Send") { store.send() }
+                        .buttonStyle(FieldFilledButtonStyle())
+                        .accessibilityIdentifier("field.receipt.send")
+                        .accessibilityHint(
+                            "Files it to \(receipt.destination.label)"
+                        )
 
-                    Button("Fine ✓") { store.dismissReceipt() }
+                    Button("Wrong place") { store.beginCorrection() }
                         .buttonStyle(FieldQuietButtonStyle())
-                        .accessibilityIdentifier("field.receipt.fine")
+                        .accessibilityIdentifier("field.receipt.wrong")
                 }
             }
         }

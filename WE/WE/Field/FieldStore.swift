@@ -153,6 +153,10 @@ final class FieldStore {
     /// Set when the user taps WRONG PLACE — the corrective picker.
     var correctingReceipt: FieldReceipt?
 
+    /// Corrections made to a receipt that has not been sent. They cross with
+    /// it, or not at all.
+    private var pendingCorrections: [FieldCorrection] = []
+
     /// Category subtitles the on-device model has written, and the shape of
     /// the items each was written about.
     ///
@@ -534,24 +538,69 @@ final class FieldStore {
 
     // MARK: Capture
 
+    /// Classify what was typed and show where it would go. Nothing is filed
+    /// and nothing leaves the phone yet — `send()` is the crossing.
+    ///
+    /// This is the app's own promise, kept literally: "nothing crosses until
+    /// you approve the exact offer."
     func submitCapture() {
         let text = captureDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
-        let receipt = FieldClassifier.classify(text, context: classifierContext)
-        lastReceipt = receipt
+        lastReceipt = FieldClassifier.classify(text, context: classifierContext)
         captureDraft = ""
+    }
+
+    /// File it, for real and in both places.
+    ///
+    /// Before this existed, `materialise` only ever inserted into the local
+    /// `state` — the item appeared, and then vanished on the next load from
+    /// Supabase, because nothing wrote it to its destination table. The
+    /// backend has always had `upsert` for exactly this and nothing called it.
+    func send() {
+        guard let receipt = lastReceipt else { return }
 
         let capture = FieldCapture(
             id: receipt.id,
-            text: text,
+            text: receipt.input,
             owner: speaker,
             capturedAt: now
         )
         state.captures.insert(capture, at: 0)
         materialise(receipt)
 
-        Task { [backend] in try? await backend?.append(capture) }
+        // Corrections are training signal about the classifier, and they are
+        // held back with everything else until the moment of crossing.
+        let corrections = pendingCorrections
+        pendingCorrections = []
+        lastReceipt = nil
+        correctingReceipt = nil
+
+        Task { [backend] in
+            try? await backend?.append(capture)
+            for correction in corrections {
+                try? await backend?.record(correction)
+            }
+        }
+        persist(receipt)
+    }
+
+    /// Writes the filed item to the table it belongs in.
+    private func persist(_ receipt: FieldReceipt) {
+        switch receipt.destination {
+        case .life:
+            guard let item = state.lifeItems.first(where: { $0.id == receipt.id })
+            else { return }
+            Task { [backend] in try? await backend?.upsert(item) }
+        case .ours:
+            guard let item = state.oursItems.first(where: { $0.id == receipt.id })
+            else { return }
+            Task { [backend] in try? await backend?.upsert(item) }
+        case .usHorizons:
+            // A leaning attaches to the primary horizon rather than creating
+            // anything of its own, so the capture row is the whole record.
+            break
+        }
     }
 
     /// Files the captured text into the zone its destination names. Without
@@ -605,16 +654,16 @@ final class FieldStore {
         }
     }
 
-    func acknowledgeReceipt() {
-        lastReceipt?.acknowledged = true
-    }
-
     func beginCorrection() {
         correctingReceipt = lastReceipt
     }
 
     /// One tap to a corrected destination. Every correction becomes training
     /// signal that surfaces later in the correction receipt (6a).
+    ///
+    /// Nothing has been filed yet, so this only changes where it is *about*
+    /// to go — there is no materialised object to move and nothing written
+    /// remotely to undo. That is the point of correcting before sending.
     func correct(to destination: FieldDestination) {
         guard let receipt = correctingReceipt ?? lastReceipt else { return }
         let result = FieldClassifier.correct(
@@ -625,18 +674,15 @@ final class FieldStore {
         lastReceipt = result.receipt
         correctingReceipt = nil
         state.corrections.append(result.correction)
-
-        // Move the materialised object to where it should have gone.
-        state.lifeItems.removeAll { $0.id == receipt.id }
-        state.oursItems.removeAll { $0.id == receipt.id }
-        materialise(result.receipt)
-
-        Task { [backend] in try? await backend?.record(result.correction) }
+        pendingCorrections.append(result.correction)
     }
 
+    /// Walking away without sending. Nothing was written, so there is
+    /// nothing to undo.
     func dismissReceipt() {
         lastReceipt = nil
         correctingReceipt = nil
+        pendingCorrections = []
     }
 
     // MARK: Acting on a moment
