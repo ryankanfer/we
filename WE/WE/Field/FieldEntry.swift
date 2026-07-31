@@ -87,9 +87,7 @@ struct FieldRoot: View {
         else { return nil }
 
         return FieldSupabaseBackend(
-            client: SupabaseClientProvider(
-                configuration: AppEnvironment.current.supabase
-            ).client,
+            client: SupabaseClientProvider.shared.client,
             coupleID: coupleID,
             viewerID: snapshot.profile.id,
             members: snapshot.members,
@@ -142,9 +140,7 @@ struct FieldOnboardingRoot: View {
         else { return nil }
 
         return FieldSupabaseBackend(
-            client: SupabaseClientProvider(
-                configuration: AppEnvironment.current.supabase
-            ).client,
+            client: SupabaseClientProvider.shared.client,
             coupleID: coupleID,
             viewerID: snapshot.profile.id,
             members: snapshot.members,

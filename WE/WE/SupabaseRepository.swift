@@ -987,6 +987,10 @@ final class SupabaseRepository: Repository {
         )
     }
 
+    /// The session lives in the Keychain, which the system does not remove
+    /// when the app is deleted.
+    var persistsCredentialsAcrossInstalls: Bool { true }
+
     private func configuredClient() throws -> SupabaseClient {
         guard let client else { throw RepositoryError.missingConfiguration }
         return client

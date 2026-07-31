@@ -112,6 +112,25 @@ final class AppSession: ObservableObject {
     var isReady: Bool { state == .ready }
     var canMutate: Bool { connectionState == .online && !isWorking }
 
+    /// Deleting the app does not delete its Keychain items, and that is where
+    /// the Supabase session lives — so a reinstall came back already signed
+    /// in as whoever used the phone last. Deleting an app is the one gesture
+    /// everyone understands as "start over", and it has to mean that.
+    ///
+    /// `UserDefaults` *is* removed with the app, so a missing marker is a
+    /// reliable signal that this install has never run before.
+    private func clearCredentialsIfFreshlyInstalled() async {
+        guard repository.persistsCredentialsAcrossInstalls else { return }
+
+        let marker = "hasRunSinceInstall"
+        guard !UserDefaults.standard.bool(forKey: marker) else { return }
+        UserDefaults.standard.set(true, forKey: marker)
+
+        // Best effort. If it fails there is nothing useful to say — the
+        // person is about to be asked to sign in either way.
+        try? await repository.signOut()
+    }
+
     func restoreIfNeeded() async {
         guard !didRestore else { return }
         didRestore = true
@@ -120,6 +139,8 @@ final class AppSession: ObservableObject {
             state = .unconfigured
             return
         }
+
+        await clearCredentialsIfFreshlyInstalled()
 
         state = .loading
         let generation = authRoutingGeneration

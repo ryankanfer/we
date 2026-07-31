@@ -23,6 +23,16 @@ enum RepositoryError: LocalizedError {
 protocol Repository {
     var isConfigured: Bool { get }
 
+    /// Whether this repository keeps credentials somewhere that survives the
+    /// app being deleted.
+    ///
+    /// True only for Supabase, which stores its session in the Keychain —
+    /// and the Keychain outlives an uninstall, so a reinstall comes back
+    /// signed in as whoever used the phone last. `AppSession` clears them on
+    /// the first launch of a new install; the in-memory repositories have
+    /// nothing to clear and must not be asked to.
+    var persistsCredentialsAcrossInstalls: Bool { get }
+
     func restoreSession() async throws -> AuthenticatedUser?
     func signUp(name: String, email: String, password: String) async throws
         -> SignUpResult
@@ -205,6 +215,11 @@ enum AuthCallbackResult: Equatable, Sendable {
     case passwordRecovery(AuthenticatedUser)
 }
 
+extension Repository {
+    /// Only a real backend has anything outliving the app bundle.
+    var persistsCredentialsAcrossInstalls: Bool { false }
+}
+
 enum RepositoryFactory {
     static func make(
         environment: AppEnvironment = .current
@@ -217,11 +232,9 @@ enum RepositoryFactory {
                     environment.previewDeletionPassword
             )
         case .live:
-            SupabaseRepository(
-                provider: SupabaseClientProvider(
-                    configuration: environment.supabase
-                )
-            )
+            // The shared client, never a new one — see
+            // `SupabaseClientProvider`.
+            SupabaseRepository(provider: .shared)
         }
     }
 }
