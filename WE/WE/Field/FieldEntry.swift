@@ -199,8 +199,7 @@ extension FieldSwatch {
 struct FieldGallery: View {
     private enum Screen: String, CaseIterable, Identifiable {
         case zones = "01·03·05  The three zones"
-        case reminders = "02  Reminders — takeover (4c)"
-        case ours = "04  Ours — the shared lists (5b)"
+        case calendar = "02  The calendar — takeover"
         case corrections = "06  The correction receipt (6a)"
         case presence = "07  Presence (6b)"
         case moment = "08  One moment a day (6c)"
@@ -282,10 +281,8 @@ struct FieldGallery: View {
         switch screen {
         case .zones:
             FieldZoneShell(store: store)
-        case .reminders:
-            FieldRemindersTakeover(store: store)
-        case .ours:
-            FieldOursView()
+        case .calendar:
+            FieldCalendarSurface(store: store)
         case .corrections:
             FieldCorrectionReceiptView()
         case .presence:
@@ -310,15 +307,11 @@ struct FieldGallery: View {
     FieldZoneShell()
 }
 
-#Preview("Reminders") {
+#Preview("Calendar") {
     let store = FieldStore()
-    store.openReminders()
-    return FieldRemindersTakeover(store: store)
+    store.openCalendar()
+    return FieldCalendarSurface(store: store)
         .environment(store)
-}
-
-#Preview("Ours") {
-    FieldOursView().environment(FieldStore())
 }
 
 #Preview("Presence") {

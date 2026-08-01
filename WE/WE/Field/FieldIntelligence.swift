@@ -27,8 +27,13 @@ import Foundation
 //
 // "Today is derived, never stored. Its selection function ranks candidates
 // from Life and Us by time-pressure, decision-unblocking value, and both
-// partners' reachability, then returns at most one — or the 'nothing needs
-// you' state."
+// partners' reachability, then returns at most one — or the resolved state."
+//
+// The resolved state is phrased as a resolution rather than an absence
+// ("Today is clear."), and it is still the app declining to speak: nothing is
+// manufactured to fill it. On an account with nothing to reason over yet it
+// says that instead, because claiming a clear day the app cannot see is the
+// one reassurance it has not earned.
 
 enum FieldTodaySelector {
     struct Context {
@@ -54,9 +59,10 @@ enum FieldTodaySelector {
         let candidates = rank(context)
 
         guard let top = candidates.first, top.priority >= surfacingThreshold else {
+            let (headline, detail) = resolved(context)
             return .resolved(
-                headline: "Nothing needs you here.",
-                detail: resolvedDetail(context),
+                headline: headline,
+                detail: detail,
                 watching: watching(context)
             )
         }
@@ -78,6 +84,9 @@ enum FieldTodaySelector {
         enum Origin: Hashable {
             case life(LifeItem)
             case horizon(FieldHorizon, FieldQuestion)
+            /// A thing said twice with no date on it, and the one question
+            /// that would settle whether it is real. See `FieldPromotion`.
+            case promotion(FieldPromotion.Proposal)
         }
 
         var origin: Origin
@@ -133,6 +142,23 @@ enum FieldTodaySelector {
                     origin: .horizon(horizon, question),
                     priority: pressure * 0.35 + 0.9 * 0.35 + reach * 0.3,
                     timePressure: pressure,
+                    unblockingValue: 0.9,
+                    reachability: reach
+                )
+            )
+        }
+
+        // At most one, and only when there is something to ask about. It
+        // deliberately outranks quiet upkeep and deliberately loses to
+        // anything with a real cut-off: a question about next year should
+        // never arrive in front of a thing closing tonight.
+        if let proposal = FieldPromotion.proposal(context) {
+            let reach = reachability(for: .shared, context: context)
+            candidates.append(
+                Candidate(
+                    origin: .promotion(proposal),
+                    priority: 0.25 * 0.5 + 0.9 * 0.3 + reach * 0.2,
+                    timePressure: 0.25,
                     unblockingValue: 0.9,
                     reachability: reach
                 )
@@ -227,6 +253,8 @@ enum FieldTodaySelector {
             return lifeMoment(item, candidate: candidate, context: context)
         case .horizon(let horizon, let question):
             return questionMoment(horizon, question, context: context)
+        case .promotion(let proposal):
+            return promotionMoment(proposal, context: context)
         }
     }
 
@@ -321,13 +349,53 @@ enum FieldTodaySelector {
         )
     }
 
+    /// The question that turns a thing said twice into a horizon — or leaves
+    /// it exactly where it is, which is the answer the app must be equally
+    /// happy with.
+    private static func promotionMoment(
+        _ proposal: FieldPromotion.Proposal,
+        context: Context
+    ) -> FieldMoment {
+        FieldMoment(
+            id: proposal.question.id,
+            source: "FROM LIFE · \(proposal.category.rawValue.uppercased())",
+            headline: proposal.question.prompt,
+            reasoning: proposal.question.reasoning,
+            accent: .shared,
+            shape: .question(proposal.question),
+            actions: proposal.question.choices.map {
+                FieldMomentAction(
+                    id: $0.id,
+                    title: $0.title,
+                    weight: .outlined,
+                    tint: $0.tint
+                )
+            } + [
+                FieldMomentAction(
+                    id: "\(proposal.question.id)-escape",
+                    title: "Ask me another time",
+                    weight: .quiet,
+                    tint: nil
+                )
+            ],
+            addressedTo: nil,
+            remainder: remainder(excluding: proposal.question.id, context: context)
+        )
+    }
+
+    /// The verb on the button under a moment.
+    ///
+    /// The five given categories each have one that reads like the thing you
+    /// actually do. A category the app grew has no such knowledge behind it,
+    /// so it says the honest general one rather than guessing that Pets are
+    /// booked and Taxes are sent.
     private static func primaryVerb(for item: LifeItem) -> String {
         switch item.category {
         case .food: "Send it"
         case .care: "Book it"
-        case .calendar: "Put it in"
         case .money: "Move it"
-        case .home: "Mark it done"
+        case .buys: "Order it"
+        default: "Mark it done"
         }
     }
 
@@ -388,7 +456,26 @@ enum FieldTodaySelector {
 
     // MARK: The resolved state
 
-    private static func resolvedDetail(_ context: Context) -> String {
+    /// Both halves of the resolved state, derived together so they can never
+    /// disagree — a headline claiming a clear day over a detail admitting the
+    /// app knows nothing would be worse than either alone.
+    private static func resolved(
+        _ context: Context
+    ) -> (headline: String, detail: String) {
+        // Nothing to reason over at all. Saying the day is clear here would be
+        // a claim the app has not earned: it isn't clear, it is unknown, and
+        // the honest version of that says so. Done items count — a couple who
+        // finished everything has a history and is not new.
+        if context.lifeItems.isEmpty,
+           context.horizons.isEmpty,
+           context.clusters.isEmpty {
+            return (
+                "I'm still learning your week.",
+                "Say anything below and I'll start sorting it. Today shows "
+                    + "one thing at a time, or nothing at all."
+            )
+        }
+
         // Assembled only from things that actually resolved. The app never
         // invents a plan, and it does not invent a reassurance either.
         let settled = context.lifeItems
@@ -398,15 +485,39 @@ enum FieldTodaySelector {
             .map(\.title)
 
         guard !settled.isEmpty else {
-            return "Nothing is overdue and nothing needs a decision today."
+            return (
+                "Today is clear.",
+                "Nothing is overdue and nothing needs a decision today."
+            )
         }
-        return settled.joined(separator: ". ") + "."
+        return ("Today is clear.", settled.joined(separator: ". ") + ".")
     }
 
     /// The three lines under "WHAT I'M WATCHING". Held topics appear here
     /// dimmed — the app is transparent about what it is sitting on.
+    ///
+    /// A question one of them asked leads, because somebody just chose to
+    /// raise it and three horizon questions should not push it off the end of
+    /// a list that only holds three. It is not a copy of anything: it is the
+    /// Life item read back, the same way a horizon is a reading of the items
+    /// underneath it.
     static func watching(_ context: Context) -> [FieldWatchItem] {
         var items: [FieldWatchItem] = []
+
+        if let asked = context.lifeItems.first(where: {
+            $0.category == .talk && !$0.isDone
+        }) {
+            items.append(
+                FieldWatchItem(
+                    id: asked.id,
+                    text: "\(asked.title) — "
+                        + "\(context.identity.name(for: asked.owner)) asked. "
+                        + "No date on it.",
+                    owner: asked.owner,
+                    isDeferred: false
+                )
+            )
+        }
 
         for horizon in context.horizons where horizon.openQuestion != nil {
             guard let question = horizon.openQuestion else { continue }
@@ -445,39 +556,42 @@ enum FieldClassifier {
         var identity: FieldIdentity
         var speaker: FieldOwner
         var now: Date
-        var oursItems: [OursItem]
+        var lifeItems: [LifeItem]
         var horizons: [FieldHorizon]
         var rhythms: [FieldRhythm]
         var corrections: [FieldCorrection]
+        /// Every Life category that currently exists — the given ones and any
+        /// this couple has grown. An existing category always beats starting
+        /// another one that means the same thing.
+        var lifeCategories: [LifeCategory] = LifeCategory.builtIn
         /// Read only so the reasoning can name a real upcoming stretch. The
         /// classifier never routes on who is away.
         var partners: [FieldPartner] = []
         var calendar: Calendar = .gregorianUS
     }
 
-    /// The four canonical classifications from the handoff, used as the
-    /// model's few-shot examples and reproduced exactly by the rules below.
+    /// Everything resolves to a category. There is nowhere else to send it.
     static func classify(_ input: String, context: Context) -> FieldReceipt {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         let lowered = text.lowercased()
 
         // A prior correction on the same shape of input always wins. This is
         // what makes "tell me once and it stops" true.
-        if let learned = learnedDestination(for: lowered, context: context) {
+        if let learned = learnedCategory(for: lowered, context: context) {
             return receipt(
                 text,
-                destination: learned.destination,
+                category: learned.category,
                 reasoning: learned.reasoning,
                 context: context
             )
         }
 
-        let destination = route(lowered, context: context)
+        let category = route(lowered, context: context)
         return receipt(
             text,
-            destination: destination,
+            category: category,
             reasoning: reasoning(
-                for: destination,
+                for: category,
                 input: lowered,
                 context: context
             ),
@@ -490,12 +604,19 @@ enum FieldClassifier {
     private static let taskVerbs = [
         "remind", "reminder", "call", "book", "pay", "send", "buy", "pick up",
         "schedule", "renew", "cancel", "email", "text", "order", "return",
-        "drop off", "clean", "fix", "file",
+        "drop off", "clean", "fix", "file", "pack", "confirm", "rsvp", "wrap",
     ]
     private static let dayWords = [
         "today", "tonight", "tomorrow", "monday", "tuesday", "wednesday",
         "thursday", "friday", "saturday", "sunday", "this week", "next week",
         "weekend",
+    ]
+    /// How a question opens when it is one. Checked alongside a literal "?",
+    /// because most people do not type the mark on a phone.
+    private static let questionOpeners = [
+        "do we", "do you", "should we", "should i", "what about",
+        "how do you feel", "what do you think", "are we", "can we",
+        "would you", "have we", "have you", "did we",
     ]
     private static let aspirationWords = [
         "someday", "one day", "eventually", "maybe", "we should", "i want to",
@@ -515,47 +636,182 @@ enum FieldClassifier {
     private static let moneyWords = ["rent", "bill", "invoice", "insurance", "fund", "save"]
     private static let careWords = ["mom", "dad", "birthday", "vet", "doctor", "appointment", "gift"]
     private static let homeWords = ["filter", "laundry", "trash", "repair", "super", "lease"]
+    private static let buyWords = [
+        "amazon", "cart", "order", "delivery", "shipping", "returns", "buy",
+        "batteries", "refill", "restock",
+    ]
 
-    static func route(_ lowered: String, context: Context) -> FieldDestination {
+    /// Where a capture goes. A category, always — there is no other kind of
+    /// answer this function can give.
+    ///
+    /// An aspiration no longer routes anywhere different. "japan in the fall
+    /// maybe" is a trip you have mentioned, filed in Trips like any other; it
+    /// becomes a horizon in Us only when somebody answers the question the app
+    /// asks about it. See `FieldPromotion`.
+    static func route(_ lowered: String, context: Context) -> LifeCategory {
         let hasTaskShape = taskVerbs.contains { lowered.contains($0) }
         let hasDay = dayWords.contains { lowered.contains($0) }
         let isAspiration = aspirationWords.contains { lowered.contains($0) }
 
-        // A goal beats a task shape: "book flights to japan next year" is a
-        // horizon, not an errand.
-        if isAspiration || matchesHorizon(lowered, context: context) != nil {
-            if !(hasTaskShape && hasDay) { return .usHorizons }
+        // A trip named as a wish, or a place already on a horizon, is still a
+        // trip. Checked first so "japan in the fall maybe" does not fall into
+        // the title heuristic and come out a film.
+        let namesAPlace = placeWords.contains { lowered.contains($0) }
+        if !(hasTaskShape && hasDay),
+           matchesHorizon(lowered, context: context) != nil
+               || (isAspiration && namesAPlace) {
+            return .trips
+        }
+
+        // A question, and nothing was asked of anybody. Checked after Trips —
+        // "should we do japan in the fall?" is a trip they have mentioned, and
+        // `FieldPromotion` already owns whether it becomes real — but before
+        // the task shape, so "should we call the plumber?" is read as the
+        // question it is rather than an errand somebody has been assigned.
+        //
+        // A day word disqualifies it. "Are we free tomorrow?" has a date in it
+        // and belongs to the day, not to the pile of things to talk about.
+        if !hasDay, isQuestion(lowered) {
+            return .talk
         }
 
         if hasTaskShape || hasDay {
-            return .life(lifeCategory(lowered))
+            return lifeCategory(lowered, context: context)
         }
 
-        // Not a task and not a goal — it is an appetite. Explicit signals are
-        // checked before the title heuristic, which is deliberately greedy:
-        // "steak" is one word with no verb, so it would otherwise be read as a
-        // film. Naming the food beats guessing the shape.
+        // An obligation noun with no verb around it is still an obligation.
+        // "rent" is not an appetite, and before this it fell through to the
+        // title heuristic and was filed as a film. Appetite words are
+        // deliberately excluded here — "steak" is a craving, and only ever a
+        // craving, until a verb or a day says otherwise.
+        if careWords.contains(where: { lowered.contains($0) })
+            || moneyWords.contains(where: { lowered.contains($0) })
+            || homeWords.contains(where: { lowered.contains($0) }) {
+            return lifeCategory(lowered, context: context)
+        }
+
+        // Explicit signals before the title heuristic, which is deliberately
+        // greedy: "steak" is one word with no verb, so it would otherwise be
+        // read as a film. Naming the food beats guessing the shape.
         if watchWords.contains(where: { lowered.contains($0) }) {
-            return .ours(.watchlist)
+            return .watchlist
         }
         if eatWords.contains(where: { lowered.contains($0) }) {
-            return .ours(.eating)
+            return .food
         }
-        if placeWords.contains(where: { lowered.contains($0) }) {
-            return .ours(.places)
+        if namesAPlace {
+            return .trips
+        }
+        if buyWords.contains(where: { lowered.contains($0) }) {
+            return .buys
         }
         if looksLikeTitle(lowered) {
-            return .ours(.watchlist)
+            return .watchlist
         }
-        return .ours(.someday)
+        // A subject with no home. Grown rather than given, so a couple who
+        // never says anything unplaceable never sees the word.
+        return invented(from: lowered) ?? .notes
     }
 
-    private static func lifeCategory(_ lowered: String) -> LifeCategory {
+    /// Asked, rather than stated. The mark when it is there, and the opening
+    /// when it is not — a question typed without punctuation is still a
+    /// question, and on a phone it usually is.
+    static func isQuestion(_ lowered: String) -> Bool {
+        if lowered.hasSuffix("?") { return true }
+        return questionOpeners.contains { lowered.hasPrefix($0) }
+    }
+
+    /// Domains a couple reliably has, and the word they would use for each.
+    /// Checked after the five given categories and before anything is
+    /// invented, so "book the dog's shots" grows Pets once and then keeps
+    /// going there instead of growing Dog, Vet, and Shots.
+    private static let namedDomains: [(category: String, words: [String])] = [
+        ("health", ["dentist", "therapy", "therapist", "prescription", "refill",
+                    "pharmacy", "checkup", "check up", "bloodwork", "physio",
+                    "gym", "workout", "run", "meds"]),
+        ("pets", ["dog", "cat", "puppy", "kitten", "litter", "groomer",
+                  "walker", "kibble", "shots"]),
+        ("car", ["car", "oil change", "tires", "tyres", "registration", "dmv",
+                 "parking", "gas", "mechanic", "inspection"]),
+        ("travel", ["flight", "flights", "passport", "visa", "hotel", "airbnb",
+                    "airport", "packing", "pack", "itinerary", "boarding"]),
+        ("work", ["deck", "standup", "stand up", "review", "offsite", "client",
+                  "invoice", "deadline", "interview", "resume", "onboarding"]),
+        ("admin", ["taxes", "tax", "license", "licence", "renewal", "form",
+                   "paperwork", "passport photo", "notary", "bank", "claim"]),
+        ("garden", ["plants", "water the", "repot", "seeds", "yard", "lawn"]),
+    ]
+
+    /// Words that are never a category on their own — too general to name a
+    /// list, or grammar rather than subject.
+    private static let uncategorisable: Set<String> = [
+        "thing", "things", "stuff", "something", "anything", "everything",
+        "some", "with", "that", "this", "them", "they", "there", "here",
+        "about", "from", "into", "then", "than", "when", "what", "just",
+        "need", "want", "have", "get", "got", "make", "take", "keep", "look",
+        "back", "over", "again", "more", "less", "before", "after",
+    ]
+
+    /// The category for something with a verb or a day on it.
+    ///
+    /// The given ones first, then a category this couple already grew, then a
+    /// known domain, and only then something new. Notes is the last resort,
+    /// reached by failing to find a subject at all.
+    static func lifeCategory(
+        _ lowered: String,
+        context: Context
+    ) -> LifeCategory {
         if careWords.contains(where: { lowered.contains($0) }) { return .care }
         if moneyWords.contains(where: { lowered.contains($0) }) { return .money }
         if homeWords.contains(where: { lowered.contains($0) }) { return .home }
         if eatWords.contains(where: { lowered.contains($0) }) { return .food }
-        return .calendar
+
+        // Something they already have a place for, checked before Buys: "buy"
+        // and "order" are generic verbs attached to half of what anybody says,
+        // and a couple who grew Pets means Pets when they say "order more pets
+        // food" — not a shopping list.
+        if let existing = context.lifeCategories.first(where: {
+            !$0.isBuiltIn && lowered.contains($0.rawValue)
+        }) {
+            return existing
+        }
+
+        // Checked here as well as in `route`, because "buy" and "order" are
+        // task verbs — without this, "buy batteries" reaches invention and
+        // grows a category called Batteries.
+        if buyWords.contains(where: { lowered.contains($0) }) { return .buys }
+
+        if let domain = namedDomains.first(where: { domain in
+            domain.words.contains { lowered.contains($0) }
+        }), let category = LifeCategory(named: domain.category) {
+            return category
+        }
+
+        return invented(from: lowered) ?? .notes
+    }
+
+    /// A category named from what was actually said.
+    ///
+    /// Deliberately conservative. It takes the subject of the sentence — the
+    /// first substantial word that is not the verb, the day, or a filler — and
+    /// only when that word is long enough to read as a heading. A wrong
+    /// category is one tap to fix; a category called "The" is a mess the
+    /// couple has to live in.
+    static func invented(from lowered: String) -> LifeCategory? {
+        let words = lowered
+            .split(whereSeparator: { !$0.isLetter })
+            .map(String.init)
+
+        for word in words {
+            guard word.count >= 4,
+                  !uncategorisable.contains(word),
+                  !taskVerbs.contains(where: { word.hasPrefix($0) }),
+                  !dayWords.contains(word),
+                  !aspirationWords.contains(word)
+            else { continue }
+            return LifeCategory(named: word)
+        }
+        return nil
     }
 
     /// Short, no verb, and not a common noun — the shape of a film or a
@@ -584,35 +840,27 @@ enum FieldClassifier {
     // category logic. That specificity is the entire product."
 
     static func reasoning(
-        for destination: FieldDestination,
+        for category: LifeCategory,
         input lowered: String,
         context: Context
     ) -> String {
-        switch destination {
-        case .life(let category):
-            var sentence = "A task with a day attached, so it went to Life."
-            if category == .care,
-               let slipping = context.rhythms.first(where: {
-                   $0.health == .slipping
-               }) {
-                let weeks = weeksSince(slipping.lastOccurred, context: context)
-                sentence += " I tied it to \(slipping.title.lowercased()) — "
-                    + "the rhythm that has been slipping \(weeks.spelled) weeks."
-            } else {
-                sentence += " I put it where the rest of your "
-                    + "\(category.rawValue) already sits."
-            }
-            return sentence
+        // Naming what it is *not* matters more than naming what it is. The
+        // couple gave nothing here; the app grew a heading on its own, and it
+        // should say so plainly enough to be argued with.
+        guard context.lifeCategories.contains(category) else {
+            let existing = context.lifeCategories
+                .prefix(3)
+                .map(\.word)
+                .joined(separator: ", ")
+            return "This didn't sit with \(existing), so I started "
+                + "\(category.word). If that's wrong, move it and I'll drop it."
+        }
 
-        case .ours(.eating):
-            return "Not a task and not a goal. It went to what you are both "
-                + "hungry for, and it will show up when you are deciding "
-                + "\(nextDecisionDay(context))."
+        let hasDay = dayWords.contains { lowered.contains($0) }
 
-        case .ours(.watchlist):
-            let unwatched = context.oursItems.filter {
-                $0.list == .watchlist && !$0.isStandingNote
-            }.count + 1
+        switch category {
+        case .watchlist:
+            let unwatched = openItems(in: .watchlist, context: context).count + 1
             var sentence = "A film, so it joined the list you share. "
                 + "\(unwatched.spelled.capitalized) unwatched now"
             if let stretch = upcomingStretch(context) {
@@ -622,25 +870,83 @@ enum FieldClassifier {
             }
             return sentence
 
-        case .ours(.places):
-            return "A place rather than a plan. It sits in Ours until one of "
-                + "you gives it a date, and I'll bring it back when a horizon "
-                + "needs an idea."
+        case .food where !hasDay:
+            return "No day on it, so I read it as an appetite rather than an "
+                + "errand. It'll come back when you're deciding "
+                + "\(nextDecisionDay(context))."
 
-        case .ours(.someday):
-            return "I couldn't tie this to a week or a horizon, so I kept it "
+        case .trips:
+            // Named, when there is a name to use. The reasoning has to
+            // reference this couple's actual state — a sentence about "a
+            // place" could have been written about anybody.
+            if let horizon = matchesHorizon(lowered, context: context) {
+                let title = horizon.title.trimmingCharacters(
+                    in: CharacterSet(charactersIn: ",. ")
+                )
+                return "You're already headed for \(title), so this sits with "
+                    + "the rest of it — in Trips, where you can see it, not "
+                    + "filed away somewhere you'd have to remember to look."
+            }
+
+            var sentence = "A place, not a plan. It sits in Trips with no date "
+                + "on it"
+            let mentioned = openItems(in: .trips, context: context).count + 1
+            if mentioned >= 3 {
+                sentence += " — that's \(mentioned.spelled) now, so at some "
+                    + "point I'll ask whether one of them is real."
+            } else {
+                sentence += ", and if it starts looking real I'll ask."
+            }
+            return sentence
+
+        case .buys:
+            return "Something to get rather than something to do. It waits "
+                + "with the rest of what you need ordered."
+
+        case .talk:
+            let open = openItems(in: .talk, context: context).count + 1
+            var sentence = "You asked something rather than named a task, so "
+                + "there's no date on it and nothing will chase you about it. "
+                + "I'll keep it where you can both see it"
+            if open >= 3 {
+                sentence += " — that's \(open.spelled) open now, so one of "
+                    + "them is probably worth an evening."
+            } else {
+                sentence += "."
+            }
+            return sentence
+
+        case .notes:
+            return "I couldn't tie this to a week or a list, so I kept it "
                 + "rather than guessing. It'll surface when something makes "
                 + "it relevant."
 
-        case .usHorizons:
-            if let horizon = matchesHorizon(lowered, context: context) {
-                return "This is about where you are going, not this week. I "
-                    + "filed it against the \(horizon.title.trimmingCharacters(in: CharacterSet(charactersIn: ","))) "
-                    + "horizon as a leaning, not a decision."
+        case .care:
+            if let slipping = context.rhythms.first(where: {
+                $0.health == .slipping
+            }) {
+                let weeks = weeksSince(slipping.lastOccurred, context: context)
+                return "Something for one of them, so it went to Care. I tied "
+                    + "it to \(slipping.title.lowercased()) — the rhythm that "
+                    + "has been slipping \(weeks.spelled) weeks."
             }
-            return "This is about where you are going, not this week. I've "
-                + "started a horizon for it — name a season when you're ready."
+            return "Something for one of them, so it went to Care, where the "
+                + "rest of what you two look after already sits."
+
+        default:
+            let opening = hasDay
+                ? "A task with a day attached."
+                : "A thing to do, with no day on it yet."
+            return opening + " I put it where the rest of your "
+                + "\(category.rawValue) already sits."
         }
+    }
+
+    private static func openItems(
+        in category: LifeCategory,
+        context: Context
+    ) -> [LifeItem] {
+        context.lifeItems.filter { $0.category == category && !$0.isDone }
     }
 
     private static func weeksSince(_ date: Date?, context: Context) -> Int {
@@ -688,10 +994,10 @@ enum FieldClassifier {
 
     // MARK: Learning
 
-    private static func learnedDestination(
+    private static func learnedCategory(
         for lowered: String,
         context: Context
-    ) -> (destination: FieldDestination, reasoning: String)? {
+    ) -> (category: LifeCategory, reasoning: String)? {
         let similar = context.corrections.filter {
             overlap($0.input.lowercased(), lowered) >= 0.5
         }
@@ -716,54 +1022,371 @@ enum FieldClassifier {
 
     private static func receipt(
         _ input: String,
-        destination: FieldDestination,
+        category: LifeCategory,
         reasoning: String,
         context: Context
     ) -> FieldReceipt {
-        FieldReceipt(
+        // Routing reads the sentence; filing reads the thought. Tidying runs
+        // after the route is decided, so removing "reminder to" can never
+        // change where something goes.
+        let phrasing = FieldPhrasing.tidy(
+            input,
+            now: context.now,
+            calendar: context.calendar
+        )
+
+        return FieldReceipt(
             id: UUID().uuidString,
             input: input,
-            destination: destination,
+            title: phrasing.title,
+            dueOn: category.carriesDates ? phrasing.dueOn : nil,
+            category: category,
             reasoning: reasoning,
-            accent: accent(for: destination, context: context),
+            // The receipt's 2pt left border takes the speaker's colour.
+            // Nothing is filed jointly any more, because nothing crosses into
+            // a shared space that has to be reached by both of you.
+            accent: context.speaker,
             acknowledged: false,
             wasCorrected: false
         )
     }
 
-    /// The receipt's 2px left border takes the destination's colour. Life and
-    /// Ours take the speaker's; a horizon is shared by definition.
-    private static func accent(
-        for destination: FieldDestination,
-        context: Context
-    ) -> FieldOwner {
-        switch destination {
-        case .usHorizons: .shared
-        default: context.speaker
-        }
-    }
-
-    /// One tap to a corrected destination. The correction becomes training
-    /// signal that surfaces later in the correction receipt (6a).
+    /// One tap to a corrected category. The correction becomes training signal
+    /// that surfaces later in the correction receipt (6a).
     static func correct(
         _ receipt: FieldReceipt,
-        to destination: FieldDestination,
+        to category: LifeCategory,
         context: Context
     ) -> (receipt: FieldReceipt, correction: FieldCorrection) {
         var corrected = receipt
-        corrected.destination = destination
+        corrected.category = category
         corrected.wasCorrected = true
+        // Moving into a category that keeps dates recovers the day the
+        // phrasing named; moving into one that does not drops it, rather than
+        // putting a due date on a film.
+        corrected.dueOn = category.carriesDates
+            ? FieldPhrasing.tidy(
+                receipt.input,
+                now: context.now,
+                calendar: context.calendar
+            ).dueOn
+            : nil
         corrected.reasoning = "Moved. I'll file this shape of thing here from "
             + "now on, and I'll tell you what it changed."
 
         let correction = FieldCorrection(
             id: UUID().uuidString,
             input: receipt.input,
-            original: receipt.destination,
-            corrected: destination,
+            original: receipt.category,
+            corrected: category,
             correctedAt: context.now
         )
         return (corrected, correction)
+    }
+}
+
+// MARK: - What to suggest under the field
+//
+// The four phrases under the capture field started life as a demo affordance —
+// the same four strings whatever was going on, for whoever was holding the
+// phone. Four constants under an input that claims to know this couple is the
+// one place in the app that most obviously does not.
+//
+// So they are read from state: a stretch someone is about to leave for, a
+// rhythm that has slipped, an occasion with nothing bought for it, a horizon
+// with no ideas attached. The canned four survive only as the honest fallback
+// — a couple on their first day has nothing to intuit from, and inventing a
+// suggestion for them would be exactly the failure this replaces.
+
+enum FieldCaptureSuggestions {
+    struct Context {
+        var now: Date
+        var lifeItems: [LifeItem]
+        var clusters: [FieldCluster]
+        var horizons: [FieldHorizon]
+        var rhythms: [FieldRhythm]
+        var partners: [FieldPartner]
+        var calendar: Calendar = .gregorianUS
+
+        func open(_ category: LifeCategory) -> [LifeItem] {
+            lifeItems.filter { $0.category == category && !$0.isDone }
+        }
+
+        /// Whether this couple has given the app anything to be specific
+        /// about. Absence is never itself a signal.
+        var hasSomethingToReadFrom: Bool {
+            !lifeItems.isEmpty || !clusters.isEmpty || !horizons.isEmpty
+                || !rhythms.isEmpty || !partners.isEmpty
+        }
+    }
+
+    /// Four fits two lines on the narrowest phone. More is a menu, and a menu
+    /// under a text field tells people to pick rather than to speak.
+    static let limit = 4
+
+    static func suggest(_ context: Context) -> [String] {
+        // Nothing written down, nothing to read. Checked once, here, rather
+        // than left to each rule: two of them independently treated an empty
+        // list as evidence of a thin list, which is how a couple on their
+        // first day got told what to have for dinner on Friday by an app that
+        // had never met them.
+        guard context.hasSomethingToReadFrom else {
+            return FieldSampleData.canonicalInputs
+        }
+
+        var phrases: [String] = []
+
+        for candidate in [
+            packing(context),
+            slippingRhythm(context),
+            occasion(context),
+            decisionNight(context),
+            horizonIdea(context),
+            emptyWatchlist(context),
+        ] {
+            guard let candidate,
+                  !phrases.contains(where: {
+                      $0.caseInsensitiveCompare(candidate) == .orderedSame
+                  })
+            else { continue }
+            phrases.append(candidate)
+            if phrases.count == limit { break }
+        }
+
+        // Nothing to read yet. Say the four that teach the field what it is
+        // for, rather than half a screen of guesses about strangers.
+        return phrases.isEmpty ? FieldSampleData.canonicalInputs : phrases
+    }
+
+    /// Someone is leaving within the fortnight and nothing about it is filed.
+    private static func packing(_ context: Context) -> String? {
+        let soon = context.partners
+            .flatMap(\.awayWindows)
+            .filter {
+                $0.start > context.now
+                    && days(from: context.now, to: $0.start, context) <= 14
+            }
+            .sorted { $0.start < $1.start }
+
+        guard let next = soon.first, let place = next.place else { return nil }
+        let phrase = "pack for \(place.lowercased())"
+        guard !mentioned(place, in: context) else { return nil }
+        return phrase
+    }
+
+    /// A rhythm that has slipped is the app's own evidence that something is
+    /// being forgotten. Offering it back is the least it can do with that.
+    private static func slippingRhythm(_ context: Context) -> String? {
+        guard let slipping = context.rhythms.first(where: {
+            $0.health == .slipping
+        }) else { return nil }
+
+        let subject = slipping.title.lowercased()
+        guard !mentioned(subject, in: context) else { return nil }
+        return "\(subject) this week"
+    }
+
+    /// An occasion inside three weeks with nothing bought for it.
+    private static func occasion(_ context: Context) -> String? {
+        let upcoming = context.clusters
+            .compactMap { cluster -> (FieldCluster, Int)? in
+                guard let date = cluster.anchorDate else { return nil }
+                let delta = days(from: context.now, to: date, context)
+                guard delta >= 0, delta <= 21 else { return nil }
+                return (cluster, delta)
+            }
+            .sorted { $0.1 < $1.1 }
+
+        guard let (cluster, _) = upcoming.first else { return nil }
+
+        let alreadyHandled = context.lifeItems.contains {
+            $0.clusterID == cluster.id
+                && !$0.isDone
+                && $0.title.localizedCaseInsensitiveContains("gift")
+        }
+        guard !alreadyHandled else { return nil }
+        return "gift for \(cluster.title.lowercased())"
+    }
+
+    /// Friday is the couple's decision night. Before it, with the eating list
+    /// thin, the useful thing to say is what they feel like.
+    private static func decisionNight(_ context: Context) -> String? {
+        let weekday = context.calendar.component(.weekday, from: context.now)
+        // Wednesday through Friday — near enough that dinner is a live
+        // question, not a hypothetical.
+        guard (4...6).contains(weekday) else { return nil }
+
+        guard context.open(.food).count < 3 else { return nil }
+        return "dinner friday"
+    }
+
+    /// A horizon nobody has put an idea against yet.
+    private static func horizonIdea(_ context: Context) -> String? {
+        let horizon = context.horizons.first(where: \.isPrimary)
+            ?? context.horizons.first
+        guard let horizon, horizon.linkedLifeItemIDs.count < 2 else {
+            return nil
+        }
+
+        let subject = horizon.title
+            .trimmingCharacters(in: CharacterSet(charactersIn: ",. "))
+            .lowercased()
+        guard !subject.isEmpty else { return nil }
+        return "\(subject) ideas"
+    }
+
+    private static func emptyWatchlist(_ context: Context) -> String? {
+        guard context.open(.watchlist).isEmpty else { return nil }
+        return "something to watch"
+    }
+
+    // MARK: Reading the state
+
+    /// Whether this couple has already said something about a subject. A
+    /// suggestion for a thing already filed is the app not having read its own
+    /// screen.
+    private static func mentioned(_ subject: String, in context: Context) -> Bool {
+        context.lifeItems.contains {
+            !$0.isDone && $0.title.localizedCaseInsensitiveContains(subject)
+        }
+    }
+
+    private static func days(
+        from: Date,
+        to: Date,
+        _ context: Context
+    ) -> Int {
+        context.calendar.dateComponents(
+            [.day],
+            from: context.calendar.startOfDay(for: from),
+            to: context.calendar.startOfDay(for: to)
+        ).day ?? 0
+    }
+}
+
+// MARK: - This week
+//
+// The handful of things with a date on them, at the top of Life.
+//
+// Today and this section read the same state at different resolutions, and
+// that is the whole distinction between the two screens: **Today shows the one
+// thing**, full width, because a person who opens the app should be told what
+// to do and not handed a list. **Life shows the set**, because a person who
+// has gone looking wants to see the shape of the week.
+//
+// It is grouped by occasion rather than by date or category, which is the rule
+// the Reminders takeover was built on before this replaced it: "categories are
+// a filing system; occasions are how people actually think." An occasion names
+// itself and the thing it is waiting on — "Dylan's wedding — Rhinebeck, drive
+// or train" — and never invents an errand nobody wrote down.
+
+enum FieldTimely {
+    struct Nudge: Identifiable, Hashable, Sendable {
+        let id: String
+        /// "Ryan's dad in town". The occasion, or the item itself when there
+        /// is no occasion to name.
+        var occasion: String
+        /// What it is waiting on. Nil when the occasion is the whole story.
+        var ask: String?
+        var tint: FieldOwner
+        var dueOn: Date?
+    }
+
+    /// Four. Above that it stops being the shape of a week and becomes a list,
+    /// and Life already has somewhere for lists.
+    static let limit = 4
+
+    /// How far ahead "this week" reaches. Ten days rather than seven: a
+    /// Saturday wedding stops being news on the Sunday before it, and that is
+    /// exactly when there is still time to do something about it.
+    static let horizonInDays = 10
+
+    static func nudges(_ context: FieldTodaySelector.Context) -> [Nudge] {
+        var nudges = occasions(context)
+
+        // Dated things nobody has attached to an occasion. They are timely by
+        // themselves, so they are named by themselves.
+        let claimed = Set(
+            context.clusters.flatMap { $0.items(from: context.lifeItems) }
+                .map(\.id)
+        )
+        for item in soon(context) where !claimed.contains(item.id) {
+            nudges.append(
+                Nudge(
+                    id: item.id,
+                    occasion: item.title,
+                    ask: nil,
+                    tint: item.owner,
+                    dueOn: item.dueOn
+                )
+            )
+        }
+
+        return Array(
+            nudges
+                .sorted { left, right in
+                    switch (left.dueOn, right.dueOn) {
+                    case let (l?, r?): return l < r
+                    case (nil, _): return false
+                    case (_, nil): return true
+                    }
+                }
+                .prefix(limit)
+        )
+    }
+
+    private static func occasions(
+        _ context: FieldTodaySelector.Context
+    ) -> [Nudge] {
+        context.clusters.compactMap { cluster -> Nudge? in
+            let open = cluster.items(from: context.lifeItems)
+                .filter { !$0.isDone }
+                .sorted {
+                    $0.pressure(now: context.now, calendar: context.calendar)
+                        > $1.pressure(now: context.now, calendar: context.calendar)
+                }
+
+            // An occasion with nothing open is an occasion that has been
+            // handled. Saying its name anyway would be the app taking credit
+            // for a quiet week.
+            guard let leading = open.first else { return nil }
+
+            let anchor = cluster.anchorDate ?? leading.dueOn
+            guard let anchor, within(anchor, of: context) else { return nil }
+
+            return Nudge(
+                id: cluster.id,
+                occasion: cluster.title,
+                ask: leading.title,
+                tint: cluster.tint,
+                dueOn: anchor
+            )
+        }
+    }
+
+    private static func soon(
+        _ context: FieldTodaySelector.Context
+    ) -> [LifeItem] {
+        context.lifeItems.filter { item in
+            guard !item.isDone, item.clusterID == nil else { return false }
+            guard let dueOn = item.dueOn else { return false }
+            return within(dueOn, of: context)
+        }
+    }
+
+    /// Inside the window, and not already behind us by more than a day.
+    /// Something a fortnight overdue is upkeep, not news — it belongs in its
+    /// category, where the room can say so quietly.
+    private static func within(
+        _ date: Date,
+        of context: FieldTodaySelector.Context
+    ) -> Bool {
+        let days = context.calendar.dateComponents(
+            [.day],
+            from: context.calendar.startOfDay(for: context.now),
+            to: context.calendar.startOfDay(for: date)
+        ).day ?? 0
+        return days >= -1 && days <= horizonInDays
     }
 }
 
@@ -902,6 +1525,305 @@ enum FieldMomentScheduler {
     }
 }
 
+// MARK: - How something becomes a horizon
+//
+// Us is not a place you can file to. There is no button, no destination, and
+// no branch of the classifier that reaches it — a trip you mention goes into
+// Trips with everything else you have mentioned.
+//
+// It becomes a horizon exactly one way: the app notices you have said the same
+// thing more than once, asks a single question about it, and you answer yes.
+// Then a horizon appears in Us, linked to the Life items it came from — and
+// **those items stay in Life.** A horizon is a reading of things already
+// written down, not a copy of them somewhere else. If it moved them, the list
+// where you actually look for it would quietly empty itself out.
+//
+// Saying "not this year" is a real answer and gets a real consequence: the
+// subject is held (6d), so the app stops asking. Timing is most of tact.
+
+enum FieldPromotion {
+    struct Proposal: Identifiable, Hashable, Sendable {
+        var id: String
+        /// "Japan" — the subject both mentions share.
+        var subject: String
+        var category: LifeCategory
+        /// The Life items this came from. They do not move.
+        var itemIDs: [String]
+        var question: FieldQuestion
+
+        var affirmative: FieldChoice? { question.choices.first }
+    }
+
+    /// Twice. Once is a passing remark, and asking about a passing remark is
+    /// the app manufacturing a conversation.
+    static let minimumMentions = 2
+
+    static func proposal(_ context: FieldTodaySelector.Context) -> Proposal? {
+        // Only from the categories that hold no dates. A thing with a date is
+        // already a plan; asking whether you plan to do it would be absurd.
+        let candidates = context.lifeItems.filter {
+            !$0.isDone && !$0.category.carriesDates
+        }
+
+        var bySubject: [String: [LifeItem]] = [:]
+        for item in candidates {
+            guard let subject = subject(of: item) else { continue }
+            bySubject[subject, default: []].append(item)
+        }
+
+        let ranked = bySubject
+            .filter { $0.value.count >= minimumMentions }
+            .sorted { left, right in
+                left.value.count == right.value.count
+                    ? left.key < right.key
+                    : left.value.count > right.value.count
+            }
+
+        for (subject, items) in ranked {
+            // Already asked and answered, or held. The app does not ask twice.
+            guard !isHeld(subject, in: context),
+                  !hasHorizon(subject, in: context)
+            else { continue }
+
+            return Proposal(
+                id: "promote:\(subject)",
+                subject: subject.capitalized,
+                category: items[0].category,
+                itemIDs: items.map(\.id),
+                question: question(
+                    subject: subject.capitalized,
+                    mentions: items.count,
+                    context: context
+                )
+            )
+        }
+        return nil
+    }
+
+    /// The one thing worth asking, asked once.
+    ///
+    /// The stakes line names what is actually at issue — that a thing said
+    /// twice is either real or it isn't, and the app cannot tell from the
+    /// outside. Two choices, never three: this is a question about intent, and
+    /// intent does not have a middle.
+    private static func question(
+        subject: String,
+        mentions: Int,
+        context: FieldTodaySelector.Context
+    ) -> FieldQuestion {
+        let year = context.calendar.component(.year, from: context.now)
+
+        return FieldQuestion(
+            id: "promote:\(subject.lowercased())",
+            prompt: "Is \(subject) something you're actually doing?",
+            stakes: "If it is, I'll start keeping track of what moves it. If "
+                + "it isn't, it stays on the list and I stop asking.",
+            reasoning: "You've both mentioned \(subject) \(mentions.spelled) "
+                + "times and neither of you has put a date on it. That's the "
+                + "only reason I'm asking.",
+            choices: [
+                FieldChoice(
+                    id: "promote:\(subject.lowercased()):yes",
+                    title: "Yes, by \(year + 1)",
+                    tint: .a
+                ),
+                FieldChoice(
+                    id: "promote:\(subject.lowercased()):no",
+                    title: "Not this year",
+                    tint: .b
+                ),
+            ]
+        )
+    }
+
+    /// The first substantial word of a title, which for a place or a title is
+    /// the thing itself: "Japan in the fall" and "Japan flights" share Japan.
+    static func subject(of item: LifeItem) -> String? {
+        let words = item.title.lowercased()
+            .split(whereSeparator: { !$0.isLetter })
+            .map(String.init)
+
+        return words.first { $0.count >= 4 && !stopWords.contains($0) }
+    }
+
+    private static let stopWords: Set<String> = [
+        "the", "some", "that", "this", "with", "from", "about", "book",
+        "maybe", "something", "another", "trip", "visit", "weekend", "watch",
+    ]
+
+    private static func isHeld(
+        _ subject: String,
+        in context: FieldTodaySelector.Context
+    ) -> Bool {
+        context.heldTopics.contains {
+            $0.isHeld && $0.title.localizedCaseInsensitiveContains(subject)
+        }
+    }
+
+    private static func hasHorizon(
+        _ subject: String,
+        in context: FieldTodaySelector.Context
+    ) -> Bool {
+        context.horizons.contains {
+            $0.title.localizedCaseInsensitiveContains(subject)
+        }
+    }
+}
+
+// MARK: - Headings inside a room
+//
+// What a category does when it gets big.
+//
+// It does not split. A dense Trips becoming Trips and International Trips
+// would hand the couple a hierarchy to maintain, and hierarchy is what makes
+// filing systems confusing — the exact problem this whole change exists to
+// remove. Instead the *room* groups itself under headings it derives, which
+// re-form as the contents change and are never stored anywhere.
+//
+// It only groups along a dimension it can actually source. There is no generic
+// fallback: a room with nothing real to divide it by renders flat, because
+// headings invented to justify the feature are worse than no headings at all.
+// It never groups by owner — a heading reading "Yours" over a list of chores
+// is a comparison between two people wearing an organisational hat.
+
+enum FieldGrouping {
+    /// A heading needs to earn its line. Two items under it is a heading with
+    /// nothing to organise.
+    static let minimumPerGroup = 2
+
+    static func groups(
+        _ items: [LifeItem],
+        context: FieldTodaySelector.Context
+    ) -> [FieldCategoryDigest.Group] {
+        guard items.count >= minimumPerGroup * 2 else { return [] }
+
+        // A category where most things carry a date is organised by when.
+        // Nothing else competes with that — "next week" is the reason a person
+        // opened the room.
+        let dated = items.filter { $0.dueOn != nil }
+        if dated.count * 2 > items.count {
+            return byTime(items, context: context)
+        }
+
+        for dimension in [byDistance, byForm] {
+            let grouped = dimension(items)
+            if grouped.count >= 2 { return grouped }
+        }
+        return []
+    }
+
+    // MARK: When
+
+    private static func byTime(
+        _ items: [LifeItem],
+        context: FieldTodaySelector.Context
+    ) -> [FieldCategoryDigest.Group] {
+        var buckets: [(heading: String, items: [LifeItem])] = [
+            ("This week", []), ("This month", []), ("Later", []), ("No date", []),
+        ]
+
+        for item in items {
+            guard let dueOn = item.dueOn else {
+                buckets[3].items.append(item)
+                continue
+            }
+            let days = context.calendar.dateComponents(
+                [.day],
+                from: context.calendar.startOfDay(for: context.now),
+                to: context.calendar.startOfDay(for: dueOn)
+            ).day ?? 0
+
+            switch days {
+            case ..<8: buckets[0].items.append(item)
+            case 8..<32: buckets[1].items.append(item)
+            default: buckets[2].items.append(item)
+            }
+        }
+
+        return assemble(buckets)
+    }
+
+    // MARK: Where
+
+    private static let abroad = [
+        "japan", "tokyo", "kyoto", "italy", "rome", "florence", "paris",
+        "france", "lisbon", "portugal", "spain", "barcelona", "madrid",
+        "mexico", "iceland", "greece", "london", "thailand", "vietnam",
+        "korea", "seoul", "berlin", "amsterdam", "morocco", "peru", "chile",
+    ]
+    private static let athome = [
+        "upstate", "hamptons", "brooklyn", "queens", "vermont", "maine",
+        "catskills", "hudson", "chicago", "california", "texas", "florida",
+        "montauk", "cape cod", "big sur", "road trip", "rhinebeck",
+    ]
+
+    private static func byDistance(
+        _ items: [LifeItem]
+    ) -> [FieldCategoryDigest.Group] {
+        var buckets: [(heading: String, items: [LifeItem])] = [
+            ("Abroad", []), ("Closer to home", []), ("Everything else", []),
+        ]
+
+        for item in items {
+            let title = item.title.lowercased()
+            if abroad.contains(where: { title.contains($0) }) {
+                buckets[0].items.append(item)
+            } else if athome.contains(where: { title.contains($0) }) {
+                buckets[1].items.append(item)
+            } else {
+                buckets[2].items.append(item)
+            }
+        }
+
+        // Only a real split counts. Everything landing in "Everything else" is
+        // the app failing to recognise anything, dressed up as organisation.
+        guard !buckets[0].items.isEmpty, !buckets[1].items.isEmpty else {
+            return []
+        }
+        return assemble(buckets)
+    }
+
+    // MARK: What shape
+
+    private static let episodic = [
+        "season", " s1", " s2", " s3", " s4", " s5", "series", "show",
+        "episode", "documentary", "docuseries",
+    ]
+
+    private static func byForm(
+        _ items: [LifeItem]
+    ) -> [FieldCategoryDigest.Group] {
+        var buckets: [(heading: String, items: [LifeItem])] = [
+            ("An evening", []), ("Something longer", []),
+        ]
+
+        for item in items {
+            let title = item.title.lowercased()
+            if episodic.contains(where: { title.contains($0) }) {
+                buckets[1].items.append(item)
+            } else {
+                buckets[0].items.append(item)
+            }
+        }
+
+        guard buckets.allSatisfy({ $0.items.count >= minimumPerGroup }) else {
+            return []
+        }
+        return assemble(buckets)
+    }
+
+    private static func assemble(
+        _ buckets: [(heading: String, items: [LifeItem])]
+    ) -> [FieldCategoryDigest.Group] {
+        let filled = buckets.filter { !$0.items.isEmpty }
+        // One heading over everything is not a grouping, it is a title.
+        guard filled.count >= 2 else { return [] }
+        return filled.map {
+            FieldCategoryDigest.Group(heading: $0.heading, items: $0.items)
+        }
+    }
+}
+
 // MARK: - A category, read closely
 //
 // What a Life category room shows. Life itself stays calm and enumerates
@@ -921,15 +1843,39 @@ enum FieldCategoryDigest {
         var id: String { item.id }
     }
 
+    /// A heading inside a room, and the things under it.
+    struct Group: Identifiable, Hashable, Sendable {
+        var heading: String
+        var items: [LifeItem]
+
+        var id: String { heading }
+    }
+
     struct Result: Hashable, Sendable {
         /// Ranked, explained, and never more than `pressingLimit`.
         var pressing: [Row]
         /// Everything else, in the same ranked order. Titles only.
         var quiet: [LifeItem]
+        /// The quiet band, divided under derived headings. Empty below the
+        /// density threshold, or whenever no honest dimension exists — in
+        /// which case the room renders `quiet` flat, exactly as before.
+        var groups: [Group] = []
 
         var isEmpty: Bool { pressing.isEmpty && quiet.isEmpty }
         var total: Int { pressing.count + quiet.count }
     }
+
+    /// Above this many open items, a flat list stops being readable and the
+    /// room starts grouping itself.
+    ///
+    /// Grouping rather than splitting, deliberately. Splitting Trips into
+    /// Trips and International Trips would introduce a hierarchy — folders
+    /// inside folders — which is the thing that makes filing systems confusing
+    /// in the first place. A heading inside one room organises the same
+    /// content with no new category, no navigation depth, and nothing for
+    /// anybody to maintain. The headings re-form as the contents change, and
+    /// nothing about them is stored.
+    static let densityThreshold = 8
 
     /// Three is a judgement, not a constraint of the data: a category having a
     /// terrible week should still open to something a person can read in one
@@ -993,7 +1939,14 @@ enum FieldCategoryDigest {
             }
         }
 
-        return Result(pressing: pressing, quiet: quiet + unranked)
+        let rest = quiet + unranked
+        return Result(
+            pressing: pressing,
+            quiet: rest,
+            groups: pressing.count + rest.count > densityThreshold
+                ? FieldGrouping.groups(rest, context: context)
+                : []
+        )
     }
 
     /// One short line, true when read beside four others.
@@ -1100,19 +2053,17 @@ enum FieldLearning {
     ) -> [FieldBehaviourChange] {
         var changes: [FieldBehaviourChange] = []
 
-        // Repeated Life → Ours moves on food mean the app was treating
-        // appetite as an obligation.
-        let foodToOurs = corrections.filter {
-            if case .life(.food) = $0.original,
-               case .ours = $0.corrected { return true }
-            return false
+        // Repeated moves *out of* a dated category mean the app was reading
+        // appetite as obligation — treating "steak" as an errand.
+        let datedToDateless = corrections.filter {
+            $0.original.carriesDates && !$0.corrected.carriesDates
         }
-        if foodToOurs.count >= 2 {
+        if datedToDateless.count >= 2 {
             changes.append(
                 FieldBehaviourChange(
-                    id: "food-to-ours",
-                    observation: "You told me “not a task” \(foodToOurs.count.spelled) times",
-                    change: "Food you mention now goes to Ours, not to Life.",
+                    id: "not-a-task",
+                    observation: "You told me “not a task” \(datedToDateless.count.spelled) times",
+                    change: "Things you mention without a day stay undated now.",
                     outcome: "“Steak” is an appetite. “Groceries” is a task. "
                         + "I can tell them apart now.",
                     accent: .a
@@ -1120,22 +2071,20 @@ enum FieldLearning {
             )
         }
 
-        // Anything moved out of Life entirely means the app was inventing.
+        // Repeated moves into Trips mean the app was reading a plan as an
+        // errand — the thing people are least willing to have wrong.
         let deletions = corrections.filter {
-            if case .life = $0.original, case .usHorizons = $0.corrected {
-                return true
-            }
-            return false
+            $0.original != .trips && $0.corrected == .trips
         }
         if deletions.count >= 2 {
             changes.append(
                 FieldBehaviourChange(
                     id: "stopped-inventing",
-                    observation: "You deleted invented plans \(deletions.count.spelled) times",
-                    change: "I don't invent plans anymore. I only suggest from "
-                        + "what you've actually said.",
-                    outcome: "That's why Friday came out of Ours, not out of "
-                        + "thin air.",
+                    observation: "You moved \(deletions.count.spelled) things into Trips",
+                    change: "A place with no date is a trip you mentioned, not "
+                        + "an errand. I file it that way now.",
+                    outcome: "And when one of them starts looking real, I ask "
+                        + "rather than deciding.",
                     accent: .b
                 )
             )

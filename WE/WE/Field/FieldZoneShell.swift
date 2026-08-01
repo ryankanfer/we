@@ -45,14 +45,14 @@ struct FieldZoneShell: View {
 
             pager
 
-            if !store.remindersOpen {
+            if !store.calendarOpen {
                 navigationBar
                     .frame(maxHeight: .infinity, alignment: .bottom)
                     .transition(.opacity)
             }
 
-            if store.remindersOpen {
-                FieldRemindersTakeover(store: store)
+            if store.calendarOpen {
+                FieldCalendarSurface(store: store)
                     .transition(.opacity)
                     .zIndex(20)
             }
@@ -60,7 +60,7 @@ struct FieldZoneShell: View {
         .preferredColorScheme(.dark)
         .environment(store)
         .animation(.fieldZone(reduceMotion), value: store.activeZone)
-        .animation(.fieldZone(reduceMotion), value: store.remindersOpen)
+        .animation(.fieldZone(reduceMotion), value: store.calendarOpen)
         .task { await store.load() }
         // Both directions matter: backgrounding is the last chance to write
         // an accurate moment, and foregrounding is when yesterday's may have
@@ -284,6 +284,11 @@ struct FieldZoneScaffold<Content: View>: View {
                 .padding(.bottom, FieldMetrics.screenBottom)
             }
             .scrollBounceBehavior(.basedOnSize)
+            // Scrolling away from the capture field puts the keyboard away
+            // with it. Without this, the only way out of a multi-line field is
+            // its own toolbar button — and a keyboard that will not leave is
+            // the loudest thing this app could possibly do.
+            .scrollDismissesKeyboard(.interactively)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

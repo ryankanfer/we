@@ -21,39 +21,18 @@ import Foundation
 
 // MARK: - Routing
 //
-// The rule that governs all content placement. Every captured string resolves
-// to exactly one of these.
-
-enum FieldDestination: Codable, Hashable, Sendable, CaseIterable {
-    /// An obligation, upkeep, or coordination.
-    case life(LifeCategory)
-    /// An appetite — a film, a restaurant, a place, a craving.
-    case ours(OursList)
-    /// An intention, aspiration, or progress.
-    case usHorizons
-
-    static var allCases: [FieldDestination] {
-        LifeCategory.allCases.map(FieldDestination.life)
-            + OursList.allCases.map(FieldDestination.ours)
-            + [.usHorizons]
-    }
-
-    /// Rendered on the receipt in the destination's own colour.
-    var label: String {
-        switch self {
-        case .life(let category): "LIFE · \(category.rawValue.uppercased())"
-        case .ours(let list): "OURS · \(list.rawValue.uppercased())"
-        case .usHorizons: "US · HORIZONS"
-        }
-    }
-
-    var zone: FieldZone {
-        switch self {
-        case .life: .life
-        case .ours, .usHorizons: .us
-        }
-    }
-}
+// There is one filing system, and it is Life's categories. Every captured
+// string resolves to exactly one of them.
+//
+// It used to resolve to one of three destinations — Life, Ours, or Us ·
+// Horizons — where Ours was a drawer *inside* Us that filed under its own
+// name. That is one destination too many and two names for one place: the
+// person who designed it could not reliably say whether Ours and Us were the
+// same thing, which settles the question of whether anybody else could.
+//
+// So Ours is gone, and **Us cannot be filed to at all.** Us is what Life
+// becomes when a question about it is answered — see `FieldPromotion`. The
+// receipt never names it, because nothing is ever sent there.
 
 enum FieldZone: Int, CaseIterable, Codable, Sendable, Identifiable {
     case life = 0
@@ -121,16 +100,172 @@ struct FieldAwayWindow: Identifiable, Codable, Hashable, Sendable {
 
 // MARK: - Life
 
-enum LifeCategory: String, CaseIterable, Codable, Sendable, Identifiable {
-    case food
-    case care
-    case calendar
-    case money
-    case home
+/// A Life category. Open, not closed.
+///
+/// Five are given, because a couple should not have to invent a taxonomy
+/// before they can file the first thing they say. Everything after that is
+/// earned: when a capture fits none of them, the classifier names one from
+/// what was actually said rather than dropping it into Calendar and calling
+/// that a decision.
+///
+/// It is a struct rather than an enum for exactly that reason — the set is not
+/// knowable at compile time. `builtIn` is the floor, `LifeStore.lifeCategories`
+/// is the truth at any moment.
+struct LifeCategory: RawRepresentable, Codable, Hashable, Sendable, Identifiable {
+    let rawValue: String
+
+    /// Non-failable so a decode can never lose an item. Anything unusable
+    /// lands in Notes, which is the category for a thing with no home.
+    init(rawValue: String) {
+        self.rawValue = Self.normalised(rawValue) ?? "notes"
+    }
+
+    /// Free text becoming a category — from the classifier, or from a person
+    /// typing one. Fails rather than inventing, so the caller can fall back.
+    init?(named raw: String) {
+        guard let normalised = Self.normalised(raw) else { return nil }
+        self.rawValue = normalised
+    }
+
+    static let care = LifeCategory(rawValue: "care")
+    static let food = LifeCategory(rawValue: "food")
+    static let trips = LifeCategory(rawValue: "trips")
+    static let watchlist = LifeCategory(rawValue: "watchlist")
+    static let buys = LifeCategory(rawValue: "buys")
+    static let money = LifeCategory(rawValue: "money")
+    static let home = LifeCategory(rawValue: "home")
+
+    /// Where anything lands that has a subject but no home. Grown rather than
+    /// given, so a couple who never needs it never sees the word.
+    static let notes = LifeCategory(rawValue: "notes")
+
+    /// Something one of them asked rather than something either has to do.
+    ///
+    /// A question with no date in it is not an errand, and filing it as one is
+    /// how "do we want to do Christmas at your parents?" ends up in a list
+    /// between the dry cleaning and the air filter. It is still filed — there
+    /// is one filing system and this is a category like any other — it simply
+    /// carries no date and nothing chases it.
+    ///
+    /// Grown rather than given, like Notes: a couple who never asks the app
+    /// anything never sees the word.
+    static let talk = LifeCategory(rawValue: "talk")
+
+    /// Words that cannot be a category, whatever a row says.
+    ///
+    /// Calendar was one of the given five until the calendar became a surface
+    /// of its own — a view of everything with a date, whatever list it is in.
+    /// Removing it from `builtIn` was not enough: categories are derived from
+    /// the items that carry them, so a single row still saying `calendar` puts
+    /// the word straight back on Life. This makes that impossible rather than
+    /// merely unlikely, whether the row is an old one, a hand-edit in the
+    /// table editor, or a future bug.
+    static let reserved: Set<String> = ["calendar"]
+
+    /// What you start with, in the order Life falls back to when nothing is
+    /// pressing: the ones you act on daily first, the ones you settle last.
+    ///
+    /// There is no Calendar here. A calendar is not a list of things — it is a
+    /// view of everything that has a date, whatever list it is in — so it
+    /// lives behind the pull on Life and owns nothing. See
+    /// `FieldCalendarSurface`.
+    static let builtIn: [LifeCategory] = [
+        .care, .food, .trips, .watchlist, .buys, .money, .home,
+    ]
+
+    var isBuiltIn: Bool { Self.builtIn.contains(self) }
+
+    /// Categories where a date would be a lie.
+    ///
+    /// A film is not due on Thursday. A trip with a date is not a list item at
+    /// all any more — it is a horizon, and the only way it becomes one is by
+    /// somebody answering the question the app asks about it. And a question
+    /// one of them asked is not due at all: putting a date on a conversation
+    /// is how it becomes a chore.
+    ///
+    /// This is the whole of what used to be the Ours/Life distinction. There
+    /// is no second type and no second table: an item with no date already
+    /// ranks about 0.24 against a surfacing threshold of 0.42, so it sits
+    /// there quietly for as long as it likes.
+    static let dateless: Set<LifeCategory> = [.watchlist, .trips, .talk]
+
+    var carriesDates: Bool { !Self.dateless.contains(self) }
 
     var id: String { rawValue }
 
-    var word: String { rawValue.capitalized }
+    var word: String {
+        rawValue.split(separator: " ")
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
+    }
+
+    /// Rendered on the receipt. It still names the zone, because Life is where
+    /// the thing will be when they go looking for it — but the zone is no
+    /// longer a choice, so it is the same word every time.
+    var label: String { "LIFE · \(rawValue.uppercased())" }
+
+    /// Reads a destination label written before there was one filing system.
+    ///
+    /// Correction rows round-trip through their label, and a couple's log
+    /// predates this change. An old `OURS · EATING` is a Food correction and
+    /// must still teach the classifier the same lesson it was recorded to
+    /// teach; dropping those rows would silently un-learn things people took
+    /// the trouble to tell the app.
+    init?(legacyLabel: String) {
+        let parts = legacyLabel.split(separator: "·", maxSplits: 1)
+            .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+        guard let zone = parts.first else { return nil }
+        let leaf = parts.dropFirst().first ?? ""
+
+        switch (zone, leaf) {
+        case ("us", _): self = .trips
+        case ("ours", "eating"): self = .food
+        case ("ours", "places"): self = .trips
+        case ("ours", "someday"): self = .notes
+        default:
+            guard let category = LifeCategory(named: leaf.isEmpty ? zone : leaf)
+            else { return nil }
+            self = category
+        }
+    }
+
+    /// One or two words. A category is a word you can put above a list, and
+    /// anything longer is a sentence pretending to be one.
+    static let characterLimit = 18
+
+    private static func normalised(_ raw: String) -> String? {
+        let words = raw.lowercased()
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .filter { $0.isLetter || $0 == " " }
+            .split(separator: " ")
+
+        // Refused, not truncated. Taking the first two words of "the whole of
+        // everything else" would file things under "The whole" — a heading
+        // nobody wrote, standing over a list nobody can predict. Better to
+        // fail and let the caller fall back.
+        guard (1...2).contains(words.count) else { return nil }
+
+        let cleaned = words.joined(separator: " ")
+        guard cleaned.count >= 3, cleaned.count <= characterLimit else {
+            return nil
+        }
+        guard !reserved.contains(cleaned) else { return nil }
+        return cleaned
+    }
+
+    // Codable by its raw value alone, so a category is a plain string in the
+    // database and stays readable in the table editor.
+    init(from decoder: any Decoder) throws {
+        self.init(
+            rawValue: try decoder.singleValueContainer().decode(String.self)
+        )
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 enum FieldItemSource: String, Codable, Sendable {
@@ -206,22 +341,6 @@ struct LifeItem: Identifiable, Codable, Hashable, Sendable {
     private static let dateCeiling = 0.8
 }
 
-/// A proposal built out of Ours — "WE MADE YOU A FRIDAY".
-///
-/// The type exists; nothing produces one yet. The handoff's example cites the
-/// lists, geography, a coincidence, and the calendar in one paragraph, and
-/// that specificity is the feature. A generator has to earn it from the
-/// couple's own state; until one does, `FieldStore.oursPayoff` returns nil and
-/// the card does not appear.
-struct FieldOursPayoff: Hashable, Sendable {
-    var label: String
-    var headline: String
-    var reasoning: String
-    var hold: String
-    var alternative: String
-    /// "Including 'Nothing at all. That's allowed.' — the app never insists."
-    var alsoPossible: [String]
-}
 
 /// What the app has to say about the week ahead, in its own voice.
 ///
@@ -268,82 +387,18 @@ struct FieldCluster: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
-// MARK: - Ours
+// MARK: - An appetite is just an undated item
 //
-// Not to-dos. Appetite. No dates, no completion, no pressure. This is the raw
-// material the intelligence uses when it needs an idea.
-
-enum OursList: String, CaseIterable, Codable, Sendable, Identifiable {
-    case watchlist
-    case eating
-    case places
-    case someday
-
-    var id: String { rawValue }
-
-    var label: String { rawValue.uppercased() }
-}
-
-/// A classification the model produces for taste-shaped input. "Tastes" is
-/// the receipt's wording for the eating list.
-extension OursList {
-    var receiptWord: String {
-        switch self {
-        case .eating: "TASTES"
-        default: label
-        }
-    }
-}
-
-struct OursItem: Identifiable, Codable, Hashable, Sendable {
-    let id: String
-    var title: String
-    var list: OursList
-    var addedBy: FieldOwner
-    var addedAt: Date
-    /// True when both partners added the same thing independently. The
-    /// highest-value inference in the app — surface these prominently.
-    var bothAdded: Bool
-    /// When both added it, the gap between the two additions, phrased.
-    var coincidenceNote: String?
-    /// An Ours item can be tagged to a horizon: Tokyo Story → Japan 2027.
-    var horizonID: String?
-    /// A standing note is a preference rather than an item — "Anything but a
-    /// musical". It never gets suggested, only respected.
-    var isStandingNote: Bool
-
-    var displayOwner: FieldOwner { bothAdded ? .shared : addedBy }
-
-    /// The mono provenance line under the title.
-    func provenance(
-        identity: FieldIdentity,
-        horizonTitle: String?,
-        now: Date = Date()
-    ) -> String {
-        if bothAdded, let coincidenceNote {
-            return coincidenceNote.uppercased()
-        }
-        if let horizonTitle {
-            return "TAGGED TO \(horizonTitle.uppercased())"
-        }
-        if isStandingNote {
-            return "\(identity.name(for: addedBy).uppercased()) · A STANDING NOTE"
-        }
-        return "\(identity.name(for: addedBy).uppercased()) · \(Self.relative(addedAt, now: now))"
-    }
-
-    private static func relative(_ date: Date, now: Date) -> String {
-        let seconds = now.timeIntervalSince(date)
-        if seconds < 3600 {
-            return "\(max(1, Int(seconds / 60))) MIN AGO"
-        }
-        if seconds < 86_400 * 6 {
-            let day = DateFormatter.fieldWeekday.string(from: date)
-            return day.uppercased()
-        }
-        return DateFormatter.fieldShortDate.string(from: date).uppercased()
-    }
-}
+// A film, a restaurant, a place, a craving: these used to be `OursItem`, a
+// second type with no dates, no completion and no pressure, living in a second
+// table behind a second name. The distinction turns out to need no type at
+// all.
+//
+// A `LifeItem` with no `dueOn` scores about 0.24 in `FieldTodaySelector.rank`,
+// against a surfacing threshold of 0.42 — it cannot become the one thing Today
+// asks of you, however long it sits there. Appetite is simply what an item
+// without a date already does. The one rule to keep is that nothing files a
+// date onto one; see `FieldClassifier.receipt`.
 
 // MARK: - Us
 
@@ -359,8 +414,10 @@ struct FieldHorizon: Identifiable, Codable, Hashable, Sendable {
     /// The thesis sentence under a primary horizon.
     var thesis: String?
     var targetDate: Date?
+    /// The Life items this horizon came from, and which stay in Life. A
+    /// horizon is a reading of things already written down, not a new copy of
+    /// them somewhere else.
     var linkedLifeItemIDs: [String]
-    var linkedOursItemIDs: [String]
     /// The single open question standing between a wish and a date.
     var openQuestion: FieldQuestion?
 
@@ -429,6 +486,13 @@ struct FieldAnchor: Identifiable, Codable, Hashable, Sendable {
 }
 
 /// A conversation still open, with no pressure to finish.
+///
+/// **Superseded, and nothing produces one.** An open conversation is now a
+/// Life item in `LifeCategory.talk`, read back by `FieldTodaySelector.watching`
+/// — which keeps one filing system rather than a second destination, and means
+/// a question can be found, moved, and finished exactly like anything else.
+/// A settled one is that item done, or a `FieldAnchor` if it was agreed.
+/// Left in place only so a stored state can still decode; do not build on it.
 struct FieldThread: Identifiable, Codable, Hashable, Sendable {
     let id: String
     var question: String
@@ -528,8 +592,8 @@ struct FieldStandingRule: Identifiable, Codable, Hashable, Sendable {
 struct FieldCorrection: Identifiable, Codable, Hashable, Sendable {
     let id: String
     var input: String
-    var original: FieldDestination
-    var corrected: FieldDestination
+    var original: LifeCategory
+    var corrected: LifeCategory
     var correctedAt: Date
 }
 
@@ -583,14 +647,30 @@ struct FieldDailyMoment: Codable, Hashable, Sendable {
 /// in one tap.
 struct FieldReceipt: Identifiable, Hashable, Sendable {
     let id: String
+    /// Exactly what was typed. Kept verbatim: it is what the correction log
+    /// learns from, and what the chip under the field shows back.
     var input: String
-    var destination: FieldDestination
+    /// What gets filed — the same thought, said once and plainly. "reminder to
+    /// call mom sunday" is stored as "Call mom", on Sunday.
+    var title: String
+    /// The day the phrasing named, if it named one.
+    var dueOn: Date?
+    /// Where it goes. One filing system, so this is a category and never a
+    /// zone — nothing is ever filed to Us.
+    var category: LifeCategory
     /// References this couple's actual state. That specificity is the entire
     /// product.
     var reasoning: String
     var accent: FieldOwner
     var acknowledged: Bool
     var wasCorrected: Bool
+
+    /// Shown under the destination when tidying actually changed something.
+    /// Silent when the title is the input, so the receipt does not narrate a
+    /// transformation that did not happen.
+    var wasRephrased: Bool {
+        title.compare(input, options: .caseInsensitive) != .orderedSame
+    }
 }
 
 /// A pill under the capture field — something caught this week.

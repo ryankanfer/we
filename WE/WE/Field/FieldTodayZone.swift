@@ -9,7 +9,7 @@
 //  computed property) rather than any field.
 //
 //  Three states, all designed:
-//    (a) Nothing needs you — the state to be proud of.
+//    (a) Today is clear — the state to be proud of.
 //    (b) Something needs you — one thing, full screen.
 //    (c) A question toward Us — two equal-weight tinted choices.
 //
@@ -66,13 +66,18 @@ struct FieldTodayZone: View {
         }
     }
 
-    // MARK: (a) Nothing needs you
+    // MARK: (a) Today is clear
     //
-    // "This screen must feel like a resolution, not an empty state."
+    // "This screen must feel like a resolution, not an empty state." Which is
+    // why the sentence is one — an absence phrased as an absence reads as the
+    // app having nothing to offer, and it has cleared the day.
 
-    /// "Nothing needs you here" — a real state, and the only thing above the
+    /// The resolved headline — a real state, and the only thing above the
     /// capture field. What the app is watching, and the horizon, follow the
     /// capture rather than separating it from the headline.
+    ///
+    /// Both strings are derived, so this renders whatever the intelligence
+    /// found true: a clear day, or an account it is still learning.
     private func resolvedHero(
         _ headline: String,
         _ detail: String
@@ -313,6 +318,11 @@ struct FieldMomentView: View {
         case .question(let question):
             if let choice = question.choices.first(where: { $0.id == action.id }) {
                 store.answer(question, with: choice)
+            } else if action.weight == .quiet {
+                // The escape is an answer too — it means "not now", and the
+                // app has to actually stop asking rather than re-raise it
+                // tomorrow as if nothing was said.
+                store.hold(question, reason: "You asked me to come back to it.")
             }
         case .statement:
             if action.weight == .filled {

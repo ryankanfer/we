@@ -24,7 +24,9 @@ protocol FieldBackend: Sendable {
     func append(_ capture: FieldCapture) async throws
     func record(_ correction: FieldCorrection) async throws
     func upsert(_ item: LifeItem) async throws
-    func upsert(_ item: OursItem) async throws
+    /// Answering a promotion question is the only way a horizon is ever
+    /// created, so this is the only route by which Us gains anything.
+    func upsert(_ horizon: FieldHorizon) async throws
     func answer(question: String, choice: String) async throws
     func setHeld(_ topic: FieldHeldTopic) async throws
     func setStandingRule(_ rule: FieldStandingRule) async throws
@@ -39,7 +41,6 @@ struct FieldState: Codable, Hashable, Sendable {
     var partners: [FieldPartner]
     var lifeItems: [LifeItem]
     var clusters: [FieldCluster]
-    var oursItems: [OursItem]
     var horizons: [FieldHorizon]
     var rhythms: [FieldRhythm]
     var anchors: [FieldAnchor]
@@ -78,7 +79,6 @@ struct FieldState: Codable, Hashable, Sendable {
             partners: [],
             lifeItems: [],
             clusters: [],
-            oursItems: [],
             horizons: [],
             rhythms: [],
             anchors: [],
@@ -106,9 +106,8 @@ struct FieldState: Codable, Hashable, Sendable {
     static let seed = FieldState(
         identity: FieldSampleData.identity,
         partners: FieldSampleData.partners,
-        lifeItems: FieldSampleData.lifeItems,
+        lifeItems: FieldSampleData.lifeItems + FieldSampleData.mentioned,
         clusters: FieldSampleData.clusters,
-        oursItems: FieldSampleData.oursItems,
         horizons: FieldSampleData.horizons,
         rhythms: FieldSampleData.rhythms,
         anchors: FieldSampleData.anchors,
@@ -136,7 +135,7 @@ final class FieldStore {
     // MARK: Ephemeral UI state
     //
     // Listed in the handoff as: activeZone (0–2, default 1), per-zone scroll
-    // offset, remindersOpen, activeCluster, captureDraft, lastReceipt.
+    // offset, calendarOpen, activeCluster, captureDraft, lastReceipt.
 
     /// WE is index 1 and is the home. Cold launch always lands on Today.
     var activeZone: FieldZone = .we
@@ -144,12 +143,12 @@ final class FieldStore {
     // it is not stored here: the paging TabView keeps all three zones mounted,
     // so each ScrollView keeps its own position for free. Mirroring it would
     // add a second source of truth that can only ever disagree.
-    var remindersOpen = false
+    /// The calendar surface, reached by pulling down on Life. It replaced the
+    /// Reminders takeover, whose occasions now sit at the top of Life itself.
+    var calendarOpen = false
     var activeClusterIndex = 0
     var captureDraft = ""
     var lastReceipt: FieldReceipt?
-    /// Which Ours list the filter pills have selected.
-    var oursFilter: OursList = .watchlist
     /// Set when the user taps WRONG PLACE — the corrective picker.
     var correctingReceipt: FieldReceipt?
 
@@ -219,14 +218,61 @@ final class FieldStore {
             identity: state.identity,
             speaker: speaker,
             now: now,
-            oursItems: state.oursItems,
+            lifeItems: state.lifeItems,
             horizons: state.horizons,
             rhythms: state.rhythms,
             corrections: state.corrections,
+            lifeCategories: lifeCategories,
             partners: state.partners,
             calendar: calendar
         )
     }
+
+    private var suggestionContext: FieldCaptureSuggestions.Context {
+        FieldCaptureSuggestions.Context(
+            now: now,
+            lifeItems: state.lifeItems,
+            clusters: state.clusters,
+            horizons: state.horizons,
+            rhythms: state.rhythms,
+            partners: state.partners,
+            calendar: calendar
+        )
+    }
+
+    /// The handful of dated things at the top of Life, grouped by occasion.
+    /// Today shows the one thing; this is the set.
+    var thisWeek: [FieldTimely.Nudge] {
+        FieldTimely.nudges(selectorContext)
+    }
+
+    /// What the pills under the capture field offer. Read from this couple's
+    /// own week, and generic only when there is nothing yet to read.
+    var captureSuggestions: [String] {
+        FieldCaptureSuggestions.suggest(suggestionContext)
+    }
+
+    /// Every category that exists right now: the five given ones, then any the
+    /// intelligence grew, oldest first.
+    ///
+    /// Derived from the items rather than stored. A category is not a thing a
+    /// couple owns, it is the shape of what they have written down — so a
+    /// category whose last item is deleted stops existing, with nothing to
+    /// clean up and no empty heading left behind.
+    var lifeCategories: [LifeCategory] {
+        var seen = Set(LifeCategory.builtIn)
+        var grown: [LifeCategory] = []
+
+        for item in state.lifeItems where !seen.contains(item.category) {
+            seen.insert(item.category)
+            grown.append(item.category)
+        }
+        return LifeCategory.builtIn + grown
+    }
+
+    /// What the correction picker offers — every category that exists, so a
+    /// thing can be moved into a grown one as easily as a given one.
+    var correctionCategories: [LifeCategory] { lifeCategories }
 
     /// Derived on every read. Never stored, never cached across a change.
     var todaySelection: FieldTodaySelector.Result {
@@ -247,6 +293,16 @@ final class FieldStore {
 
     var otherHorizons: [FieldHorizon] {
         state.horizons.filter { !$0.isPrimary }
+    }
+
+    /// Us has nothing to say until there is a horizon or a week's evidence.
+    ///
+    /// Both are readings of what happens in Life; neither is a thing anybody
+    /// fills in here. Until one exists, the sections on Us are headings over
+    /// nothing — and a heading over nothing is the app talking to fill the
+    /// silence, which is the same fault `FieldLifeZone` guards against.
+    var usIsEmpty: Bool {
+        state.horizons.isEmpty && state.evidence.isEmpty
     }
 
     var currentSeason: FieldSeason? {
@@ -291,12 +347,6 @@ final class FieldStore {
     /// couple, and no generator has replaced it yet.
     var weekSynthesis: FieldWeekSynthesis? { nil }
 
-    /// The proposal Ours pays off with, or `nil` when the app has not built
-    /// one — which is currently always, for the same reason as
-    /// `weekSynthesis`. Ours still shows everything both partners have
-    /// mentioned; it just does not pretend to have planned their Friday.
-    var oursPayoff: FieldOursPayoff? { nil }
-
     /// Writes any category subtitle whose items have changed shape.
     ///
     /// Sequential rather than concurrent: five simultaneous sessions on a
@@ -306,7 +356,7 @@ final class FieldStore {
     func refreshSubtitles() async {
         guard FieldCategoryVoice.isAvailable else { return }
 
-        for category in LifeCategory.allCases {
+        for category in lifeCategories {
             let items = openItems(in: category)
             let fingerprint = Self.fingerprint(items)
 
@@ -364,14 +414,16 @@ final class FieldStore {
         FieldCategoryDigest.digest(for: category, context: selectorContext)
     }
 
-    /// The five categories, ordered by attention needed.
+    /// The categories, ordered by attention needed.
     ///
     /// "The intelligence orders these by attention needed, not alphabetically
     /// or by a fixed taxonomy." Pressured first, then by how much is open,
-    /// with the handoff's order breaking ties so an empty Life still reads in
-    /// a stable, deliberate sequence rather than shuffling.
+    /// with the given order breaking ties so an empty Life still reads in a
+    /// stable, deliberate sequence rather than shuffling. Grown categories sit
+    /// after the given five on a tie, because a category the app invented has
+    /// not earned the top of the screen by existing.
     var categoryOrder: [LifeCategory] {
-        let fallback = LifeCategory.allCases
+        let fallback = lifeCategories
         return fallback.sorted { a, b in
             let pressureA = isPressured(a), pressureB = isPressured(b)
             if pressureA != pressureB { return pressureA }
@@ -401,17 +453,6 @@ final class FieldStore {
         return open.prefix(2).map(\.title).joined(separator: " · ")
     }
 
-    var oursForFilter: [OursItem] {
-        state.oursItems.filter { $0.list == oursFilter }
-    }
-
-    func count(for list: OursList) -> Int {
-        state.oursItems.filter { $0.list == list }.count
-    }
-
-    /// Everything either partner has ever mentioned. Ours is a count of
-    /// appetite, so it is the whole list and not the filtered one.
-    var oursTotal: Int { state.oursItems.count }
 
 
     func horizonTitle(_ id: String?) -> String? {
@@ -503,17 +544,16 @@ final class FieldStore {
 
     /// Tapping the WE mark always returns to Today. A hard requirement.
     func returnHome() {
-        remindersOpen = false
+        calendarOpen = false
         activeZone = .we
     }
 
-    func openReminders() {
-        activeClusterIndex = 0
-        remindersOpen = true
+    func openCalendar() {
+        calendarOpen = true
     }
 
-    func closeReminders() {
-        remindersOpen = false
+    func closeCalendar() {
+        calendarOpen = false
     }
 
     func advanceCluster() {
@@ -560,9 +600,12 @@ final class FieldStore {
     func send() {
         guard let receipt = lastReceipt else { return }
 
+        // The chip carries the tidied thought, not the sentence. What was
+        // literally typed still travels with the correction, which is the only
+        // place it is load-bearing.
         let capture = FieldCapture(
             id: receipt.id,
-            text: receipt.input,
+            text: receipt.title,
             owner: speaker,
             capturedAt: now
         )
@@ -585,73 +628,67 @@ final class FieldStore {
         persist(receipt)
     }
 
-    /// Writes the filed item to the table it belongs in.
+    /// Writes the filed item to the one table there now is.
     private func persist(_ receipt: FieldReceipt) {
-        switch receipt.destination {
-        case .life:
-            guard let item = state.lifeItems.first(where: { $0.id == receipt.id })
-            else { return }
-            Task { [backend] in try? await backend?.upsert(item) }
-        case .ours:
-            guard let item = state.oursItems.first(where: { $0.id == receipt.id })
-            else { return }
-            Task { [backend] in try? await backend?.upsert(item) }
-        case .usHorizons:
-            // A leaning attaches to the primary horizon rather than creating
-            // anything of its own, so the capture row is the whole record.
-            break
-        }
+        guard let item = state.lifeItems.first(where: { $0.id == receipt.id })
+        else { return }
+        Task { [backend] in try? await backend?.upsert(item) }
     }
 
-    /// Files the captured text into the zone its destination names. Without
-    /// this the receipt would be theatre.
+    /// Files the captured text into its category. Without this the receipt
+    /// would be theatre.
     private func materialise(_ receipt: FieldReceipt) {
-        switch receipt.destination {
-        case .life(let category):
-            state.lifeItems.insert(
-                LifeItem(
-                    id: receipt.id,
-                    title: receipt.input,
-                    category: category,
-                    owner: speaker,
-                    dueOn: nil,
-                    closesAt: nil,
-                    clusterID: nil,
-                    source: .captured,
-                    detail: nil,
-                    isTimeCritical: false,
-                    isDone: false
-                ),
-                at: 0
-            )
-        case .ours(let list):
-            let match = state.oursItems.first {
-                $0.title.localizedCaseInsensitiveCompare(receipt.input)
-                    == .orderedSame && $0.addedBy != speaker
-            }
-            state.oursItems.insert(
-                OursItem(
-                    id: receipt.id,
-                    title: receipt.input,
-                    list: list,
-                    addedBy: match == nil ? speaker : .shared,
-                    addedAt: now,
-                    bothAdded: match != nil,
-                    coincidenceNote: match == nil
-                        ? nil
-                        : "Both added it, independently",
-                    horizonID: nil,
-                    isStandingNote: false
-                ),
-                at: 0
-            )
-        case .usHorizons:
-            // A leaning, not a decision — it does not create a horizon on its
-            // own, it attaches to the primary one.
-            guard let index = state.horizons.firstIndex(where: \.isPrimary)
-            else { return }
-            state.horizons[index].linkedOursItemIDs.append(receipt.id)
+        // Matched on the tidied title, so "past lives" and "we should watch
+        // past lives" are recognised as the same thing — which is the
+        // coincidence the note exists to name, and the highest-value
+        // inference the app makes.
+        let match = state.lifeItems.first {
+            $0.title.localizedCaseInsensitiveCompare(receipt.title)
+                == .orderedSame && $0.owner != speaker && !$0.isDone
         }
+
+        state.lifeItems.insert(
+            LifeItem(
+                id: receipt.id,
+                title: receipt.title,
+                category: receipt.category,
+                owner: match == nil ? speaker : .shared,
+                // The day the phrasing named, which is the whole reason for
+                // lifting it out of the string: an item with a real date can
+                // be ranked, surfaced, and fall due.
+                dueOn: receipt.dueOn,
+                closesAt: nil,
+                clusterID: nil,
+                source: .captured,
+                detail: match == nil ? nil : "Both added it, independently",
+                isTimeCritical: false,
+                isDone: false
+            ),
+            at: 0
+        )
+    }
+
+    /// Puts a captured thing on today, or takes it back off.
+    ///
+    /// The only way to date something used to be to say the word inside the
+    /// sentence and let `FieldPhrasing` lift it out, which works and is
+    /// invisible. This is the same act made available to a thumb, and it sets
+    /// exactly the same field — nothing is stored on Today, because Today is
+    /// derived. A date is what makes an item rank; that is the whole of it.
+    ///
+    /// Refused where a date would be a lie. A film is not due on Thursday.
+    func toggleForToday() {
+        guard var receipt = lastReceipt, receipt.category.carriesDates else {
+            return
+        }
+        let calendar = Calendar.gregorianUS
+        let today = calendar.startOfDay(for: now)
+        let alreadyToday = receipt.dueOn.map {
+            calendar.isDate($0, inSameDayAs: today)
+        } ?? false
+
+        receipt.dueOn = alreadyToday ? nil : today
+        lastReceipt = receipt
     }
 
     func beginCorrection() {
@@ -664,11 +701,11 @@ final class FieldStore {
     /// Nothing has been filed yet, so this only changes where it is *about*
     /// to go — there is no materialised object to move and nothing written
     /// remotely to undo. That is the point of correcting before sending.
-    func correct(to destination: FieldDestination) {
+    func correct(to category: LifeCategory) {
         guard let receipt = correctingReceipt ?? lastReceipt else { return }
         let result = FieldClassifier.correct(
             receipt,
-            to: destination,
+            to: category,
             context: classifierContext
         )
         lastReceipt = result.receipt
@@ -696,6 +733,18 @@ final class FieldStore {
     }
 
     func answer(_ question: FieldQuestion, with choice: FieldChoice) {
+        // A promotion question has no horizon behind it yet — answering it is
+        // what decides whether there is ever going to be one.
+        if let proposal = FieldPromotion.proposal(selectorContext),
+           proposal.question.id == question.id {
+            if choice.id == proposal.affirmative?.id {
+                promote(proposal, answering: choice)
+            } else {
+                hold(question, reason: "You said not this year.")
+            }
+            return
+        }
+
         guard let index = state.horizons.firstIndex(where: {
             $0.openQuestion?.id == question.id
         }) else { return }
@@ -722,6 +771,68 @@ final class FieldStore {
                 choice: choice.id
             )
         }
+    }
+
+    /// Yes — so a horizon appears in Us, built out of the Life items that
+    /// prompted the question.
+    ///
+    /// **Nothing moves.** The items stay in their category, where the couple
+    /// has been looking at them all along; the horizon only points at them.
+    /// Made primary when there is no primary, because a couple's first horizon
+    /// is by definition the one they are heading for.
+    private func promote(
+        _ proposal: FieldPromotion.Proposal,
+        answering choice: FieldChoice
+    ) {
+        let horizon = FieldHorizon(
+            // A fresh identifier, not the proposal's: the proposal id names a
+            // question, and the row this becomes has to be addressable by the
+            // database like every other one.
+            id: UUID().uuidString,
+            title: proposal.subject,
+            window: choice.title.lowercased(),
+            owner: .shared,
+            isPrimary: !state.horizons.contains(where: \.isPrimary),
+            thesis: nil,
+            targetDate: nil,
+            linkedLifeItemIDs: proposal.itemIDs,
+            openQuestion: nil
+        )
+        state.horizons.insert(horizon, at: 0)
+
+        state.evidence.insert(
+            FieldEvidence(
+                id: UUID().uuidString,
+                statement: "You decided \(proposal.subject) is real.",
+                owner: .shared,
+                horizonID: horizon.id,
+                occurredAt: now
+            ),
+            at: 0
+        )
+
+        // Written, not just shown. A horizon that exists only in memory is
+        // the same bug captures had before `persist` existed: it looks filed,
+        // and it is gone on the next load.
+        Task { [backend] in try? await backend?.upsert(horizon) }
+    }
+
+    /// Not now. Recorded as a held topic, which is what stops the app raising
+    /// it again — see `FieldTodaySelector.isHeld`.
+    func hold(_ question: FieldQuestion, reason: String) {
+        let subject = question.id
+            .replacingOccurrences(of: "promote:", with: "")
+        let topic = FieldHeldTopic(
+            id: question.id,
+            title: subject,
+            timing: "NOT NOW",
+            reason: reason,
+            surfaceOn: nil,
+            wasOverridden: false,
+            wasDismissed: false
+        )
+        state.heldTopics.append(topic)
+        Task { [backend] in try? await backend?.setHeld(topic) }
     }
 
     // MARK: Deferral (6d)
@@ -854,12 +965,12 @@ final class FieldMemoryBackend: FieldBackend, @unchecked Sendable {
         }
     }
 
-    func upsert(_ item: OursItem) async throws {
+    func upsert(_ horizon: FieldHorizon) async throws {
         lock.withLock {
-            if let index = state.oursItems.firstIndex(where: { $0.id == item.id }) {
-                state.oursItems[index] = item
+            if let index = state.horizons.firstIndex(where: { $0.id == horizon.id }) {
+                state.horizons[index] = horizon
             } else {
-                state.oursItems.insert(item, at: 0)
+                state.horizons.insert(horizon, at: 0)
             }
         }
     }

@@ -18,7 +18,7 @@ enum ExternalSurfaceDisplayState: String, Codable, CaseIterable, Hashable {
     var genericWording: String {
         switch self {
         case .quiet:
-            "Nothing needs you here."
+            "Today is clear."
         case .roomAvailable:
             "Something opened for both of you."
         case .sharedRoomActive:

@@ -7,9 +7,13 @@
 //  Everything that keeps the week moving, and never the first thing you see.
 //
 //  "Life must stay this calm. An early version put the full Reminders list
-//  inline and it swamped the page; that is why Reminders became an overlay."
-//  Nothing on this screen enumerates items. The synthesis block reads the
-//  shape of the week, and the five categories are single large words.
+//  inline and it swamped the page." Nothing on this screen enumerates a
+//  category. It carries two things: **this week**, which is the handful of
+//  dated things grouped by occasion, and **the categories**, which are single
+//  large words.
+//
+//  Pulling down opens the calendar — every dated thing at once, whatever list
+//  it came from. A calendar is not a category and never was one.
 //
 
 import SwiftUI
@@ -25,7 +29,7 @@ struct FieldLifeZone: View {
     var body: some View {
         FieldZoneScaffold(zone: .life) {
             VStack(alignment: .leading, spacing: 0) {
-                synthesisBlock
+                thisWeek
                     .padding(.bottom, FieldMetrics.sectionGapLoose)
 
                 categories
@@ -55,7 +59,7 @@ struct FieldLifeZone: View {
                           value.translation.height > 90,
                           abs(value.translation.width) < 60
                     else { return }
-                    store.openReminders()
+                    store.openCalendar()
                 }
         )
         .sheet(item: $openCategory) { category in
@@ -69,98 +73,105 @@ struct FieldLifeZone: View {
         }
     }
 
-    // MARK: The synthesis block
+    // MARK: This week
     //
-    // Bordered top and bottom with ink .16, 18pt above and 20pt below.
+    // Grouped by occasion, never by category or date: "categories are a filing
+    // system; occasions are how people actually think." This is where the
+    // Reminders takeover's content went when the pull-down became the
+    // calendar.
+    //
+    // It renders nothing at all when nothing is dated. An empty heading over
+    // an empty week is the app talking to fill the silence.
 
-    /// "The shape of this week" — the intelligence speaking in its own voice
-    /// about the week ahead.
-    ///
-    /// **Nothing generates this yet.** The handoff's sentence, its reasoning,
-    /// and its three metrics are written by hand about the fictional couple,
-    /// and printing them for a real one told them their week was
-    /// front-loaded, that they had committed $540, and that Friday was the
-    /// one to settle — none of it true, none of it theirs.
-    ///
-    /// So it renders only when there is something real to say, which today is
-    /// never. Silence is the app's own rule: it "stays quiet rather than
-    /// manufacturing a reason to speak." Restore this with a generator
-    /// reading `store.state`, not by putting the sample strings back.
     @ViewBuilder
-    private var synthesisBlock: some View {
-        if let synthesis = store.weekSynthesis {
+    private var thisWeek: some View {
+        let nudges = store.thisWeek
+
+        if !nudges.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
                 FieldRuleLine()
 
-                VStack(alignment: .leading, spacing: 16) {
-                    HStack(alignment: .center, spacing: 10) {
-                        FieldIntelligenceMark(
-                            identity: store.identity,
-                            diameter: 14
-                        )
-                        FieldLabel("The shape of this week")
+                FieldLabel("This week")
+                    .padding(.top, 18)
+                    .padding(.bottom, 16)
+
+                VStack(alignment: .leading, spacing: 15) {
+                    ForEach(nudges) { nudge in
+                        nudgeRow(nudge)
                     }
-
-                    Text(synthesis.shape)
-                        .font(FieldType.synthesis)
-                        .foregroundStyle(.fieldInk(.headline))
-                        .fieldLineHeight(1.28, size: 25)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    metricRow(synthesis.metrics)
-
-                    FieldReasoning(
-                        text: synthesis.reasoning,
-                        accent: store.identity.personA.color
-                    )
                 }
-                .padding(.top, 18)
                 .padding(.bottom, 20)
 
                 FieldRuleLine()
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(
-                "The shape of this week. \(synthesis.shape) "
-                    + synthesis.reasoning
-            )
         }
     }
 
-    /// Three columns, divided by 1pt left borders with 14pt left padding. The
-    /// first column carries no divider.
-    private func metricRow(
-        _ metrics: [FieldWeekSynthesis.Metric]
-    ) -> some View {
-        HStack(alignment: .top, spacing: 0) {
-            ForEach(Array(metrics.enumerated()), id: \.offset) { index, metric in
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(metric.figure)
-                        .font(FieldType.metric)
-                        .foregroundStyle(.fieldInk(.headline))
+    private func nudgeRow(_ nudge: FieldTimely.Nudge) -> some View {
+        HStack(alignment: .top, spacing: 11) {
+            FieldDot(
+                owner: nudge.tint,
+                identity: store.identity,
+                size: FieldDotSize.list,
+                baselineNudge: 7
+            )
 
-                    FieldLabel(
-                        metric.label,
-                        font: FieldType.subLabel,
-                        tracking: FieldTracking.subLabel,
-                        color: .fieldInk(.monoLabelQuiet),
-                        isHeader: false
-                    )
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, index == 0 ? 0 : 14)
-                .overlay(alignment: .leading) {
-                    if index > 0 {
-                        Rectangle()
-                            .fill(FieldRule.primary)
-                            .frame(width: 1)
-                    }
+            VStack(alignment: .leading, spacing: 5) {
+                Text(nudge.occasion)
+                    .font(FieldType.listItemLarge)
+                    .foregroundStyle(.fieldInk(.headline))
+                    .fieldLineHeight(1.25, size: 18)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                // The thing the occasion is waiting on, in its own words. The
+                // app does not invent an errand — it repeats the one somebody
+                // already wrote down.
+                if let ask = nudge.ask {
+                    Text(ask)
+                        .font(FieldType.reasoning)
+                        .foregroundStyle(.fieldInk(.reasoning))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
+
+            Spacer(minLength: 8)
+
+            if let dueOn = nudge.dueOn {
+                Text(dayLabel(dueOn))
+                    .font(FieldType.dateCount)
+                    .tracking(FieldTracking.dateCount)
+                    .foregroundStyle(.fieldInk(.dateCount))
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            [nudge.occasion, nudge.ask].compactMap { $0 }
+                .joined(separator: ". ")
+        )
+    }
+
+    /// "TODAY", "TOMORROW", then the weekday, then the date. Nothing in this
+    /// section is more than ten days out, so it never needs a year.
+    private func dayLabel(_ date: Date) -> String {
+        let calendar = Calendar.gregorianUS
+        let days = calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: store.now),
+            to: calendar.startOfDay(for: date)
+        ).day ?? 0
+
+        switch days {
+        case ..<0: return "OVERDUE"
+        case 0: return "TODAY"
+        case 1: return "TOMORROW"
+        case 2...6: return DateFormatter.fieldWeekday
+            .string(from: date).uppercased()
+        default: return DateFormatter.fieldDayMonth
+            .string(from: date).uppercased()
         }
     }
 
-    // MARK: The five categories
+    // MARK: The categories
     //
     // Ordered by attention needed, not alphabetically or by a fixed taxonomy.
 
@@ -239,9 +250,9 @@ struct FieldLifeZone: View {
 
     private var pullAffordance: some View {
         Button {
-            store.openReminders()
+            store.openCalendar()
         } label: {
-            Text("↓ PULL FOR REMINDERS")
+            Text("↓ PULL FOR CALENDAR")
                 .font(FieldType.subLabel)
                 .tracking(FieldTracking.dateCount)
                 .foregroundStyle(.fieldInk(.recessive))
@@ -249,9 +260,9 @@ struct FieldLifeZone: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Reminders")
-        .accessibilityHint("Opens the full list, grouped by occasion")
-        .accessibilityIdentifier("field.life.reminders")
+        .accessibilityLabel("Calendar")
+        .accessibilityHint("Opens the month, and everything with a date on it")
+        .accessibilityIdentifier("field.life.calendar")
     }
 }
 

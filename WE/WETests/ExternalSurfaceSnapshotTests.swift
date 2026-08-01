@@ -83,7 +83,7 @@ struct ExternalSurfaceSnapshotTests {
         )
 
         #expect(snapshot.effectiveState(at: expiry) == .quiet)
-        #expect(snapshot.wording(at: expiry) == "Nothing needs you here.")
+        #expect(snapshot.wording(at: expiry) == "Today is clear.")
     }
 
     @Test

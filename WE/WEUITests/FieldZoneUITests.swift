@@ -39,6 +39,72 @@ final class FieldZoneUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["TODAY"].waitForExistence(timeout: 4))
     }
 
+    // MARK: Day one
+
+    /// Us before it holds anything explains what it will hold. Until this
+    /// existed the screen rendered two headings over nothing and the fictional
+    /// couple's reasoning line.
+    @MainActor
+    func testUsExplainsItselfBeforeItHoldsAnything() throws {
+        let app = launchEmpty()
+        XCTAssertTrue(
+            app.buttons["field.nav.us"].waitForExistence(timeout: 12)
+        )
+        app.buttons["field.nav.us"].tap()
+
+        XCTAssertTrue(
+            app.otherElements["field.us.empty"].waitForExistence(timeout: 6)
+        )
+        // The seed's reasoning line must not be anywhere near a real account.
+        XCTAssertFalse(
+            app.staticTexts
+                .matching(
+                    NSPredicate(
+                        format: "label CONTAINS[c] %@",
+                        "Three ordinary things"
+                    )
+                )
+                .firstMatch
+                .exists
+        )
+    }
+
+    /// A clear day is not a dead end. Something put on today comes straight
+    /// back as the thing Today shows — which is the whole of why the control
+    /// exists.
+    @MainActor
+    func testForTodayPutsSomethingOnTheClearDay() throws {
+        let app = launchEmpty()
+        let input = app.textFields["field.capture.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 12))
+
+        input.tap()
+        input.typeText("call the plumber")
+        app.buttons["field.capture.submit"].tap()
+
+        let forToday = app.buttons["field.receipt.today"]
+        XCTAssertTrue(forToday.waitForExistence(timeout: 6))
+        forToday.tap()
+        // Tapping it reads as "Not today", which is the only confirmation the
+        // control itself gives — the date chip above carries the rest.
+        XCTAssertTrue(
+            app.buttons["field.receipt.today"].label.contains("Not today")
+        )
+
+        app.buttons["field.receipt.send"].tap()
+
+        // The hero is the plumber now, not the resolved line.
+        XCTAssertTrue(
+            app.staticTexts
+                .matching(
+                    NSPredicate(format: "label CONTAINS[c] %@", "plumber")
+                )
+                .firstMatch
+                .waitForExistence(timeout: 6)
+        )
+        XCTAssertFalse(app.staticTexts["Today is clear."].exists)
+    }
+
     // MARK: Category rooms
 
     @MainActor
@@ -70,10 +136,10 @@ final class FieldZoneUITests: XCTestCase {
         )
     }
 
-    /// The pull-for-Reminders gesture lives on the same screen as the
-    /// category buttons. A tap must not start it, and it must still work.
+    /// The pull-for-calendar gesture lives on the same screen as the category
+    /// buttons. A tap must not start it, and it must still work.
     @MainActor
-    func testTappingACategoryDoesNotOpenReminders() throws {
+    func testTappingACategoryDoesNotOpenTheCalendar() throws {
         let app = launchZones()
         XCTAssertTrue(
             app.buttons["field.nav.life"].waitForExistence(timeout: 8)
@@ -85,12 +151,12 @@ final class FieldZoneUITests: XCTestCase {
         XCTAssertTrue(waitForHittable(food))
         food.tap()
 
-        // If the pull gesture had fired instead, the Reminders takeover
-        // would be up and this row would not be.
+        // If the pull gesture had fired instead, the calendar would be up and
+        // this row would not be.
         XCTAssertTrue(
             app.staticTexts["Send the grocery list"]
                 .waitForExistence(timeout: 6),
-            "a tap should open the room, not the Reminders takeover"
+            "a tap should open the room, not the calendar"
         )
     }
 
@@ -162,10 +228,14 @@ final class FieldZoneUITests: XCTestCase {
             app.staticTexts["TELL WE ANYTHING"].waitForExistence(timeout: 8)
         )
 
-        // The sample pills submit a canonical input and show its receipt.
-        let pill = app.buttons["Try: steak"]
+        // A pill submits its phrase and shows the receipt. Addressed by
+        // identifier, not by words: the suggestions are read from this
+        // couple's own week, so no test can know them in advance.
+        let pill = app.buttons
+            .matching(identifier: "field.capture.suggestion")
+            .firstMatch
         guard pill.waitForExistence(timeout: 4) else {
-            XCTFail("expected the canonical sample phrases")
+            XCTFail("expected at least one suggestion under the field")
             return
         }
         pill.tap()
@@ -176,10 +246,12 @@ final class FieldZoneUITests: XCTestCase {
         XCTAssertTrue(app.buttons["WRONG PLACE"].exists)
     }
 
-    // MARK: Reminders
+    // MARK: The calendar
 
+    /// Pulling down on Life opens the month. It replaced the Reminders
+    /// takeover, whose occasions now sit at the top of Life itself.
     @MainActor
-    func testRemindersTakeoverOpensAndCloses() throws {
+    func testCalendarOpensAndCloses() throws {
         let app = launchZones()
         XCTAssertTrue(
             app.buttons["field.nav.life"].waitForExistence(timeout: 8)
@@ -187,13 +259,21 @@ final class FieldZoneUITests: XCTestCase {
         app.buttons["field.nav.life"].tap()
         XCTAssertTrue(app.staticTexts["LIFE"].waitForExistence(timeout: 4))
 
-        let affordance = app.buttons["field.life.reminders"]
+        let affordance = app.buttons["field.life.calendar"]
         XCTAssertTrue(affordance.waitForExistence(timeout: 4))
         affordance.tap()
 
+        XCTAssertTrue(
+            app.otherElements["field.calendar"].waitForExistence(timeout: 4),
+            "pulling down on Life should open the calendar"
+        )
+
+        // By label, not identifier: an identifier on a plain-styled Button
+        // does not surface, which the category-room test above already
+        // documents the hard way.
         let done = app.buttons["Done"]
         guard done.waitForExistence(timeout: 4) else {
-            XCTFail("the Reminders takeover should offer a way out")
+            XCTFail("the calendar should offer a way out")
             return
         }
         done.tap()
@@ -332,6 +412,20 @@ final class FieldZoneUITests: XCTestCase {
         app.launchEnvironment["WE_REPOSITORY"] = "preview"
         app.launchEnvironment["WE_SKIP_PROMISE"] = "1"
         app.launchEnvironment["WE_DISABLE_CREDENTIAL_PROMPTS"] = "1"
+        app.launch()
+        return app
+    }
+
+    /// What a real couple starts with: nothing. Deliberately *not* seeded —
+    /// the fictional couple hides every state this app has on day one.
+    private func launchEmpty() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchEnvironment["WE_REPOSITORY"] = "preview"
+        app.launchEnvironment["WE_PREVIEW_SCENARIO"] = "ready"
+        app.launchEnvironment["WE_SKIP_PROMISE"] = "1"
+        app.launchEnvironment["WE_SKIP_SOFT_START"] = "1"
+        app.launchEnvironment["WE_DISABLE_CREDENTIAL_PROMPTS"] = "1"
+        app.launchArguments += ["-hasSeenLivingConfluencePromise", "YES"]
         app.launch()
         return app
     }

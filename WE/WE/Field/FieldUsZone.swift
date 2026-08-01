@@ -19,8 +19,6 @@ import SwiftUI
 
 struct FieldUsZone: View {
     @Environment(FieldStore.self) private var store
-    @State private var showsOurs = false
-    @State private var showsThreads = false
 
     var body: some View {
         FieldZoneScaffold(
@@ -28,37 +26,75 @@ struct FieldUsZone: View {
             horizontalPadding: FieldMetrics.usSide,
             background: AnyView(glow)
         ) {
-            VStack(alignment: .leading, spacing: 0) {
-                horizonBlock
-                    .padding(.top, 20)
-                    .padding(.bottom, FieldMetrics.sectionGapLoose)
-
-                evidenceBlock
-                    .padding(.bottom, FieldMetrics.sectionGapLoose)
-
-                if let horizon = store.primaryHorizon,
-                   let question = horizon.openQuestion {
-                    questionBlock(horizon, question)
+            if store.usIsEmpty {
+                emptyState
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    horizonBlock
+                        .padding(.top, 20)
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
+
+                    evidenceBlock
+                        .padding(.bottom, FieldMetrics.sectionGapLoose)
+
+                    if let horizon = store.primaryHorizon,
+                       let question = horizon.openQuestion {
+                        questionBlock(horizon, question)
+                            .padding(.bottom, FieldMetrics.sectionGapLoose)
+                    }
+
+                    afterThat
                 }
-
-                oursEntry
-                    .padding(.bottom, FieldMetrics.sectionGapLoose)
-
-                afterThat
-                    .padding(.bottom, FieldMetrics.sectionGapLoose)
-
-                seasonBlock
             }
         }
-        .sheet(isPresented: $showsOurs) {
-            FieldOursView()
-                .environment(store)
+    }
+
+    // MARK: Before there is anything
+    //
+    // Not a failure and not a prompt. The one screen in the app where saying
+    // nothing would be worse than speaking: Us is the only zone whose purpose
+    // isn't legible from what's on it, so before it holds anything it explains
+    // what it will hold — and then asks for nothing.
+
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldLabel("What this becomes")
+                .padding(.bottom, 18)
+
+            Text("This is the long view.")
+                .font(FieldType.pageHeadline)
+                .foregroundStyle(.fieldInk(.headline))
+                .fieldLineHeight(1.16, size: 32)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 20)
+
+            VStack(alignment: .leading, spacing: 16) {
+                Text(
+                    "Us holds one horizon — the thing you're both heading "
+                        + "toward — and the ordinary evidence that you're "
+                        + "getting there. Neither is something you fill in. "
+                        + "Both are drawn from what you capture in Life."
+                )
+
+                Text(
+                    "When the horizon needs a decision, one question shows up "
+                        + "here. One at a time."
+                )
+            }
+            .font(.system(size: 15, design: .serif))
+            .foregroundStyle(.fieldInk(.sectionSubtitle))
+            .fieldLineHeight(1.6, size: 15)
+            .fixedSize(horizontal: false, vertical: true)
+
+            Rectangle()
+                .fill(store.identity.blend())
+                .frame(width: 56, height: 2)
+                .padding(.top, 26)
+                .accessibilityHidden(true)
         }
-        .sheet(isPresented: $showsThreads) {
-            FieldThreadsView()
-                .environment(store)
-        }
+        .padding(.top, FieldMetrics.sectionGap)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("field.us.empty")
     }
 
     /// A top-centred glow. The only ambient element on Us, and it tracks the
@@ -219,35 +255,6 @@ struct FieldUsZone: View {
         }
     }
 
-    // MARK: Ours
-
-    private var oursEntry: some View {
-        Button {
-            showsOurs = true
-        } label: {
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 7) {
-                    FieldLabel("Ours")
-                    Text("Everything you've both mentioned.")
-                        .font(FieldType.cardTitle)
-                        .foregroundStyle(.fieldInk(.headline))
-                }
-
-                Spacer()
-
-                Text("\(store.oursTotal) →")
-                    .font(FieldType.dateCount)
-                    .tracking(FieldTracking.dateCount)
-                    .foregroundStyle(.fieldInk(.dateCount))
-            }
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityHint("Opens the shared lists")
-        .accessibilityIdentifier("field.us.ours")
-    }
-
     // MARK: After that
     //
     // Deliberately de-emphasised so the primary horizon stays primary.
@@ -302,162 +309,5 @@ struct FieldUsZone: View {
         return .fieldInk(.reasoning)
     }
 
-    // MARK: You're in
-    //
-    // "The season is the couple's own name for their current chapter."
-
-    @ViewBuilder
-    private var seasonBlock: some View {
-        if let season = store.currentSeason {
-            VStack(spacing: 0) {
-                FieldRuleLine(color: FieldRule.us)
-
-                FieldLabel("You're in")
-                    .padding(.top, 22)
-                    .padding(.bottom, 16)
-
-                Text(season.name)
-                    .font(FieldType.anchorQuote)
-                    .foregroundStyle(.fieldInk(.headline))
-                    .fieldLineHeight(1.4, size: 21)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.bottom, 14)
-
-                Text(season.spanLabel())
-                    .font(FieldType.subLabel)
-                    .tracking(FieldTracking.subLabel)
-                    .foregroundStyle(.fieldInk(.recessive))
-
-                Button {
-                    showsThreads = true
-                } label: {
-                    Text("ANCHORS · THREADS →")
-                        .font(FieldType.subLabel)
-                        .tracking(FieldTracking.subLabel)
-                        .foregroundStyle(.fieldInk(.headerMeta))
-                        .frame(minHeight: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 8)
-                .accessibilityHint("Opens what you've agreed and what's still open")
-            }
-            .frame(maxWidth: .infinity)
-        }
-    }
 }
 
-// MARK: - Anchors and Threads
-//
-// One level down from 5c, as the handoff specifies. Anchors are what you've
-// already agreed on so you don't relitigate it; Threads are conversations
-// still open, with no pressure to finish.
-
-struct FieldThreadsView: View {
-    @Environment(FieldStore.self) private var store
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        ZStack {
-            FieldPalette.bgElevated.ignoresSafeArea()
-
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: FieldMetrics.sectionGapLoose) {
-                    VStack(alignment: .leading, spacing: 18) {
-                        FieldLabel("Anchors")
-
-                        ForEach(store.state.anchors) { anchor in
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(anchor.text)
-                                    .font(FieldType.anchorQuote)
-                                    .foregroundStyle(.fieldInk(.headline))
-                                    .fieldLineHeight(1.55, size: 19)
-                                    .fixedSize(horizontal: false, vertical: true)
-
-                                Text(
-                                    "AGREED \(DateFormatter.fieldMonthYear.string(from: anchor.agreedAt).uppercased())"
-                                )
-                                .font(FieldType.subLabel)
-                                .tracking(FieldTracking.subLabel)
-                                .foregroundStyle(.fieldInk(.recessive))
-                            }
-                            .padding(.vertical, 4)
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 18) {
-                        FieldLabel("Threads")
-
-                        Text("Still open. There's no pressure to finish them.")
-                            .font(FieldType.body)
-                            .foregroundStyle(.fieldInk(.sectionSubtitle))
-
-                        ForEach(store.state.threads) { thread in
-                            HStack(alignment: .top, spacing: 11) {
-                                FieldDot(
-                                    owner: .shared,
-                                    identity: store.identity,
-                                    size: FieldDotSize.list
-                                )
-                                Text(thread.question)
-                                    .font(FieldType.listItemLarge)
-                                    .foregroundStyle(.fieldInk(.legend))
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.vertical, 13)
-                            .overlay(alignment: .top) {
-                                FieldRuleLine(color: FieldRule.row)
-                            }
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 18) {
-                        FieldLabel("Rhythms")
-
-                        ForEach(store.state.rhythms) { rhythm in
-                            HStack(alignment: .firstTextBaseline) {
-                                Text(rhythm.title)
-                                    .font(FieldType.listItem)
-                                    .foregroundStyle(.fieldInk(.legend))
-
-                                Spacer()
-
-                                // A two-case signal, never a streak.
-                                Text(rhythm.health == .running ? "RUNNING" : "SLIPPING")
-                                    .font(FieldType.subLabel)
-                                    .tracking(FieldTracking.subLabel)
-                                    .foregroundStyle(
-                                        rhythm.health == .running
-                                            ? .fieldInk(.dateCount)
-                                            : store.identity.personA.color
-                                    )
-                            }
-                            .padding(.vertical, 12)
-                            .overlay(alignment: .top) {
-                                FieldRuleLine(color: FieldRule.row)
-                            }
-                        }
-                    }
-                }
-                .padding(.top, 48)
-                .padding(.horizontal, FieldMetrics.usSide)
-                .padding(.bottom, 60)
-            }
-        }
-        .overlay(alignment: .topTrailing) {
-            Button {
-                dismiss()
-            } label: {
-                Text("DONE ✕")
-                    .font(FieldType.button)
-                    .tracking(FieldTracking.button)
-                    .foregroundStyle(.fieldInk(.legend))
-                    .padding(FieldMetrics.usSide)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-        }
-        .preferredColorScheme(.dark)
-    }
-}

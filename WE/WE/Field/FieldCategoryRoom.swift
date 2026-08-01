@@ -147,7 +147,25 @@ struct FieldCategoryRoom: View {
 
     @ViewBuilder
     private var quiet: some View {
-        if !digest.quiet.isEmpty {
+        if !digest.groups.isEmpty {
+            // Past the density threshold the room organises itself. The
+            // headings are derived, never stored, and there is still exactly
+            // one word for this category on Life — see `FieldGrouping`.
+            ForEach(digest.groups) { group in
+                FieldLabel(
+                    group.heading,
+                    font: FieldType.subLabel,
+                    tracking: FieldTracking.subLabel,
+                    color: .fieldInk(.recessive)
+                )
+                .padding(.top, FieldMetrics.sectionGap)
+                .padding(.bottom, 4)
+
+                ForEach(group.items) { item in
+                    quietRow(item)
+                }
+            }
+        } else if !digest.quiet.isEmpty {
             FieldLabel(
                 digest.pressing.isEmpty ? "In this room" : "Quiet below here",
                 font: FieldType.subLabel,
@@ -158,27 +176,31 @@ struct FieldCategoryRoom: View {
             .padding(.bottom, 4)
 
             ForEach(digest.quiet) { item in
-                HStack(alignment: .top, spacing: 11) {
-                    FieldDot(
-                        owner: item.owner,
-                        identity: store.identity,
-                        size: FieldDotSize.list,
-                        baselineNudge: 6
-                    )
-
-                    Text(item.title)
-                        .font(FieldType.listItem)
-                        .foregroundStyle(.fieldInk(.quietListItem))
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Spacer(minLength: 0)
-                }
-                .padding(.vertical, 11)
-                .overlay(alignment: .top) { FieldRuleLine(color: FieldRule.row) }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(item.title)
+                quietRow(item)
             }
         }
+    }
+
+    private func quietRow(_ item: LifeItem) -> some View {
+        HStack(alignment: .top, spacing: 11) {
+            FieldDot(
+                owner: item.owner,
+                identity: store.identity,
+                size: FieldDotSize.list,
+                baselineNudge: 6
+            )
+
+            Text(item.title)
+                .font(FieldType.listItem)
+                .foregroundStyle(.fieldInk(.quietListItem))
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 11)
+        .overlay(alignment: .top) { FieldRuleLine(color: FieldRule.row) }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(item.title)
     }
 
     // MARK: Nothing here

@@ -197,7 +197,7 @@ enum FieldSampleData {
         LifeItem(
             id: "rhinebeck",
             title: "Rhinebeck — drive or train",
-            category: .calendar,
+            category: .care,
             owner: .shared,
             dueOn: date(2025, 8, 22),
             closesAt: nil,
@@ -251,7 +251,10 @@ enum FieldSampleData {
         LifeItem(
             id: "passport",
             title: "Ryan's passport",
-            category: .calendar,
+            // A grown category, in the seed on purpose: Life's set is open,
+            // and the sample couple should look like a couple who has used
+            // the app rather than one who never left the given words.
+            category: LifeCategory(rawValue: "admin"),
             owner: .a,
             dueOn: date(2025, 11, 1),
             closesAt: nil,
@@ -266,7 +269,7 @@ enum FieldSampleData {
         LifeItem(
             id: "friday-booked",
             title: "Friday's booked",
-            category: .calendar,
+            category: .food,
             owner: .shared,
             dueOn: date(2025, 8, 12),
             closesAt: nil,
@@ -291,29 +294,6 @@ enum FieldSampleData {
         ),
     ]
 
-    /// The one-line summary under each category word on Life. Written by the
-    /// intelligence, not derived from a count.
-    static let categorySummaries: [LifeCategory: String] = [
-        .food: "Delivery closes 9pm · Friday still open",
-        .care: "Dylan's birthday Sun · Ryan's dad Fri · Miso",
-        .calendar: "Wedding 22 · Hamptons 28–31",
-        .money: "Japan fund paid · gift undecided",
-        .home: "Filter overdue · insurance Sep 1",
-    ]
-
-    /// The order is set by attention needed, not alphabetically or by a fixed
-    /// taxonomy.
-    static let categoryOrder: [LifeCategory] = [
-        .food, .care, .calendar, .money, .home,
-    ]
-
-    /// Counts render warm when something in the category is time-pressured.
-    static let pressuredCategories: Set<LifeCategory> = [.food, .care]
-
-    static let categoryCounts: [LifeCategory: Int] = [
-        .food: 2, .care: 3, .calendar: 4, .money: 2, .home: 2,
-    ]
-
     // MARK: The synthesis block
 
     static let weekShape = "Front-loaded. Three things land before Sunday, "
@@ -328,95 +308,120 @@ enum FieldSampleData {
         ("Friday", "THE ONE TO SETTLE"),
     ]
 
-    // MARK: Ours
+    // MARK: What they have mentioned
+    //
+    // These used to be `OursItem`s in a second list behind a second name. They
+    // are Life items with no date, which is all "appetite" ever meant: nothing
+    // undated can reach Today's surfacing threshold, so a film sits in
+    // Watchlist for a year without once asking anything of anybody.
 
-    static let oursItems: [OursItem] = [
-        OursItem(
+    static let mentioned: [LifeItem] = [
+        LifeItem(
             id: "ff",
             title: "Fast and Furious",
-            list: .watchlist,
-            addedBy: .b,
-            addedAt: date(2025, 8, 13, hour: 9, minute: 38),
-            bothAdded: false,
-            coincidenceNote: nil,
-            horizonID: nil,
-            isStandingNote: false
+            category: .watchlist,
+            owner: .b,
+            dueOn: nil,
+            closesAt: nil,
+            clusterID: nil,
+            source: .captured,
+            detail: nil,
+            isTimeCritical: false,
+            isDone: false
         ),
-        OursItem(
+        LifeItem(
             id: "bear",
             title: "The Bear, s4",
-            list: .watchlist,
-            addedBy: .a,
-            addedAt: date(2025, 8, 11, hour: 20),
-            bothAdded: false,
-            coincidenceNote: nil,
-            horizonID: nil,
-            isStandingNote: false
+            category: .watchlist,
+            owner: .a,
+            dueOn: nil,
+            closesAt: nil,
+            clusterID: nil,
+            source: .captured,
+            detail: nil,
+            isTimeCritical: false,
+            isDone: false
         ),
-        OursItem(
+        LifeItem(
             id: "pastlives",
             title: "Past Lives",
-            list: .watchlist,
-            addedBy: .shared,
-            addedAt: date(2025, 8, 4),
-            bothAdded: true,
-            coincidenceNote: "Both added it, a week apart",
-            horizonID: nil,
-            isStandingNote: false
+            category: .watchlist,
+            owner: .shared,
+            dueOn: nil,
+            closesAt: nil,
+            clusterID: nil,
+            source: .captured,
+            detail: "Both added it, a week apart",
+            isTimeCritical: false,
+            isDone: false
         ),
-        OursItem(
+        LifeItem(
             id: "tokyostory",
             title: "Tokyo Story",
-            list: .watchlist,
-            addedBy: .b,
-            addedAt: date(2025, 7, 30),
-            bothAdded: false,
-            coincidenceNote: nil,
-            horizonID: "japan",
-            isStandingNote: false
+            category: .watchlist,
+            owner: .b,
+            dueOn: nil,
+            closesAt: nil,
+            clusterID: nil,
+            source: .captured,
+            detail: nil,
+            isTimeCritical: false,
+            isDone: false
         ),
-        OursItem(
-            id: "nomusical",
-            title: "Anything but a musical",
-            list: .watchlist,
-            addedBy: .a,
-            addedAt: date(2025, 5, 2),
-            bothAdded: false,
-            coincidenceNote: nil,
-            horizonID: nil,
-            isStandingNote: true
-        ),
-        OursItem(
+        LifeItem(
             id: "steak",
             title: "Steak",
-            list: .eating,
-            addedBy: .shared,
-            addedAt: date(2025, 8, 6),
-            bothAdded: true,
-            coincidenceNote: "Both wrote it this month",
-            horizonID: nil,
-            isStandingNote: false
+            category: .food,
+            owner: .shared,
+            dueOn: nil,
+            closesAt: nil,
+            clusterID: nil,
+            source: .captured,
+            detail: "Both wrote it this month",
+            isTimeCritical: false,
+            isDone: false
+        ),
+        LifeItem(
+            id: "japan-trip",
+            title: "Japan in the fall",
+            category: .trips,
+            owner: .shared,
+            dueOn: nil,
+            closesAt: nil,
+            clusterID: nil,
+            source: .captured,
+            detail: nil,
+            isTimeCritical: false,
+            isDone: false
+        ),
+        LifeItem(
+            id: "upstate",
+            title: "Upstate, a weekend",
+            category: .trips,
+            owner: .a,
+            dueOn: nil,
+            closesAt: nil,
+            clusterID: nil,
+            source: .captured,
+            detail: nil,
+            isTimeCritical: false,
+            isDone: false
+        ),
+        LifeItem(
+            id: "airfilters",
+            title: "Air filters",
+            category: .buys,
+            owner: .a,
+            dueOn: nil,
+            closesAt: nil,
+            clusterID: nil,
+            source: .captured,
+            detail: nil,
+            isTimeCritical: false,
+            isDone: false
         ),
     ]
 
-    /// The filter pills' counts. Sixty-one things in total.
-    static let oursCounts: [OursList: Int] = [
-        .watchlist: 22, .eating: 19, .places: 14, .someday: 6,
-    ]
-
-    static var oursTotal: Int { oursCounts.values.reduce(0, +) }
-
-    /// The payoff card — every clause of its reasoning cites a different
-    /// signal: the lists, geography, the coincidence, and the calendar.
-    static let oursPayoff = (
-        label: "WE MADE YOU A FRIDAY",
-        headline: "Steak at Hometown, then Past Lives at Dylan's.",
-        reasoning: "You both wrote “steak” this month. Hometown is nine "
-            + "minutes from Dylan's and has a 7:45. Past Lives is the one film "
-            + "you each added without knowing. Your dad flies out at noon.",
-        hold: "Hold it",
-        alternative: "Something else"
-    )
 
     static let alsoPossible = [
         "The Bear at yours, and cook.",
@@ -434,8 +439,7 @@ enum FieldSampleData {
             isPrimary: true,
             thesis: "Everything in Life is quietly paying for this.",
             targetDate: date(2027, 4, 1),
-            linkedLifeItemIDs: ["passport"],
-            linkedOursItemIDs: ["tokyostory"],
+            linkedLifeItemIDs: ["passport", "tokyostory", "japan-trip"],
             openQuestion: FieldQuestion(
                 id: "japan-season",
                 prompt: "Spring or fall?",
@@ -458,7 +462,6 @@ enum FieldSampleData {
             thesis: nil,
             targetDate: date(2026, 6, 1),
             linkedLifeItemIDs: [],
-            linkedOursItemIDs: [],
             openQuestion: nil
         ),
         FieldHorizon(
@@ -470,7 +473,6 @@ enum FieldSampleData {
             thesis: nil,
             targetDate: nil,
             linkedLifeItemIDs: [],
-            linkedOursItemIDs: [],
             openQuestion: nil
         ),
         FieldHorizon(
@@ -482,7 +484,6 @@ enum FieldSampleData {
             thesis: nil,
             targetDate: nil,
             linkedLifeItemIDs: [],
-            linkedOursItemIDs: [],
             openQuestion: nil
         ),
         FieldHorizon(
@@ -494,7 +495,6 @@ enum FieldSampleData {
             thesis: nil,
             targetDate: nil,
             linkedLifeItemIDs: [],
-            linkedOursItemIDs: [],
             openQuestion: nil
         ),
     ]
@@ -618,7 +618,7 @@ enum FieldSampleData {
         ),
     ]
 
-    static let resolvedHeadline = "Nothing needs you here."
+    static let resolvedHeadline = "Today is clear."
     static let resolvedDetail = "Friday's booked. The groceries went out. "
         + "Dylan's cake is ordered."
 
@@ -708,7 +708,7 @@ enum FieldSampleData {
             observation: "You deleted “plan something fun” twice",
             change: "I don't invent plans anymore. I only suggest from what "
                 + "you've actually said.",
-            outcome: "That's why Friday came out of Ours, not out of thin air.",
+            outcome: "That's why Friday came out of what you'd both said, not out of thin air.",
             accent: .b
         ),
         FieldBehaviourChange(
@@ -721,7 +721,7 @@ enum FieldSampleData {
         FieldBehaviourChange(
             id: "appetite",
             observation: "You told me “not a task” four times",
-            change: "Food you mention now goes to Ours, not to Life.",
+            change: "Food you mention with no day on it stays undated now.",
             outcome: "“Steak” is an appetite. “Groceries” is a task. I can "
                 + "tell them apart now.",
             accent: .a

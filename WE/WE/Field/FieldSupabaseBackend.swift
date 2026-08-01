@@ -69,18 +69,6 @@ private struct LifeItemRow: Codable {
     let is_done: Bool
 }
 
-private struct OursItemRow: Codable {
-    let id: UUID
-    let title: String
-    let list: String
-    let added_by: UUID?
-    let added_at: Date
-    let both_added: Bool
-    let coincidence_note: String?
-    let horizon_id: UUID?
-    let is_standing_note: Bool
-}
-
 private struct HorizonRow: Codable {
     let id: UUID
     let title: String
@@ -89,6 +77,7 @@ private struct HorizonRow: Codable {
     let is_primary: Bool
     let thesis: String?
     let target_date: Date?
+    let linked_life_item_ids: [String]?
 }
 
 private struct QuestionRow: Codable {
@@ -225,7 +214,6 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         async let windows = fetch([AwayWindowRow].self, from: "field_away_windows")
         async let clusters = fetch([ClusterRow].self, from: "field_clusters")
         async let lifeItems = fetch([LifeItemRow].self, from: "field_life_items")
-        async let oursItems = fetch([OursItemRow].self, from: "field_ours_items")
         async let horizons = fetch([HorizonRow].self, from: "field_horizons")
         async let questions = fetch([QuestionRow].self, from: "field_questions")
         async let rhythms = fetch([RhythmRow].self, from: "field_rhythms")
@@ -244,7 +232,6 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             partners: try await partners(windows: windows),
             lifeItems: try await lifeItems.map(map),
             clusters: try await clusters.map(map),
-            oursItems: try await oursItems.map(map),
             horizons: try await horizons.map { map($0, questions: resolvedQuestions) },
             rhythms: try await rhythms.map(map),
             anchors: [],
@@ -359,7 +346,7 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         LifeItem(
             id: row.id.uuidString,
             title: row.title,
-            category: LifeCategory(rawValue: row.category) ?? .calendar,
+            category: LifeCategory(rawValue: row.category),
             owner: owner(row.owner),
             dueOn: row.due_on,
             closesAt: row.closes_at,
@@ -368,20 +355,6 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             detail: row.detail,
             isTimeCritical: row.is_time_critical,
             isDone: row.is_done
-        )
-    }
-
-    private func map(_ row: OursItemRow) -> OursItem {
-        OursItem(
-            id: row.id.uuidString,
-            title: row.title,
-            list: OursList(rawValue: row.list) ?? .someday,
-            addedBy: row.both_added ? .shared : owner(for: row.added_by),
-            addedAt: row.added_at,
-            bothAdded: row.both_added,
-            coincidenceNote: row.coincidence_note,
-            horizonID: row.horizon_id?.uuidString,
-            isStandingNote: row.is_standing_note
         )
     }
 
@@ -400,8 +373,7 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             isPrimary: row.is_primary,
             thesis: row.thesis,
             targetDate: row.target_date,
-            linkedLifeItemIDs: [],
-            linkedOursItemIDs: [],
+            linkedLifeItemIDs: row.linked_life_item_ids ?? [],
             openQuestion: question.map {
                 FieldQuestion(
                     id: $0.id.uuidString,
@@ -488,9 +460,14 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
 
     /// Destinations round-trip through their display label, so the column is
     /// readable in the Supabase table editor. Anything unrecognised falls to
-    /// Someday rather than throwing — a correction log is not worth a crash.
-    private func destination(_ label: String) -> FieldDestination {
-        FieldDestination.allCases.first { $0.label == label } ?? .ours(.someday)
+    /// Notes rather than throwing — a correction log is not worth a crash.
+    ///
+    /// `legacyLabel` rather than a plain category, because a couple's log
+    /// predates the collapse into one filing system: rows written as
+    /// `OURS · EATING` still have to teach the classifier what they were
+    /// recorded to teach.
+    private func destination(_ label: String) -> LifeCategory {
+        LifeCategory(legacyLabel: label) ?? .notes
     }
 
     // MARK: Writes
@@ -529,28 +506,47 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             payload["id"] = .string(existing.uuidString)
         }
         if let detail = item.detail { payload["detail"] = .string(detail) }
+        // The dates, which were missing: the phrasing layer lifts "sunday" out
+        // of what somebody typed and turns it into a real day, and dropping it
+        // on the way to the database threw that away on every reload.
+        if let dueOn = item.dueOn {
+            payload["due_on"] = .string(ISO8601DateFormatter.we.string(from: dueOn))
+        }
+        if let closesAt = item.closesAt {
+            payload["closes_at"] = .string(
+                ISO8601DateFormatter.we.string(from: closesAt)
+            )
+        }
         _ = try await client
             .from("field_life_items")
             .upsert(payload, onConflict: "id")
             .execute()
     }
 
-    func upsert(_ item: OursItem) async throws {
+    /// The only way Us ever gains anything: somebody answered a promotion
+    /// question with a yes.
+    func upsert(_ horizon: FieldHorizon) async throws {
         var payload: [String: AnyJSON] = [
             "couple_id": .string(coupleID.uuidString),
-            "title": .string(item.title),
-            "list": .string(item.list.rawValue),
-            "added_by": .string(viewerID.uuidString),
-            "is_standing_note": .bool(item.isStandingNote),
+            "title": .string(horizon.title),
+            "owner": .string(horizon.owner.rawValue),
+            "is_primary": .bool(horizon.isPrimary),
+            "linked_life_item_ids": .array(
+                horizon.linkedLifeItemIDs.map { .string($0) }
+            ),
         ]
-        if let existing = UUID(uuidString: item.id) {
+        if let existing = UUID(uuidString: horizon.id) {
             payload["id"] = .string(existing.uuidString)
         }
-        // `both_added` and `coincidence_note` are deliberately not sent. The
-        // trigger owns them, because only the database can see both partners'
-        // rows at once — and that inference is the app's best trick.
+        if let window = horizon.window { payload["window_label"] = .string(window) }
+        if let thesis = horizon.thesis { payload["thesis"] = .string(thesis) }
+        if let target = horizon.targetDate {
+            payload["target_date"] = .string(
+                ISO8601DateFormatter.we.string(from: target)
+            )
+        }
         _ = try await client
-            .from("field_ours_items")
+            .from("field_horizons")
             .upsert(payload, onConflict: "id")
             .execute()
     }

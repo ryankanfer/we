@@ -20,6 +20,10 @@ struct FieldCaptureField: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var isFocused: Bool
     @State private var caretIsVisible = false
+    /// Collapsed by default. The chips are a reassurance that nothing was
+    /// dropped, not a list anybody works from — and Today is the one screen
+    /// that must not accumulate.
+    @State private var caughtIsOpen = false
 
     var body: some View {
         @Bindable var store = store
@@ -51,6 +55,33 @@ struct FieldCaptureField: View {
         }
         .animation(.fieldZone(reduceMotion), value: store.lastReceipt)
         .animation(.fieldZone(reduceMotion), value: store.correctingReceipt)
+        .animation(.fieldZone(reduceMotion), value: caughtIsOpen)
+        // The field is multi-line, so Return inserts a newline rather than
+        // submitting — which left the keyboard with no way out at all. This is
+        // the way out, and it is also the second place the thing can be filed.
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Button("Done") { isFocused = false }
+                    .accessibilityIdentifier("field.capture.dismiss")
+
+                Spacer()
+
+                if !store.captureDraft.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ).isEmpty {
+                    Button("File it") { submit() }
+                        .fontWeight(.semibold)
+                        .accessibilityIdentifier("field.capture.submitKeyboard")
+                }
+            }
+        }
+    }
+
+    /// Classify, then step back. The receipt is the thing to read next, and it
+    /// cannot be read from behind a keyboard.
+    private func submit() {
+        store.submitCapture()
+        isFocused = false
     }
 
     // MARK: The field
@@ -70,7 +101,10 @@ struct FieldCaptureField: View {
 
             ZStack(alignment: .leading) {
                 if store.captureDraft.isEmpty && !isFocused {
-                    Text("japan in the fall maybe")
+                    // The placeholder is a suggestion too, and the same one
+                    // the first pill offers — the field demonstrates itself
+                    // with something true about this week.
+                    Text(store.captureSuggestions.first ?? "")
                         .font(FieldType.captureInput)
                         .foregroundStyle(.fieldInk(.monoLabel))
                 }
@@ -81,7 +115,7 @@ struct FieldCaptureField: View {
                     .tint(store.identity.personA.color)
                     .focused($isFocused)
                     .submitLabel(.done)
-                    .onSubmit { store.submitCapture() }
+                    .onSubmit { submit() }
                     .accessibilityLabel("Tell WE anything")
                     .accessibilityIdentifier("field.capture.input")
             }
@@ -90,7 +124,7 @@ struct FieldCaptureField: View {
                 caret
             } else {
                 Button {
-                    store.submitCapture()
+                    submit()
                 } label: {
                     Text("→")
                         .font(.system(size: 17))
@@ -146,9 +180,6 @@ struct FieldCaptureField: View {
 
     private func receiptCard(_ receipt: FieldReceipt) -> some View {
         let accent = store.identity.color(for: receipt.accent)
-        let destinationColor = receipt.accent == .shared
-            ? store.identity.personB.color
-            : accent
 
         return FieldCard(accent: accent) {
             VStack(alignment: .leading, spacing: 13) {
@@ -160,10 +191,32 @@ struct FieldCaptureField: View {
 
                     Spacer()
 
-                    Text(receipt.destination.label)
+                    Text(receipt.category.label)
                         .font(FieldType.dateCount)
                         .tracking(FieldTracking.dateCount)
-                        .foregroundStyle(destinationColor)
+                        .foregroundStyle(accent)
+                }
+
+                // What is actually about to be filed, when that is not what
+                // was typed. Shown before the reasoning, because a person who
+                // said "reminder to call mom sunday" needs to see that it
+                // became "Call mom, Sunday" *and* be able to disagree with it
+                // — silently rewriting someone's words is the worst version
+                // of this feature.
+                if receipt.wasRephrased || receipt.dueOn != nil {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(receipt.title)
+                            .font(FieldType.body)
+                            .foregroundStyle(.fieldInk(.headline))
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        if let dueOn = receipt.dueOn {
+                            Text(dayWord(dueOn).uppercased())
+                                .font(FieldType.dateCount)
+                                .tracking(FieldTracking.dateCount)
+                                .foregroundStyle(.fieldInk(.dateCount))
+                        }
+                    }
                 }
 
                 Text(receipt.reasoning)
@@ -174,15 +227,31 @@ struct FieldCaptureField: View {
 
                 // Send is the affirmative and carries the filled style,
                 // because it is the moment the thing actually crosses into
-                // the shared space. Correcting first costs nothing, which is
-                // why it is the quiet one.
+                // the shared space. The other two cost nothing and change
+                // nothing yet, which is why they are the quiet ones.
                 HStack(spacing: 11) {
                     Button("Send") { store.send() }
                         .buttonStyle(FieldFilledButtonStyle())
                         .accessibilityIdentifier("field.receipt.send")
                         .accessibilityHint(
-                            "Files it to \(receipt.destination.label)"
+                            "Files it to \(receipt.category.label)"
                         )
+
+                    // Only where a date is not a lie. The confirmation is the
+                    // TODAY chip that appears above — the app shows what it is
+                    // about to do rather than announcing that it did it.
+                    if receipt.category.carriesDates {
+                        Button(isForToday(receipt) ? "Not today" : "For today") {
+                            store.toggleForToday()
+                        }
+                        .buttonStyle(FieldQuietButtonStyle())
+                        .accessibilityIdentifier("field.receipt.today")
+                        .accessibilityHint(
+                            isForToday(receipt)
+                                ? "Takes the date back off"
+                                : "Puts it on today"
+                        )
+                    }
 
                     Button("Wrong place") { store.beginCorrection() }
                         .buttonStyle(FieldQuietButtonStyle())
@@ -192,8 +261,28 @@ struct FieldCaptureField: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(
-            "Filed to \(receipt.destination.label). \(receipt.reasoning)"
+            "Filed to \(receipt.category.label). \(receipt.reasoning)"
         )
+    }
+
+    /// "Today", "Tomorrow", or the weekday. A date beside a one-line title
+    /// should read the way the person said it, not as 3 Aug 2026.
+    private func dayWord(_ date: Date) -> String {
+        let calendar = Calendar.gregorianUS
+        if calendar.isDate(date, inSameDayAs: store.now) { return "Today" }
+        if let tomorrow = calendar.date(
+            byAdding: .day,
+            value: 1,
+            to: calendar.startOfDay(for: store.now)
+        ), calendar.isDate(date, inSameDayAs: tomorrow) {
+            return "Tomorrow"
+        }
+        return DateFormatter.fieldWeekday.string(from: date)
+    }
+
+    private func isForToday(_ receipt: FieldReceipt) -> Bool {
+        guard let dueOn = receipt.dueOn else { return false }
+        return Calendar.gregorianUS.isDate(dueOn, inSameDayAs: store.now)
     }
 
     /// One tap to a corrected destination. Not a picker wheel, not a sheet —
@@ -204,11 +293,11 @@ struct FieldCaptureField: View {
                 FieldLabel("Where should it go?", color: .fieldInk(.monoLabelQuiet))
 
                 FieldFlowLayout(spacing: 8, lineSpacing: 8) {
-                    ForEach(correctionOptions, id: \.label) { destination in
+                    ForEach(correctionOptions) { category in
                         Button {
-                            store.correct(to: destination)
+                            store.correct(to: category)
                         } label: {
-                            Text(destination.label)
+                            Text(category.word)
                                 .font(FieldType.dateCount)
                                 .tracking(FieldTracking.dateCount)
                                 .foregroundStyle(.fieldInk(.legend))
@@ -228,26 +317,31 @@ struct FieldCaptureField: View {
         }
     }
 
-    private var correctionOptions: [FieldDestination] {
-        guard let current = store.correctingReceipt?.destination else {
-            return FieldDestination.allCases
+    /// Every category that currently exists, including ones the app grew — a
+    /// thing must be movable into one of those as easily as into a given one.
+    private var correctionOptions: [LifeCategory] {
+        guard let current = store.correctingReceipt?.category else {
+            return store.correctionCategories
         }
-        return FieldDestination.allCases.filter { $0.label != current.label }
+        return store.correctionCategories.filter { $0 != current }
     }
 
-    // MARK: The demo affordance
+    // MARK: What to say
     //
-    // The four canonical inputs, which double as the classifier's few-shot
-    // examples. They disappear the moment a real receipt exists.
+    // Read from this couple's week — a stretch someone is about to leave for,
+    // a rhythm that has slipped, an occasion with nothing bought for it. The
+    // four canned phrases remain only for a couple with nothing to read yet;
+    // see `FieldCaptureSuggestions`. They disappear the moment a real receipt
+    // exists.
 
     private func samplePhrases(store: FieldStore) -> some View {
         @Bindable var store = store
 
         return FieldFlowLayout(spacing: 8, lineSpacing: 8) {
-            ForEach(FieldSampleData.canonicalInputs, id: \.self) { phrase in
+            ForEach(store.captureSuggestions, id: \.self) { phrase in
                 Button {
                     store.captureDraft = phrase
-                    store.submitCapture()
+                    submit()
                 } label: {
                     Text(phrase)
                         .font(FieldType.button)
@@ -261,20 +355,54 @@ struct FieldCaptureField: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Try: \(phrase)")
+                // Addressable without knowing the words. The pills are read
+                // from this couple's own week now, so no test can name one in
+                // advance — which is the point of them.
+                .accessibilityIdentifier("field.capture.suggestion")
             }
         }
     }
 
     // MARK: Caught this week
 
+    /// Collapsed to its own label, which already carries the only number that
+    /// matters. Opening it is a deliberate act — the count is the reassurance,
+    /// and the chips are the proof you ask for when you doubt it.
+    @ViewBuilder
     private var caughtThisWeek: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            FieldLabel("Caught this week · \(store.state.captures.count)")
+        let count = store.state.captures.count
 
-            FieldFlowLayout(spacing: 7, lineSpacing: 7) {
-                ForEach(store.state.captures) { capture in
-                    chip(capture)
+        VStack(alignment: .leading, spacing: 14) {
+            Button {
+                caughtIsOpen.toggle()
+            } label: {
+                HStack(spacing: 8) {
+                    FieldLabel("Caught this week · \(count)")
+
+                    if count > 0 {
+                        Text(caughtIsOpen ? "−" : "+")
+                            .font(FieldType.subLabel)
+                            .foregroundStyle(.fieldInk(.recessive))
+                    }
+
+                    Spacer()
                 }
+                .frame(minHeight: 30)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(count == 0)
+            .accessibilityLabel("Caught this week, \(count)")
+            .accessibilityHint(caughtIsOpen ? "Collapses the list" : "Shows the list")
+            .accessibilityIdentifier("field.caught.toggle")
+
+            if caughtIsOpen {
+                FieldFlowLayout(spacing: 7, lineSpacing: 7) {
+                    ForEach(store.state.captures) { capture in
+                        chip(capture)
+                    }
+                }
+                .transition(.opacity)
             }
         }
     }

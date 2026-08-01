@@ -69,7 +69,7 @@ enum FieldCalendarAccess {
 
         return store.events(matching: predicate)
             .filter { !$0.isAllDay || $0.startDate != nil }
-            .compactMap { event in
+            .compactMap { event -> LifeItem? in
                 guard let identifier = event.eventIdentifier,
                       let title = event.title?.trimmingCharacters(
                           in: .whitespacesAndNewlines
@@ -80,7 +80,10 @@ enum FieldCalendarAccess {
                 return LifeItem(
                     id: "cal:\(identifier)",
                     title: title,
-                    category: .calendar,
+                    // An imported event belongs to no list. It is a date, and
+                    // the calendar is a view of dates — it is never filed into
+                    // a category, because nobody put it in one.
+                    category: .notes,
                     owner: .shared,
                     dueOn: event.startDate,
                     // A calendar event is a date, not a window that closes.
