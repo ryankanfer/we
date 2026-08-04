@@ -52,7 +52,7 @@ private struct ClusterRow: Codable {
     let rationale: String
     let tint: String
     let timeframe: String
-    let anchor_date: Date?
+    let anchor_date: String?
 }
 
 private struct LifeItemRow: Codable {
@@ -60,7 +60,7 @@ private struct LifeItemRow: Codable {
     let title: String
     let category: String
     let owner: String
-    let due_on: Date?
+    let due_on: String?
     let closes_at: Date?
     let cluster_id: UUID?
     let source: String
@@ -76,7 +76,7 @@ private struct HorizonRow: Codable {
     let owner: String
     let is_primary: Bool
     let thesis: String?
-    let target_date: Date?
+    let target_date: String?
     let linked_life_item_ids: [String]?
 }
 
@@ -111,16 +111,30 @@ private struct EvidenceRow: Codable {
 
 private struct HeldTopicRow: Codable {
     let id: UUID
+    /// The id the *app* holds things under — `promote:japan`,
+    /// `occasion:<cluster>:<item>`, or an item's uuid. `id` is the row's own
+    /// key and is never what `FieldIntelligence` matches against.
+    let client_id: String
     let title: String
     let timing: String
     let reason: String
-    let surface_on: Date?
+    let surface_on: String?
     let was_overridden: Bool
     let was_dismissed: Bool
 }
 
 private struct StandingRuleRow: Codable {
     let id: UUID
+    /// The id the app wrote the rule under, and what it must come back as —
+    /// otherwise the row the outbox is still holding and the row that arrived
+    /// from the server are two different rules that say the same sentence.
+    ///
+    /// Optional on purpose, unlike `HeldTopicRow.client_id`. `load()` decodes
+    /// thirteen tables concurrently and one failed decode fails all of them,
+    /// so a database that has not taken
+    /// `20260803120000_field_mutation_idempotency` yet degrades to the old
+    /// behaviour instead of being unable to load at all.
+    let client_id: String?
     let text: String
     let set_at: Date
 }
@@ -134,6 +148,8 @@ private struct CaptureRow: Codable {
 
 private struct CorrectionRow: Codable {
     let id: UUID
+    /// See `StandingRuleRow.client_id`.
+    let client_id: String?
     let input: String
     let original_destination: String
     let corrected_destination: String
@@ -145,12 +161,18 @@ private struct DailyMomentRow: Codable {
     let hour_rationale: String
     let reply_rate_before: Double
     let reply_rate_after: Double
-    let last_sent_on: Date?
+    let last_sent_on: String?
 }
 
 private struct MemberRow: Codable {
     let profile_id: UUID
     let name: String?
+}
+
+/// PostgreSQL `date` is intentionally not a timestamp. PostgREST returns it
+/// as `YYYY-MM-DD`, which Foundation's ISO-8601 `Date` decoder rejects.
+private func postgresDay(_ value: String?) -> Date? {
+    value.flatMap { DateFormatter.fieldDay.date(from: $0) }
 }
 
 // MARK: - Backend
@@ -164,6 +186,7 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
     private let profileB: UUID?
     private let nameA: String
     private let nameB: String
+    let viewerOwner: FieldOwner
 
     init?(
         client: SupabaseClient?,
@@ -178,15 +201,24 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
               let aUUID = UUID(uuidString: firstMemberID)
         else { return nil }
 
+        let bUUID = members
+            .first { $0.id != firstMemberID }
+            .flatMap { UUID(uuidString: $0.id) }
+        guard viewerUUID == aUUID || viewerUUID == bUUID else {
+            // Never turn an unknown profile into Partner A. RLS remains the
+            // server boundary; this guard keeps attribution correct even if
+            // the caller accidentally hands this adapter the wrong snapshot.
+            return nil
+        }
+
         self.client = client
         self.coupleID = coupleUUID
         self.viewerID = viewerUUID
         self.profileA = aUUID
-        self.profileB = members
-            .first { $0.id != firstMemberID }
-            .flatMap { UUID(uuidString: $0.id) }
+        self.profileB = bUUID
         self.nameA = members.first { $0.id == firstMemberID }?.name ?? "You"
         self.nameB = members.first { $0.id != firstMemberID }?.name ?? "Them"
+        self.viewerOwner = viewerUUID == aUUID ? .a : .b
     }
 
     /// Which side of the relationship a profile id sits on. A row written
@@ -196,14 +228,12 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         guard let id else { return .shared }
         if id == profileA { return .a }
         if let profileB, id == profileB { return .b }
-        return .a
+        return .shared
     }
 
     private func owner(_ raw: String) -> FieldOwner {
         FieldOwner(rawValue: raw) ?? .shared
     }
-
-    private var viewerOwner: FieldOwner { owner(for: viewerID) }
 
     // MARK: Load
 
@@ -220,7 +250,7 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         async let evidence = fetch([EvidenceRow].self, from: "field_evidence")
         async let held = fetch([HeldTopicRow].self, from: "field_held_topics")
         async let rules = fetch([StandingRuleRow].self, from: "field_standing_rules")
-        async let captures = fetch([CaptureRow].self, from: "field_captures")
+        async let captures = fetchCaptures()
         async let corrections = fetch([CorrectionRow].self, from: "field_corrections")
         async let moment = fetchMoment()
 
@@ -272,6 +302,29 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         )
     }
 
+    /// Captures are the one table that grows without bound and is only ever
+    /// read as "this week".
+    ///
+    /// Thirty days rather than seven, deliberately: the screen filters again
+    /// against the store's own clock, and a fetch that returned exactly seven
+    /// would be the server quietly deciding the answer for a clock it knows
+    /// nothing about.
+    private func fetchCaptures() async throws -> [CaptureRow] {
+        let since = Calendar.gregorianUS.date(
+            byAdding: .day,
+            value: -30,
+            to: Date()
+        ) ?? .distantPast
+
+        return try await client
+            .from("field_captures")
+            .select()
+            .gte("captured_at", value: ISO8601DateFormatter.we.string(from: since))
+            .order("captured_at", ascending: false)
+            .execute()
+            .value
+    }
+
     private func fetchMoment() async throws -> FieldDailyMoment {
         let rows: [DailyMomentRow] = try await fetch(
             [DailyMomentRow].self,
@@ -296,7 +349,7 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             hourRationale: row.hour_rationale,
             replyRateBefore: row.reply_rate_before,
             replyRateAfter: row.reply_rate_after,
-            lastSentOn: row.last_sent_on
+            lastSentOn: postgresDay(row.last_sent_on)
         )
     }
 
@@ -338,7 +391,7 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             rationale: row.rationale,
             tint: owner(row.tint),
             timeframe: row.timeframe,
-            anchorDate: row.anchor_date
+            anchorDate: postgresDay(row.anchor_date)
         )
     }
 
@@ -348,7 +401,7 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             title: row.title,
             category: LifeCategory(rawValue: row.category),
             owner: owner(row.owner),
-            dueOn: row.due_on,
+            dueOn: postgresDay(row.due_on),
             closesAt: row.closes_at,
             clusterID: row.cluster_id?.uuidString,
             source: FieldItemSource(rawValue: row.source) ?? .captured,
@@ -372,7 +425,7 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             owner: owner(row.owner),
             isPrimary: row.is_primary,
             thesis: row.thesis,
-            targetDate: row.target_date,
+            targetDate: postgresDay(row.target_date),
             linkedLifeItemIDs: row.linked_life_item_ids ?? [],
             openQuestion: question.map {
                 FieldQuestion(
@@ -419,13 +472,20 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         )
     }
 
+    /// Identified by `client_id`, not by the row's uuid.
+    ///
+    /// `FieldIntelligence` matches a held topic against the question or item id
+    /// it was held under (`FieldIntelligence.swift`, `violatesStandingRule` and
+    /// the suppression checks). Returning `row.id` here handed it a uuid it
+    /// could never match, so a hold that survived the write still failed to
+    /// suppress anything.
     private func map(_ row: HeldTopicRow) -> FieldHeldTopic {
         FieldHeldTopic(
-            id: row.id.uuidString,
+            id: row.client_id,
             title: row.title,
             timing: row.timing,
             reason: row.reason,
-            surfaceOn: row.surface_on,
+            surfaceOn: postgresDay(row.surface_on),
             wasOverridden: row.was_overridden,
             wasDismissed: row.was_dismissed
         )
@@ -433,7 +493,7 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
 
     private func map(_ row: StandingRuleRow) -> FieldStandingRule {
         FieldStandingRule(
-            id: row.id.uuidString,
+            id: row.client_id ?? row.id.uuidString,
             text: row.text,
             setAt: row.set_at
         )
@@ -450,7 +510,7 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
 
     private func map(_ row: CorrectionRow) -> FieldCorrection {
         FieldCorrection(
-            id: row.id.uuidString,
+            id: row.client_id ?? row.id.uuidString,
             input: row.input,
             original: destination(row.original_destination),
             corrected: destination(row.corrected_destination),
@@ -473,23 +533,49 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
     // MARK: Writes
 
     func append(_ capture: FieldCapture) async throws {
-        _ = try await client.from("field_captures").insert([
+        var payload: [String: AnyJSON] = [
             "couple_id": AnyJSON.string(coupleID.uuidString),
             "text": .string(capture.text),
             "spoken_by": .string(viewerID.uuidString),
             "destination": .string(""),
             "reasoning": .string(""),
-        ]).execute()
+        ]
+        // A capture and the Life item materialised from its receipt share one
+        // durable identity. Besides making restart behavior stable, this gives
+        // migrations and diagnostics an exact join instead of guessing from
+        // matching text and timestamps.
+        if let id = UUID(uuidString: capture.id) {
+            payload["id"] = .string(id.uuidString)
+        }
+        // Upsert rather than insert, so the outbox can send this again after
+        // a write that committed and then timed out. The receipt's UUID is
+        // already the durable identity here — the same one the materialised
+        // Life item takes — so the conflict target costs nothing and needs no
+        // column that did not already exist.
+        _ = try await client
+            .from("field_captures")
+            .upsert(payload, onConflict: "id")
+            .execute()
     }
 
+    /// Keyed on the correction's own id, for the same reason as above.
+    ///
+    /// This was the more dangerous of the two unkeyed inserts: a correction is
+    /// training signal, and a duplicate does not merely show twice — it
+    /// doubles the weight of one person's single opinion about what a word
+    /// means, in the one genuinely adaptive path in the app.
     func record(_ correction: FieldCorrection) async throws {
-        _ = try await client.from("field_corrections").insert([
-            "couple_id": AnyJSON.string(coupleID.uuidString),
-            "input": .string(correction.input),
-            "original_destination": .string(correction.original.label),
-            "corrected_destination": .string(correction.corrected.label),
-            "corrected_by": .string(viewerID.uuidString),
-        ]).execute()
+        _ = try await client
+            .from("field_corrections")
+            .upsert([
+                "couple_id": AnyJSON.string(coupleID.uuidString),
+                "client_id": .string(correction.id),
+                "input": .string(correction.input),
+                "original_destination": .string(correction.original.label),
+                "corrected_destination": .string(correction.corrected.label),
+                "corrected_by": .string(viewerID.uuidString),
+            ], onConflict: "couple_id,client_id")
+            .execute()
     }
 
     func upsert(_ item: LifeItem) async throws {
@@ -509,17 +595,54 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         // The dates, which were missing: the phrasing layer lifts "sunday" out
         // of what somebody typed and turns it into a real day, and dropping it
         // on the way to the database threw that away on every reload.
-        if let dueOn = item.dueOn {
-            payload["due_on"] = .string(ISO8601DateFormatter.we.string(from: dueOn))
-        }
-        if let closesAt = item.closesAt {
-            payload["closes_at"] = .string(
-                ISO8601DateFormatter.we.string(from: closesAt)
-            )
-        }
+        // Written explicitly as null when absent, never omitted. An upsert
+        // that leaves the key out preserves whatever was in the column, so
+        // taking a date off an item — `FieldStore.redate(_:to: nil)` — would
+        // have looked right until the next load put the old day back.
+        payload["due_on"] = item.dueOn.map {
+            .string(DateFormatter.fieldDay.string(from: $0))
+        } ?? .null
+        payload["closes_at"] = item.closesAt.map {
+            .string(ISO8601DateFormatter.we.string(from: $0))
+        } ?? .null
+        // Read since the beginning, written never. Which occasion something
+        // belongs to was the one fact about an item this method could not
+        // carry, so the answer to "does this belong with Friday" survived
+        // exactly until the next load. Explicitly null when absent, for the
+        // same reason the dates above are: an upsert that omits a key keeps
+        // whatever the column already had, and taking something *out* of an
+        // occasion would have looked right and done nothing.
+        payload["cluster_id"] = item.clusterID.map { .string($0) } ?? .null
+
         _ = try await client
             .from("field_life_items")
             .upsert(payload, onConflict: "id")
+            .execute()
+    }
+
+    /// Gone, rather than flagged. The `field_life_items_write` policy is
+    /// `for all` scoped to the caller's couple, so DELETE is already covered —
+    /// see `20260730120000_field_zones.sql`.
+    func delete(itemID: String) async throws {
+        // Only a real row. Imported calendar items carry a `cal:` id and are
+        // refused in `FieldStore` before they reach here; this guard means a
+        // future caller cannot send one either.
+        guard let id = UUID(uuidString: itemID) else { return }
+
+        _ = try await client
+            .from("field_life_items")
+            .delete()
+            .eq("id", value: id.uuidString)
+            .execute()
+
+        // And the capture it was filed from, which shares the same id. Without
+        // this the row survives the item, and the next load — or the partner's
+        // phone, which never saw the local removal — puts the chip back under
+        // the capture field for a thing that is gone.
+        _ = try await client
+            .from("field_captures")
+            .delete()
+            .eq("id", value: id.uuidString)
             .execute()
     }
 
@@ -542,11 +665,34 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         if let thesis = horizon.thesis { payload["thesis"] = .string(thesis) }
         if let target = horizon.targetDate {
             payload["target_date"] = .string(
-                ISO8601DateFormatter.we.string(from: target)
+                DateFormatter.fieldDay.string(from: target)
             )
         }
         _ = try await client
             .from("field_horizons")
+            .upsert(payload, onConflict: "id")
+            .execute()
+    }
+
+    /// And the only way Life ever gains an occasion: somebody answered an
+    /// occasion question with a yes.
+    func upsert(_ cluster: FieldCluster) async throws {
+        var payload: [String: AnyJSON] = [
+            "couple_id": .string(coupleID.uuidString),
+            "title": .string(cluster.title),
+            "rationale": .string(cluster.rationale),
+            "tint": .string(cluster.tint.rawValue),
+            "timeframe": .string(cluster.timeframe),
+        ]
+        if let existing = UUID(uuidString: cluster.id) {
+            payload["id"] = .string(existing.uuidString)
+        }
+        payload["anchor_date"] = cluster.anchorDate.map {
+            .string(DateFormatter.fieldDay.string(from: $0))
+        } ?? .null
+
+        _ = try await client
+            .from("field_clusters")
             .upsert(payload, onConflict: "id")
             .execute()
     }
@@ -563,43 +709,125 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             .execute()
     }
 
+    /// Upsert on the couple's own id for the topic, carrying every field.
+    ///
+    /// This was an UPDATE guarded by `UUID(uuidString: topic.id)`, which meant
+    /// three separate failures at once. The guard rejected every route-shaped
+    /// id — `promote:japan`, `occasion:…` — and returned without writing or
+    /// throwing. The ids that passed it updated zero rows, because nothing has
+    /// ever inserted into this table. And `surface_on` was not in the payload
+    /// at all, so even a hit would not have recorded *when* to come back.
+    ///
+    /// The in-memory backend has upserted correctly for some time, with a
+    /// comment describing this exact bug being fixed there — which is why no
+    /// preview, gallery run, or UI test ever saw it. That asymmetry is the
+    /// thing to fix structurally; see the shared backend conformance suite.
     func setHeld(_ topic: FieldHeldTopic) async throws {
-        guard let id = UUID(uuidString: topic.id) else { return }
+        var payload: [String: AnyJSON] = [
+            "couple_id": .string(coupleID.uuidString),
+            "client_id": .string(topic.id),
+            "title": .string(topic.title),
+            "timing": .string(topic.timing),
+            "reason": .string(topic.reason),
+            "was_overridden": .bool(topic.wasOverridden),
+            "was_dismissed": .bool(topic.wasDismissed),
+        ]
+        // A `date` column, and the reason a deferral comes back at all.
+        payload["surface_on"] = topic.surfaceOn.map {
+            .string(DateFormatter.fieldDay.string(from: $0))
+        } ?? .null
+
         _ = try await client
             .from("field_held_topics")
-            .update([
-                "was_overridden": AnyJSON.bool(topic.wasOverridden),
-                "was_dismissed": .bool(topic.wasDismissed),
-            ])
-            .eq("id", value: id.uuidString)
+            .upsert(payload, onConflict: "couple_id,client_id")
             .execute()
     }
 
+    /// One row per couple, so this upserts on the couple rather than
+    /// inserting a second opinion about what hour they reply at.
+    ///
+    /// `last_sent_on` is a `date` and not a timestamp — the question it
+    /// answers is "have I already spoken today", which is a day and not an
+    /// instant.
+    func setDailyMoment(_ moment: FieldDailyMoment) async throws {
+        var payload: [String: AnyJSON] = [
+            "couple_id": .string(coupleID.uuidString),
+            "send_minute": .integer(moment.sendMinute),
+            "hour_rationale": .string(moment.hourRationale),
+            "reply_rate_before": .double(moment.replyRateBefore),
+            "reply_rate_after": .double(moment.replyRateAfter),
+        ]
+        payload["last_sent_on"] = moment.lastSentOn
+            .map { .string(DateFormatter.fieldDay.string(from: $0)) } ?? .null
+
+        _ = try await client
+            .from("field_daily_moment")
+            .upsert(payload, onConflict: "couple_id")
+            .execute()
+    }
+
+    /// Also keyed, and also previously unkeyed. A rule sent twice is the same
+    /// sentence printed twice on the surface whose entire job is to say what
+    /// the two of them have already decided.
     func setStandingRule(_ rule: FieldStandingRule) async throws {
-        _ = try await client.from("field_standing_rules").insert([
-            "couple_id": AnyJSON.string(coupleID.uuidString),
-            "text": .string(rule.text),
-            "set_by": .string(viewerID.uuidString),
-        ]).execute()
+        _ = try await client
+            .from("field_standing_rules")
+            .upsert([
+                "couple_id": AnyJSON.string(coupleID.uuidString),
+                "client_id": .string(rule.id),
+                "text": .string(rule.text),
+                "set_by": .string(viewerID.uuidString),
+            ], onConflict: "couple_id,client_id")
+            .execute()
     }
 
     func setIdentity(_ identity: FieldIdentity) async throws {
         // A skipped question writes null rather than "", so the two stay
         // distinguishable after a round trip.
+        var payload: [String: AnyJSON] = [
+            "couple_id": .string(coupleID.uuidString),
+            "lives_together": identity.livesTogether
+                .map(AnyJSON.bool) ?? .null,
+            "saving_for": identity.savingFor
+                .map(AnyJSON.string) ?? .null,
+            "looks_after": identity.looksAfter
+                .map(AnyJSON.string) ?? .null,
+        ]
+        switch viewerOwner {
+        case .a:
+            payload["swatch_a"] = .string(identity.personA.rawValue)
+        case .b:
+            payload["swatch_b"] = .string(identity.personB.rawValue)
+        case .shared:
+            break
+        }
+
         _ = try await client
             .from("field_identity")
-            .upsert([
-                "couple_id": AnyJSON.string(coupleID.uuidString),
-                "swatch_a": .string(identity.personA.rawValue),
-                "swatch_b": .string(identity.personB.rawValue),
-                "lives_together": identity.livesTogether
-                    .map(AnyJSON.bool) ?? .null,
-                "saving_for": identity.savingFor
-                    .map(AnyJSON.string) ?? .null,
-                "looks_after": identity.looksAfter
-                    .map(AnyJSON.string) ?? .null,
-            ], onConflict: "couple_id")
+            .upsert(payload, onConflict: "couple_id")
             .execute()
+    }
+
+    // MARK: The solo-to-shared boundary (2a)
+    //
+    // Both are `security definer` RPCs scoped server-side to the caller's own
+    // rows. Deliberately not expressed as table writes: `visibility` is frozen
+    // by `private.field_stamp_visibility()` precisely so that a client — or a
+    // partner — cannot publish somebody's private history by writing a column.
+    // The RPC is the only door, and it only ever opens onto the caller's side.
+
+    func soloHistoryCount() async throws -> Int {
+        try await client
+            .rpc("field_solo_history_count")
+            .execute()
+            .value
+    }
+
+    func shareSoloHistory() async throws -> Int {
+        try await client
+            .rpc("field_share_solo_history")
+            .execute()
+            .value
     }
 
     // MARK: Realtime
@@ -609,22 +837,114 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
     // own.
 
     func changes() -> AsyncStream<Void> {
+        changes(
+            onSubscribed: {},
+            onSubscriptionFailed: { _ in }
+        )
+    }
+
+    /// The readiness callback is intentionally concrete-backend API rather
+    /// than part of `FieldBackend`: production callers only need changes,
+    /// while the live contract must prove the Realtime channel is joined
+    /// before Partner B writes. A timed sleep can miss a slow subscription.
+    func changes(
+        onSubscribed: @escaping @Sendable () -> Void,
+        onSubscriptionFailed: @escaping @Sendable (String) -> Void = { _ in }
+    ) -> AsyncStream<Void> {
         AsyncStream { continuation in
             let task = Task { [client, coupleID] in
                 let channel = client.channel("field:\(coupleID.uuidString)")
-                let stream = channel.postgresChange(
-                    AnyAction.self,
-                    schema: "public"
-                )
-                await channel.subscribe()
 
-                for await _ in stream {
-                    if Task.isCancelled { break }
-                    continuation.yield()
+                // One subscription per table rather than one for the whole
+                // `public` schema.
+                //
+                // The schema-wide subscription woke this stream for every
+                // change to every table the viewer can see — profiles,
+                // couples, memberships, the legacy v2 tables, all of it — and
+                // each wake ran a full thirteen-query reload. Nothing outside
+                // `field_*` can alter a `FieldState`, so every one of those
+                // reloads was thirteen queries to arrive at the same answer.
+                let streams = Self.observedTables.map { table in
+                    channel.postgresChange(
+                        AnyAction.self,
+                        schema: "public",
+                        table: table
+                    )
+                }
+
+                do {
+                    try await channel.subscribeWithError()
+                } catch {
+                    onSubscriptionFailed(String(describing: error))
+                    continuation.finish()
+                    return
+                }
+                onSubscribed()
+
+                // Merged by hand, because the tables are separate streams now
+                // and a change is a change regardless of which one it came
+                // from. The debounce is what makes that safe: sending one
+                // capture writes to `field_captures` and `field_life_items`,
+                // and a correction with it — three ticks, one action, and
+                // without this three full reloads.
+                let debounced = FieldChangeDebouncer()
+
+                await withTaskGroup(of: Void.self) { group in
+                    group.addTask {
+                        for await _ in debounced.ticks {
+                            if Task.isCancelled { break }
+                            continuation.yield()
+                        }
+                    }
+
+                    // The inner group finishes when every table stream has
+                    // ended — which is what cancellation looks like from here.
+                    // Only then is the forwarder above told to stop, so a tick
+                    // still in flight is not dropped on the way out.
+                    await withTaskGroup(of: Void.self) { tables in
+                        for stream in streams {
+                            tables.addTask {
+                                for await _ in stream {
+                                    if Task.isCancelled { break }
+                                    debounced.tick()
+                                }
+                            }
+                        }
+                    }
+                    debounced.finish()
                 }
                 await channel.unsubscribe()
             }
             continuation.onTermination = { _ in task.cancel() }
         }
     }
+
+    /// Every table a `FieldState` is built from, and nothing else.
+    ///
+    /// Listed rather than derived: a table added to `load()` and forgotten
+    /// here shows up as a partner's change not arriving until the next
+    /// foreground, which is a slow and confusing bug. Adding to `load()`
+    /// should mean adding here in the same edit.
+    /// Exactly the thirteen `load()` reads, in the same order.
+    ///
+    /// A table here that realtime does not publish is harmless — it simply
+    /// never fires. A table in `load()` and missing here is not: the partner's
+    /// change lands in the database and does not reach the screen until the
+    /// next foreground, which reads as the app being slow rather than as a
+    /// subscription being wrong.
+    static let observedTables = [
+        "field_identity",
+        "field_away_windows",
+        "field_clusters",
+        "field_life_items",
+        "field_horizons",
+        "field_questions",
+        "field_rhythms",
+        "field_evidence",
+        "field_held_topics",
+        "field_standing_rules",
+        "field_captures",
+        "field_corrections",
+        "field_daily_moment",
+    ]
 }

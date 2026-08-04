@@ -576,7 +576,7 @@ struct WETests {
     }
 
     @Test
-    func previewSoftStartClaimsThenOffersTheApprovedPreview() async throws {
+    func previewRepositoryClaimsThenOffersAPrivateProposal() async throws {
         let repository = PreviewRepository()
         let proposal = PrivateProposal(
             id: UUID(),

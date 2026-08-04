@@ -9,10 +9,6 @@ import XCTest
 
 final class WEUITestsLaunchTests: XCTestCase {
 
-    override class var runsForEachTargetApplicationUIConfiguration: Bool {
-        true
-    }
-
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
@@ -20,14 +16,15 @@ final class WEUITestsLaunchTests: XCTestCase {
     @MainActor
     func testLaunch() throws {
         let app = XCUIApplication()
+        WEUITestLaunchSupport.configure(app)
         app.launchEnvironment["WE_REPOSITORY"] = "preview"
         app.launchEnvironment["WE_PREVIEW_SCENARIO"] = "ready"
         app.launchEnvironment["WE_SKIP_PROMISE"] = "1"
         app.launch()
 
-        let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "WE Native Product"
-        attachment.lifetime = .keepAlways
-        add(attachment)
+        XCTAssertTrue(
+            app.buttons["field.nav.we"].waitForExistence(timeout: 10)
+        )
+        keepScreenshot(of: app, named: "golden.field.launch")
     }
 }

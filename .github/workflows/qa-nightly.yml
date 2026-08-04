@@ -1,0 +1,273 @@
+name: WE QA - Nightly
+
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-nightly
+  cancel-in-progress: false
+
+env:
+  SUPABASE_CLI_VERSION: 2.45.5
+  DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+  IOS_RUNTIME: "26.2"
+  WE_QA_FIXED_NOW: "2025-08-13T12:00:00Z"
+  WE_QA_DISABLE_ANIMATIONS: "1"
+  TZ: UTC
+
+jobs:
+  database-contract:
+    name: Nightly database contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install pinned Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+
+      - name: Run migrations, pgTAP, and schema lint
+        run: bash scripts/qa/run-supabase-contract.sh artifacts/supabase
+
+      - name: Upload database evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-supabase-contract
+          path: artifacts/supabase
+          if-no-files-found: warn
+          retention-days: 30
+
+  rendered-app-contract:
+    name: Rendered app - ${{ matrix.name }}
+    runs-on: macos-26
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - name: small
+            device: iPhone 16e
+            profile: standard
+            lane: full-ui
+            dynamic_type: large
+            reduce_transparency: "0"
+            reference: WE/WEUITests/ReferenceImages/iPhone-16e/standard
+          - name: large
+            device: iPhone 17 Pro Max
+            profile: standard
+            lane: full-ui
+            dynamic_type: large
+            reduce_transparency: "0"
+            reference: WE/WEUITests/ReferenceImages/iPhone-17-Pro-Max/standard
+          - name: maximum-accessibility
+            device: iPhone 17 Pro Max
+            profile: accessibility
+            lane: accessibility
+            dynamic_type: accessibility5
+            reduce_transparency: "1"
+            reference: WE/WEUITests/ReferenceImages/iPhone-17-Pro-Max/accessibility
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Verify pinned Xcode
+        run: |
+          test -x "$DEVELOPER_DIR/usr/bin/xcodebuild"
+          test "$(xcodebuild -version | head -n 1)" = "Xcode 26.3"
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: artifacts/swift-packages
+          key: swiftpm-${{ runner.os }}-xcode-26.3-${{ hashFiles('WE/WE.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            swiftpm-${{ runner.os }}-xcode-26.3-
+
+      - name: Create clean simulator
+        id: simulator
+        run: |
+          bash scripts/qa/prepare-simulator.sh \
+            "${{ matrix.device }}" \
+            "$IOS_RUNTIME" \
+            "${{ matrix.profile }}"
+
+      - name: Run full serial UI contract
+        env:
+          WE_QA_DYNAMIC_TYPE: ${{ matrix.dynamic_type }}
+          WE_QA_REDUCE_TRANSPARENCY: ${{ matrix.reduce_transparency }}
+        run: |
+          bash scripts/qa/run-xcode-tests.sh \
+            "${{ matrix.lane }}" \
+            "${{ steps.simulator.outputs.destination }}" \
+            "artifacts/xcresults/rendered-${{ matrix.name }}.xcresult" \
+            "artifacts/DerivedData/rendered-${{ matrix.name }}"
+
+      - name: Export screenshots, visual diffs, and diagnostics
+        if: ${{ always() }}
+        run: |
+          bash scripts/qa/export-xcresult.sh \
+            "artifacts/xcresults/rendered-${{ matrix.name }}.xcresult" \
+            "artifacts/reports/rendered-${{ matrix.name }}"
+
+      - name: Compare golden screenshots
+        if: ${{ always() }}
+        run: |
+          xcrun swift scripts/qa/compare-screenshots.swift \
+            "artifacts/reports/rendered-${{ matrix.name }}/attachments" \
+            "${{ matrix.reference }}" \
+            "artifacts/reports/rendered-${{ matrix.name }}/visual-diffs"
+
+      - name: Render widget-owned content surfaces
+        if: ${{ always() && matrix.name == 'large' && steps.simulator.outputs.destination != '' }}
+        run: |
+          bash scripts/qa/run-xcode-tests.sh \
+            widget-goldens \
+            "${{ steps.simulator.outputs.destination }}" \
+            artifacts/xcresults/widget-content.xcresult \
+            "artifacts/DerivedData/rendered-${{ matrix.name }}"
+
+      - name: Export widget-content evidence
+        if: ${{ always() && matrix.name == 'large' }}
+        run: |
+          bash scripts/qa/export-xcresult.sh \
+            artifacts/xcresults/widget-content.xcresult \
+            artifacts/reports/widget-content
+
+      - name: Compare widget-content goldens
+        if: ${{ always() && matrix.name == 'large' }}
+        run: |
+          xcrun swift scripts/qa/compare-screenshots.swift \
+            artifacts/reports/widget-content/attachments \
+            WE/WETests/ReferenceImages/Widget/iOS-26.2 \
+            artifacts/reports/widget-content/visual-diffs
+
+      - name: Upload rendered-app evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered-${{ matrix.name }}
+          path: |
+            artifacts/xcresults/rendered-${{ matrix.name }}.xcresult
+            artifacts/xcresults/rendered-${{ matrix.name }}.log
+            artifacts/reports/rendered-${{ matrix.name }}
+            artifacts/xcresults/widget-content.xcresult
+            artifacts/xcresults/widget-content.log
+            artifacts/reports/widget-content
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Delete ephemeral simulator
+        if: ${{ always() && steps.simulator.outputs.udid != '' }}
+        run: bash scripts/qa/cleanup-simulator.sh "${{ steps.simulator.outputs.udid }}"
+
+  live-couple-contract:
+    name: Live couple contract
+    runs-on: macos-26
+    timeout-minutes: 80
+    env:
+      WE_QA_SUPABASE_URL: ${{ secrets.WE_QA_SUPABASE_URL }}
+      WE_QA_SUPABASE_ANON_KEY: ${{ secrets.WE_QA_SUPABASE_ANON_KEY }}
+      WE_QA_RUN_ID: nightly-${{ github.run_id }}-${{ github.run_attempt }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Verify isolated-stack configuration
+        env:
+          WE_QA_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.WE_QA_SUPABASE_SERVICE_ROLE_KEY }}
+        run: bash scripts/qa/require-live-contract-env.sh
+
+      - name: Verify pinned Xcode
+        run: |
+          test -x "$DEVELOPER_DIR/usr/bin/xcodebuild"
+          test "$(xcodebuild -version | head -n 1)" = "Xcode 26.3"
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: artifacts/swift-packages
+          key: swiftpm-${{ runner.os }}-xcode-26.3-${{ hashFiles('WE/WE.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            swiftpm-${{ runner.os }}-xcode-26.3-
+
+      - name: Create Partner A simulator
+        id: simulator_a
+        run: bash scripts/qa/prepare-simulator.sh "iPhone 17 Pro" "$IOS_RUNTIME" standard
+
+      - name: Create Partner B simulator
+        id: simulator_b
+        run: bash scripts/qa/prepare-simulator.sh "iPhone 17 Pro Max" "$IOS_RUNTIME" standard
+
+      - name: Exercise Partner A, Partner B, and outsider repositories
+        env:
+          WE_QA_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.WE_QA_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          bash scripts/qa/run-live-repository-contract.sh \
+            "${{ steps.simulator_a.outputs.destination }}" \
+            artifacts/xcresults/live-couple.xcresult \
+            artifacts/DerivedData/live-couple
+
+      - name: Prove the literal two-simulator Realtime seam
+        if: ${{ always() && steps.simulator_a.outputs.destination != '' && steps.simulator_b.outputs.destination != '' }}
+        env:
+          WE_QA_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.WE_QA_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          bash scripts/qa/run-two-simulator-contract.sh \
+            "${{ steps.simulator_a.outputs.destination }}" \
+            "${{ steps.simulator_b.outputs.destination }}" \
+            artifacts/xcresults/two-simulator \
+            artifacts/DerivedData/two-simulator
+
+      - name: Export contract evidence
+        if: ${{ always() }}
+        run: |
+          if [[ -d artifacts/xcresults/live-couple.xcresult ]]; then
+            bash scripts/qa/export-xcresult.sh \
+              artifacts/xcresults/live-couple.xcresult \
+              artifacts/reports/live-couple
+          fi
+          if [[ -d artifacts/xcresults/two-simulator/partner-a.xcresult ]]; then
+            bash scripts/qa/export-xcresult.sh \
+              artifacts/xcresults/two-simulator/partner-a.xcresult \
+              artifacts/reports/two-simulator/partner-a
+          fi
+          if [[ -d artifacts/xcresults/two-simulator/partner-b.xcresult ]]; then
+            bash scripts/qa/export-xcresult.sh \
+              artifacts/xcresults/two-simulator/partner-b.xcresult \
+              artifacts/reports/two-simulator/partner-b
+          fi
+
+      - name: Upload live-contract evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-live-couple
+          path: |
+            artifacts/xcresults/live-couple.xcresult
+            artifacts/xcresults/live-couple.log
+            artifacts/xcresults/two-simulator
+            artifacts/reports/live-couple
+            artifacts/reports/two-simulator
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Delete Partner B simulator
+        if: ${{ always() && steps.simulator_b.outputs.udid != '' }}
+        run: bash scripts/qa/cleanup-simulator.sh "${{ steps.simulator_b.outputs.udid }}"
+
+      - name: Delete Partner A simulator
+        if: ${{ always() && steps.simulator_a.outputs.udid != '' }}
+        run: bash scripts/qa/cleanup-simulator.sh "${{ steps.simulator_a.outputs.udid }}"

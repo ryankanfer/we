@@ -15,12 +15,39 @@ struct LivingConfluencePromise: View {
 
     let onComplete: () -> Void
 
+    /// A replay teaches nothing.
+    ///
+    /// CIRCLE.md §2 allows the word "Yours" to name the personal space exactly
+    /// twice in a person's lifetime — once here and once on first entry — and
+    /// then never again. This screen is replayable from the profile, so
+    /// without this flag "twice" would mean "as many times as somebody rereads
+    /// the privacy promise". A replay is a re-read, not a re-teach: the beat
+    /// that names the space is omitted, and the flag that records the teaching
+    /// is not written.
+    var isReplay = false
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var beat = 0
     @State private var hapticTrigger = 0
 
-    private let beats = [
+    private var beats: [Beat] {
+        isReplay ? sharedBeats : sharedBeats + [namingBeat]
+    }
+
+    /// The one teaching moment that lives on this screen. After it, the mark
+    /// carries the meaning alone — no title, no navigation label, no section
+    /// header, no settings row.
+    private var namingBeat: Beat {
+        Beat(
+            eyebrow: "○",
+            title: YoursCopy.teachingTitle,
+            detail: YoursCopy.teachingBody,
+            state: .privateState
+        )
+    }
+
+    private let sharedBeats = [
         Beat(
             eyebrow: "MINE",
             title: "Yours stays yours.",

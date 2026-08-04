@@ -56,6 +56,36 @@
 		C0DE10023013C00D00BACE01 /* WEWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WEWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		C0DE20013013C00D00BACE01 /* Exceptions for "WETests" folder in "WETests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"ReferenceImages/Widget/iOS-26.2/golden.widget.system-medium.quiet.png",
+				"ReferenceImages/Widget/iOS-26.2/golden.widget.system-medium.room-available.png",
+				"ReferenceImages/Widget/iOS-26.2/golden.widget.system-small.quiet.png",
+				"ReferenceImages/Widget/iOS-26.2/golden.widget.system-small.room-available.png",
+			);
+			target = 79C3EB413013C00D00394313 /* WETests */;
+		};
+		C0DE20023013C00D00BACE01 /* Exceptions for "WEUITests" folder in "WEUITests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"ReferenceImages/iPhone-16e/standard/golden.field.launch.png",
+				"ReferenceImages/iPhone-16e/standard/golden.field.life.seeded.png",
+				"ReferenceImages/iPhone-16e/standard/golden.field.today.seeded.png",
+				"ReferenceImages/iPhone-16e/standard/golden.field.us.empty.accessibility5.png",
+				"ReferenceImages/iPhone-16e/standard/golden.field.us.seeded.png",
+				"ReferenceImages/iPhone-17-Pro-Max/accessibility/golden.field.us.empty.accessibility5.png",
+				"ReferenceImages/iPhone-17-Pro-Max/standard/golden.field.launch.png",
+				"ReferenceImages/iPhone-17-Pro-Max/standard/golden.field.life.seeded.png",
+				"ReferenceImages/iPhone-17-Pro-Max/standard/golden.field.today.seeded.png",
+				"ReferenceImages/iPhone-17-Pro-Max/standard/golden.field.us.empty.accessibility5.png",
+				"ReferenceImages/iPhone-17-Pro-Max/standard/golden.field.us.seeded.png",
+			);
+			target = 79C3EB4B3013C00D00394313 /* WEUITests */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		79C3EB373013C00A00394313 /* WE */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
@@ -64,11 +94,17 @@
 		};
 		79C3EB453013C00D00394313 /* WETests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				C0DE20013013C00D00BACE01 /* Exceptions for "WETests" folder in "WETests" target */,
+			);
 			path = WETests;
 			sourceTree = "<group>";
 		};
 		79C3EB4F3013C00D00394313 /* WEUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				C0DE20023013C00D00BACE01 /* Exceptions for "WEUITests" folder in "WEUITests" target */,
+			);
 			path = WEUITests;
 			sourceTree = "<group>";
 		};

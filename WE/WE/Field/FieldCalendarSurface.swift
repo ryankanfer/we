@@ -29,6 +29,10 @@ struct FieldCalendarSurface: View {
     /// Which month is shown, as an offset from the month containing `now`.
     @State private var monthOffset = 0
     @State private var selectedDay: Date?
+    /// The agenda row somebody tapped. Presented from here rather than from
+    /// the shell: this surface covers the shell, so a sheet mounted underneath
+    /// it would open behind the takeover.
+    @State private var openItem: FieldItemReference?
 
     private let calendar = Calendar.gregorianUS
 
@@ -75,6 +79,10 @@ struct FieldCalendarSurface: View {
                     }
                 }
         )
+        .sheet(item: $openItem) { reference in
+            FieldItemSheet(itemID: reference.id)
+                .environment(store)
+        }
         .accessibilityIdentifier("field.calendar")
     }
 
@@ -214,51 +222,66 @@ struct FieldCalendarSurface: View {
                 .foregroundStyle(.fieldInk(.monoLabel))
             } else {
                 ForEach(items) { item in
-                    HStack(alignment: .top, spacing: 11) {
-                        FieldDot(
-                            owner: item.owner,
-                            identity: store.identity,
-                            size: FieldDotSize.list,
-                            baselineNudge: 6,
-                            opacity: item.isDone ? 0.45 : 1
-                        )
+                    // Tapping opens the thing itself. The calendar borrows
+                    // items rather than holding them, so this is the same
+                    // sheet the category room opens — moving something here
+                    // moves it there, because there is only one of it.
+                    Button {
+                        openItem = FieldItemReference(id: item.id)
+                    } label: {
+                        HStack(alignment: .top, spacing: 11) {
+                            FieldDot(
+                                owner: item.owner,
+                                identity: store.identity,
+                                size: FieldDotSize.list,
+                                baselineNudge: 6,
+                                opacity: item.isDone ? 0.45 : 1
+                            )
 
-                        VStack(alignment: .leading, spacing: 4) {
-                            // Done is a quieter ink, never a strikethrough and
-                            // never a removal. The page still reads "that is
-                            // behind you" without pretending it never
-                            // happened.
-                            Text(item.title)
-                                .font(FieldType.listItem)
-                                .foregroundStyle(
-                                    item.isDone
-                                        ? .fieldInk(.quietListItem)
-                                        : .fieldInk(.headline)
+                            VStack(alignment: .leading, spacing: 4) {
+                                // Done is a quieter ink, never a strikethrough
+                                // and never a removal. The page still reads
+                                // "that is behind you" without pretending it
+                                // never happened.
+                                Text(item.title)
+                                    .font(FieldType.listItem)
+                                    .foregroundStyle(
+                                        item.isDone
+                                            ? .fieldInk(.quietListItem)
+                                            : .fieldInk(.headline)
+                                    )
+                                    .fixedSize(horizontal: false, vertical: true)
+
+                                // Where it lives when you go looking for it.
+                                Text(item.category.word.uppercased())
+                                    .font(FieldType.subLabel)
+                                    .tracking(FieldTracking.subLabel)
+                                    .foregroundStyle(.fieldInk(.recessive))
+                            }
+
+                            Spacer(minLength: 8)
+
+                            if let closesAt = item.closesAt {
+                                Text(
+                                    DateFormatter.fieldClock
+                                        .string(from: closesAt)
                                 )
-                                .fixedSize(horizontal: false, vertical: true)
-
-                            // Where it lives when you go looking for it. The
-                            // calendar borrows things; it does not hold them.
-                            Text(item.category.word.uppercased())
-                                .font(FieldType.subLabel)
-                                .tracking(FieldTracking.subLabel)
-                                .foregroundStyle(.fieldInk(.recessive))
-                        }
-
-                        Spacer(minLength: 8)
-
-                        if let closesAt = item.closesAt {
-                            Text(DateFormatter.fieldClock.string(from: closesAt))
                                 .font(FieldType.dateCount)
                                 .tracking(FieldTracking.dateCount)
                                 .foregroundStyle(.fieldInk(.dateCount))
+                            }
                         }
+                        .padding(.vertical, 9)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
-                    .padding(.vertical, 9)
+                    .buttonStyle(.plain)
                     .overlay(alignment: .top) {
                         FieldRuleLine(color: FieldRule.row)
                     }
                     .accessibilityElement(children: .combine)
+                    .accessibilityHint("Opens this, to move it or take it off")
+                    .accessibilityIdentifier("field.calendar.row")
                 }
             }
         }

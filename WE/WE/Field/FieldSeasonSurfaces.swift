@@ -322,6 +322,7 @@ struct FieldOnboardingView: View {
         FieldSwatchRow(owner: owner, identity: store.identity) { swatch in
             store.choose(swatch, for: owner)
         }
+        .disabled(!store.canChooseSwatch(for: owner))
     }
 
     /// Three questions, and no more. "Resist adding fields — low barrier to

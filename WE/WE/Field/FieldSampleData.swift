@@ -764,13 +764,15 @@ enum FieldSampleData {
                 id: "book",
                 title: "Book it",
                 weight: .filled,
-                tint: nil
+                tint: nil,
+                role: .act(.book)
             ),
             FieldMomentAction(
                 id: "ask-ryan",
                 title: "Ask Ryan anyway",
                 weight: .outlined,
-                tint: nil
+                tint: nil,
+                role: .overrideAbsence(.a)
             ),
         ],
         addressedTo: .b,

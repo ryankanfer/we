@@ -4,26 +4,50 @@ import SwiftUI
 struct WEApp: App {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @StateObject private var host: SessionHost
-    @StateObject private var softStart: SoftStartCoordinator
+    @StateObject private var pendingInvitation: PendingInvitation
     @StateObject private var externalSurfaces: ExternalSurfaceController
+    /// At the scene's root, not inside `liveApp`. Both branches of `content`
+    /// have to reach it — the pre-couple screens open it by themselves, and
+    /// the account surface inside the zones can ask for it again.
+    @StateObject private var walkthrough = WalkthroughPresenter()
     @State private var visualEngine = VisualEngineCoordinator()
+    private let testConfiguration = AppTestConfiguration.current
     @AppStorage("hasSeenLivingConfluencePromise")
     private var hasSeenPromise = false
     @State private var isReplayingPromise = false
 
     init() {
         _host = StateObject(wrappedValue: SessionHost())
-        _softStart = StateObject(wrappedValue: SoftStartCoordinator())
+        _pendingInvitation = StateObject(wrappedValue: PendingInvitation())
         _externalSurfaces = StateObject(
             wrappedValue: ExternalSurfaceController()
         )
+
+        // In `init` rather than a `.task`, because the payloads worth having
+        // describe a launch that did not get as far as a view. MetricKit
+        // holds subscribers weakly, hence the singleton; `start()` also
+        // sweeps `pastDiagnosticPayloads`, so a crash from earlier in the
+        // week is picked up rather than lost to the once-a-day cadence.
+        WEDiagnostics.shared.start()
     }
 
     var body: some Scene {
         WindowGroup {
             ZStack {
                 content
+                    .accessibilityHidden(walkthrough.isPresented)
+                    .allowsHitTesting(!walkthrough.isPresented)
+
+                // Under the splash and over everything else. The collapse is
+                // an arrival and has to finish before anything explains
+                // itself; the walkthrough is the first thing after it.
+                if walkthrough.isPresented {
+                    WalkthroughView { walkthrough.finish() }
+                        .transition(.opacity)
+                        .zIndex(20)
+                }
 
                 // Above everything, and only on an arrival that has earned
                 // it. `showsSplash` starts true and is never set again, so a
@@ -42,6 +66,34 @@ struct WEApp: App {
                     .transition(.opacity)
                     .zIndex(100)
                 }
+            }
+            .environmentObject(walkthrough)
+            .environment(
+                \.dynamicTypeSize,
+                testConfiguration.dynamicTypeSize ?? dynamicTypeSize
+            )
+            // Considered whenever the session settles, not once on appear: at
+            // launch the state is `.loading`, and "signed out" is a conclusion
+            // the session reaches a moment later. `consider` is idempotent, so
+            // a state that republishes cannot reopen what was dismissed.
+            .onChange(of: host.session.state, initial: true) { _, state in
+                guard !showsSplash else { return }
+                walkthrough.consider(isSignedOut: state == .signedOut)
+            }
+            .onChange(of: showsSplash) { _, shows in
+                guard !shows else { return }
+                walkthrough.consider(
+                    isSignedOut: host.session.state == .signedOut
+                )
+            }
+            .animation(
+                .weSettle(duration: 0.40, reduceMotion: effectiveReduceMotion),
+                value: walkthrough.isPresented
+            )
+            .transaction { transaction in
+                guard testConfiguration.disablesAnimations else { return }
+                transaction.animation = nil
+                transaction.disablesAnimations = true
             }
         }
     }
@@ -73,13 +125,7 @@ struct WEApp: App {
                         .environmentObject(host)
                         .environmentObject(externalSurfaces)
                         .task { await host.restore() }
-                        .onOpenURL { url in
-                            if !WEDeepLinkRouter.handle(url) {
-                                Task {
-                                    await host.session.handleAuthCallback(url)
-                                }
-                            }
-                        }
+                        .onOpenURL { open($0) }
                 } else {
                     liveApp
                 }
@@ -121,23 +167,26 @@ struct WEApp: App {
             }
             .environmentObject(host.session)
             .environmentObject(host)
-            .environmentObject(softStart)
+            .environmentObject(pendingInvitation)
             .environmentObject(externalSurfaces)
             .accessibilityHidden(showsPromise)
             .allowsHitTesting(!showsPromise)
 
             if showsPromise {
-                LivingConfluencePromise {
-                    hasSeenPromise = true
-                    isReplayingPromise = false
-                }
+                LivingConfluencePromise(
+                    onComplete: {
+                        hasSeenPromise = true
+                        isReplayingPromise = false
+                    },
+                    isReplay: isReplayingPromise
+                )
                 .transition(.opacity)
                 .zIndex(10)
             }
         }
         .environment(\.visualEngine, visualEngine)
         .animation(
-            .weSettle(duration: 0.45, reduceMotion: reduceMotion),
+            .weSettle(duration: 0.45, reduceMotion: effectiveReduceMotion),
             value: showsPromise
         )
         // The Promise sits above everything, so it owns the screen while
@@ -156,10 +205,20 @@ struct WEApp: App {
         .task {
             await host.restore()
         }
-        .onOpenURL { url in
-            if !WEDeepLinkRouter.handle(url) {
-                Task { await host.session.handleAuthCallback(url) }
-            }
+        .onOpenURL { open($0) }
+    }
+
+    /// One entry point for every incoming URL, in three layers: an invitation
+    /// is held here because the code is main-actor state this scene owns; any
+    /// other product deep link goes to the router; anything left is an auth
+    /// callback.
+    private func open(_ url: URL) {
+        if case .join(let code)? = WEDeepLinkRouter.destination(for: url) {
+            pendingInvitation.hold(code)
+            return
+        }
+        if !WEDeepLinkRouter.handle(url) {
+            Task { await host.session.handleAuthCallback(url) }
         }
     }
 
@@ -173,9 +232,18 @@ struct WEApp: App {
 
     private func syncAccessibility() {
         visualEngine.setAccessibility(
-            reduceMotion: reduceMotion,
-            reduceTransparency: reduceTransparency
+            reduceMotion: effectiveReduceMotion,
+            reduceTransparency: effectiveReduceTransparency
         )
+    }
+
+    private var effectiveReduceMotion: Bool {
+        testConfiguration.disablesAnimations
+            || (testConfiguration.reduceMotion ?? reduceMotion)
+    }
+
+    private var effectiveReduceTransparency: Bool {
+        testConfiguration.reduceTransparency ?? reduceTransparency
     }
 
     private var showsPromise: Bool {

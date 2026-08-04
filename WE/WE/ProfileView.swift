@@ -5,6 +5,7 @@ struct ProfileView: View {
     @EnvironmentObject private var host: SessionHost
     @EnvironmentObject private var externalSurfaces:
         ExternalSurfaceController
+    @EnvironmentObject private var walkthrough: WalkthroughPresenter
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var selectedArchive: RelationshipArchive?
@@ -90,6 +91,18 @@ struct ProfileView: View {
                             )
                         }
                     }
+                    // The same dismiss-then-present dance as the promise
+                    // below: both are full-screen, and presenting one over a
+                    // sheet that is still on its way out drops the
+                    // presentation entirely.
+                    Button("See how WE works") {
+                        dismiss()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                            walkthrough.replay()
+                        }
+                    }
+                    .accessibilityIdentifier("account.walkthrough")
+
                     Button("Replay the Living Confluence Promise") {
                         dismiss()
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { onReplayPromise() }
@@ -472,4 +485,5 @@ private extension ResolutionType {
             )
         )
         .environmentObject(ExternalSurfaceController())
+        .environmentObject(WalkthroughPresenter())
 }

@@ -34,6 +34,10 @@ final class AppSession: ObservableObject {
 
     private let repository: any Repository
     private let cache: any RelationshipCache
+    /// Everything this device holds beyond the relationship cache. Injectable
+    /// so a test can point it at a temporary container and assert that
+    /// signing out leaves nothing behind.
+    private let localData: WELocalData
     private let connectivity: ConnectivityMonitor
     private var didRestore = false
     private var authRoutingGeneration = 0
@@ -44,11 +48,13 @@ final class AppSession: ObservableObject {
     init(
         repository: any Repository,
         cache: (any RelationshipCache)? = nil,
+        localData: WELocalData? = nil,
         connectivity: ConnectivityMonitor? = nil
     ) {
         let resolvedConnectivity = connectivity ?? ConnectivityMonitor()
         self.repository = repository
         self.cache = cache ?? FileRelationshipCache()
+        self.localData = localData ?? WELocalData()
         self.connectivity = resolvedConnectivity
         connectionState = resolvedConnectivity.isOnline ? .online : .offline
 
@@ -255,6 +261,12 @@ final class AppSession: ObservableObject {
             return
         }
 
+        // And everything else this device holds. One list, in `WELocalData`,
+        // shared with account deletion — the queue of unsent writes, the
+        // cached field state, stored crash reports, the held join code, and
+        // any scheduled notification.
+        localData.purge()
+
         do {
             try await repository.signOut()
         } catch {
@@ -273,6 +285,7 @@ final class AppSession: ObservableObject {
         await working {
             self.stopObservingRelationship()
             try await self.cache.remove(userID: deletingUser.id)
+            self.localData.purge()
             try await self.repository.deleteAccount(
                 email: deletingUser.email,
                 password: password

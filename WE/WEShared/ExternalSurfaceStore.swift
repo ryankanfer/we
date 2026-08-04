@@ -1,15 +1,14 @@
 import Foundation
+import os
 
 struct ExternalSurfaceStore {
     private let defaults: UserDefaults?
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    #if DEBUG
     /// The store is constructed per read, so the warning below would
     /// otherwise repeat on every widget timeline refresh.
     nonisolated(unsafe) private static var hasWarned = false
-    #endif
 
     init(
         defaults: UserDefaults? = UserDefaults(
@@ -33,19 +32,23 @@ struct ExternalSurfaceStore {
         // Logged rather than asserted: the app is perfectly usable without
         // widgets, and trapping here would make a provisioning problem look
         // like a crash.
-        #if DEBUG
+        //
+        // No longer `#if DEBUG`: the signing configuration that causes this
+        // is exactly the one that differs between a local build and the one
+        // that goes to TestFlight, so a warning only a developer can see is
+        // a warning aimed at the wrong build.
         if defaults == nil, !Self.hasWarned {
             Self.hasWarned = true
-            print(
+            WELog.externalSurfaces.error(
                 """
-                [WE] No access to \(WEExternalSurface.appGroupIdentifier) — \
+                No access to app group \
+                \(WEExternalSurface.appGroupIdentifier, privacy: .public) — \
                 the widgets will read and write nothing. The App Groups \
                 capability is missing from the WE and WEWidgets targets; it \
                 cannot be granted on a wildcard App ID.
                 """
             )
         }
-        #endif
     }
 
     var specificWordingOptedIn: Bool {

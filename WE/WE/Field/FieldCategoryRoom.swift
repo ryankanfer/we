@@ -23,6 +23,12 @@ struct FieldCategoryRoom: View {
 
     let category: LifeCategory
 
+    /// The row somebody tapped. Local `@State` for the same reason
+    /// `FieldLifeZone.openCategory` is — it is ephemeral to this screen, and a
+    /// hand-built `Binding` over an `@Observable` property does not drive
+    /// `.sheet(item:)` reliably.
+    @State private var openItem: FieldItemReference?
+
     private var digest: FieldCategoryDigest.Result {
         store.digest(for: category)
     }
@@ -50,6 +56,10 @@ struct FieldCategoryRoom: View {
         }
         .overlay(alignment: .topTrailing) { doneButton }
         .preferredColorScheme(.dark)
+        .sheet(item: $openItem) { reference in
+            FieldItemSheet(itemID: reference.id)
+                .environment(store)
+        }
         .accessibilityIdentifier("field.room.\(category.rawValue)")
     }
 
@@ -103,32 +113,43 @@ struct FieldCategoryRoom: View {
     @ViewBuilder
     private var pressing: some View {
         ForEach(digest.pressing) { row in
-            VStack(alignment: .leading, spacing: 7) {
-                HStack(alignment: .top, spacing: 11) {
-                    FieldDot(
-                        owner: row.item.owner,
-                        identity: store.identity,
-                        size: FieldDotSize.list,
-                        baselineNudge: 7
-                    )
+            // A plain `Button` so the row looks exactly as it did — no
+            // highlight, no chevron. The same move `FieldLifeZone.categoryRow`
+            // makes: the page stays a list of things, and what you can do to
+            // one of them is behind it.
+            Button {
+                openItem = FieldItemReference(id: row.item.id)
+            } label: {
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack(alignment: .top, spacing: 11) {
+                        FieldDot(
+                            owner: row.item.owner,
+                            identity: store.identity,
+                            size: FieldDotSize.list,
+                            baselineNudge: 7
+                        )
 
-                    Text(row.item.title)
-                        .font(FieldType.listItemLarge)
-                        .foregroundStyle(.fieldInk(.headline))
-                        .fieldLineHeight(1.25, size: 18)
-                        .fixedSize(horizontal: false, vertical: true)
+                        Text(row.item.title)
+                            .font(FieldType.listItemLarge)
+                            .foregroundStyle(.fieldInk(.headline))
+                            .fieldLineHeight(1.25, size: 18)
+                            .fixedSize(horizontal: false, vertical: true)
 
-                    Spacer(minLength: 0)
+                        Spacer(minLength: 0)
+                    }
+
+                    if let reason = row.reason {
+                        Text(reason)
+                            .font(FieldType.reasoning)
+                            .foregroundStyle(.fieldInk(.reasoning))
+                            .padding(.leading, 22)
+                    }
                 }
-
-                if let reason = row.reason {
-                    Text(reason)
-                        .font(FieldType.reasoning)
-                        .foregroundStyle(.fieldInk(.reasoning))
-                        .padding(.leading, 22)
-                }
+                .padding(.vertical, 15)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .padding(.vertical, 15)
+            .buttonStyle(.plain)
             .overlay(alignment: .top) { FieldRuleLine(color: FieldRule.row) }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(
@@ -136,6 +157,8 @@ struct FieldCategoryRoom: View {
                     .compactMap { $0 }
                     .joined(separator: ". ")
             )
+            .accessibilityHint("Opens this, to move it or take it off")
+            .accessibilityIdentifier("field.room.row")
         }
     }
 
@@ -182,25 +205,34 @@ struct FieldCategoryRoom: View {
     }
 
     private func quietRow(_ item: LifeItem) -> some View {
-        HStack(alignment: .top, spacing: 11) {
-            FieldDot(
-                owner: item.owner,
-                identity: store.identity,
-                size: FieldDotSize.list,
-                baselineNudge: 6
-            )
+        Button {
+            openItem = FieldItemReference(id: item.id)
+        } label: {
+            HStack(alignment: .top, spacing: 11) {
+                FieldDot(
+                    owner: item.owner,
+                    identity: store.identity,
+                    size: FieldDotSize.list,
+                    baselineNudge: 6
+                )
 
-            Text(item.title)
-                .font(FieldType.listItem)
-                .foregroundStyle(.fieldInk(.quietListItem))
-                .fixedSize(horizontal: false, vertical: true)
+                Text(item.title)
+                    .font(FieldType.listItem)
+                    .foregroundStyle(.fieldInk(.quietListItem))
+                    .fixedSize(horizontal: false, vertical: true)
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 11)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
-        .padding(.vertical, 11)
+        .buttonStyle(.plain)
         .overlay(alignment: .top) { FieldRuleLine(color: FieldRule.row) }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(item.title)
+        .accessibilityHint("Opens this, to move it or take it off")
+        .accessibilityIdentifier("field.room.row")
     }
 
     // MARK: Nothing here

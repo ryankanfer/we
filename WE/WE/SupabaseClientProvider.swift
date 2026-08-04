@@ -1,3 +1,4 @@
+import Foundation
 import Supabase
 
 /// The app's one Supabase client.
@@ -21,11 +22,32 @@ struct SupabaseClientProvider: Sendable {
         configuration: AppEnvironment.current.supabase
     )
 
-    init(configuration: SupabaseConfiguration?) {
+    init(
+        configuration: SupabaseConfiguration?,
+        authStorageKey: String? = nil,
+        session: URLSession? = nil
+    ) {
         client = configuration.map {
-            SupabaseClient(
+            let global = SupabaseClientOptions.GlobalOptions(
+                session: session ?? .shared
+            )
+            if let authStorageKey {
+                return SupabaseClient(
+                    supabaseURL: $0.url,
+                    supabaseKey: $0.publishableKey,
+                    options: SupabaseClientOptions(
+                        auth: .init(
+                            storageKey: authStorageKey,
+                            autoRefreshToken: false
+                        ),
+                        global: global
+                    )
+                )
+            }
+            return SupabaseClient(
                 supabaseURL: $0.url,
-                supabaseKey: $0.publishableKey
+                supabaseKey: $0.publishableKey,
+                options: SupabaseClientOptions(global: global)
             )
         }
     }

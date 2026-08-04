@@ -73,25 +73,68 @@ struct FieldRoot: View {
             // which is right for the gallery and wrong for a real person:
             // it puts someone else's groceries on their screen and dates
             // every calculation to 2025.
+            //
+            // A clock rather than an instant, because an instant is what the
+            // app had before: `Date()` read once at launch and then believed
+            // for the rest of the process. `FieldLiveClock.app` still honours
+            // a pinned QA date, so nothing about the harnesses changes.
+            let durable = FieldDurableBackend.live(for: snapshot)
+            let cached = durable?.outbox.cachedState()
             store = FieldStore(
-                state: snapshot.emptyFieldState,
-                now: Date(),
-                backend: backend()
+                // The cache, when there is one. A couple opening the app on a
+                // train used to see a blank account until thirteen queries
+                // answered; now they see what was there last time, with
+                // anything still queued already on top of it.
+                state: cached?.state ?? snapshot.emptyFieldState,
+                backend: durable?.outbox,
+                clock: FieldLiveClock.app,
+                // The real one only here. Previews and the gallery get the
+                // resolver that finds nobody, so a screenshot run can never
+                // depend on what is in this machine's address book or reach
+                // out of the process.
+                resolver: FieldResolvers(),
+                // So a first load that fails reads as "last seen on Tuesday"
+                // rather than as an empty relationship.
+                lastLoadedAt: cached?.savedAt
             )
         }
     }
+}
 
-    private func backend() -> FieldBackend? {
+// MARK: - The durable seam
+//
+// Composed in one place because it is composed twice — here and in
+// `FieldOnboardingRoot` — and the two differing is exactly the kind of
+// asymmetry that leaves one screen writing durably and the other not.
+
+@MainActor
+struct FieldDurableBackend {
+    let outbox: FieldOutbox
+
+    static func live(for snapshot: RelationshipSnapshot) -> Self? {
         guard let coupleID = snapshot.membership?.coupleID,
               let first = snapshot.members.first?.id
         else { return nil }
 
-        return FieldSupabaseBackend(
+        guard let remote = FieldSupabaseBackend(
             client: SupabaseClientProvider.shared.client,
             coupleID: coupleID,
             viewerID: snapshot.profile.id,
             members: snapshot.members,
             firstMemberID: first
+        ) else { return nil }
+
+        return Self(
+            outbox: FieldOutbox(
+                wrapping: remote,
+                // Both halves: a queue must not survive into another account,
+                // and it must not survive into another relationship either.
+                partition: FieldOutboxPartition(
+                    userID: snapshot.profile.id,
+                    coupleID: coupleID
+                ),
+                cache: FieldStateCache()
+            )
         )
     }
 }
@@ -116,7 +159,13 @@ struct FieldOnboardingRoot: View {
         Group {
             if let store {
                 FieldOnboardingView(
-                    onFinish: { onFinish(store.identity.personA) }
+                    onFinish: {
+                        onFinish(
+                            store.speaker == .b
+                                ? store.identity.personB
+                                : store.identity.personA
+                        )
+                    }
                 )
                 .environment(store)
             } else {
@@ -125,27 +174,15 @@ struct FieldOnboardingRoot: View {
         }
         .task(id: session.snapshot?.membership?.coupleID) {
             guard store == nil else { return }
+            let durable = session.snapshot.flatMap(FieldDurableBackend.live)
+            let cached = durable?.outbox.cachedState()
             store = FieldStore(
-                state: session.snapshot?.emptyFieldState,
-                now: Date(),
-                backend: backend()
+                state: cached?.state ?? session.snapshot?.emptyFieldState,
+                backend: durable?.outbox,
+                clock: FieldLiveClock.app,
+                lastLoadedAt: cached?.savedAt
             )
         }
-    }
-
-    private func backend() -> FieldBackend? {
-        guard let snapshot = session.snapshot,
-              let coupleID = snapshot.membership?.coupleID,
-              let first = snapshot.members.first?.id
-        else { return nil }
-
-        return FieldSupabaseBackend(
-            client: SupabaseClientProvider.shared.client,
-            coupleID: coupleID,
-            viewerID: snapshot.profile.id,
-            members: snapshot.members,
-            firstMemberID: first
-        )
     }
 }
 
@@ -157,12 +194,16 @@ extension RelationshipSnapshot {
     /// moment between launch and the first load — rather than calling them
     /// Ryan and Dylan.
     var emptyFieldState: FieldState {
-        let viewer = profile.name
-        let partner = members.first { $0.id != profile.id }?.name
+        // `SupabaseRepository` orders members by stable member_slot. Keep that
+        // canonical A/B order even for the held frame before Field data loads;
+        // otherwise Partner B briefly becomes A and onboarding can write the
+        // wrong person's colour.
+        let first = members.first?.name ?? profile.name
+        let second = members.dropFirst().first?.name ?? "Your partner"
         return .empty(
-            nameA: viewer,
-            nameB: partner ?? "Your partner",
-            now: Date()
+            nameA: first,
+            nameB: second,
+            now: AppTestConfiguration.current.now(fallback: Date())
         )
     }
 }

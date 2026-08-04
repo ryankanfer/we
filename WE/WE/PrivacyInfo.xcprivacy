@@ -58,6 +58,33 @@
 		</dict>
 
 		<!--
+		  Crash and hang reports from MetricKit.
+
+		  Apple's criteria would let this go undeclared — it is written only
+		  to this app's own container, it never leaves except in an email a
+		  person composes, reads, and sends themselves, and the account it
+		  belongs to is named on the screen while they do it. Declared
+		  regardless: a product whose whole argument is that it tells you what
+		  it knows does not take the exemption for the one category that
+		  sounds worst undeclared.
+
+		  Linked, because the report carries the account id — without it a
+		  crash cannot be matched to the rows that caused it.
+		-->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeCrashData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!--
 		  Everything the couple writes: captures, plans, shared lists,
 		  horizons, and private reflections. Personalisation is declared
 		  because the intelligence reads the shared part of this to decide

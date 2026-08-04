@@ -48,10 +48,11 @@ outsiders and former members from reading or mutating live relationship data.
   relationship-ended/archive states.
 - [x] Keep the frozen web tag for comparison only.
 
-Implementation and automated coverage are present. Before release, the remaining manual gates
-are local pgTAP execution, two authenticated sessions through the full lifecycle, the Supabase
-security-advisor review, small/large iPhone and accessibility passes, and five target-couple
-usability sessions.
+Pull requests now gate schema/privacy, native build/unit, and serial critical UI flows. Nightly
+automation exercises Partner A, Partner B, and an outsider against an isolated live Supabase
+stack, then renders small/large/max-accessibility iPhone contracts with reviewable `.xcresult`
+and visual-diff evidence. The remaining manual gates are VoiceOver and widget judgment, the
+Supabase security-advisor/callback review, and five target-couple usability sessions.
 
 ## Running the iPhone app
 

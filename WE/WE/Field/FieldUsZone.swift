@@ -20,6 +20,9 @@ import SwiftUI
 struct FieldUsZone: View {
     @Environment(FieldStore.self) private var store
 
+    /// 6a, reached from the close of Us.
+    @State private var showsCorrections = false
+
     var body: some View {
         FieldZoneScaffold(
             zone: .us,
@@ -34,8 +37,10 @@ struct FieldUsZone: View {
                         .padding(.top, 20)
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
-                    evidenceBlock
-                        .padding(.bottom, FieldMetrics.sectionGapLoose)
+                    if !store.state.evidence.isEmpty {
+                        evidenceBlock
+                            .padding(.bottom, FieldMetrics.sectionGapLoose)
+                    }
 
                     if let horizon = store.primaryHorizon,
                        let question = horizon.openQuestion {
@@ -44,9 +49,54 @@ struct FieldUsZone: View {
                     }
 
                     afterThat
+
+                    if !store.behaviourChanges.isEmpty {
+                        whatIveLearned
+                            .padding(.top, FieldMetrics.sectionGapLoose)
+                    }
                 }
             }
         }
+        .fullScreenCover(isPresented: $showsCorrections) {
+            FieldCorrectionReceiptView()
+                .environment(store)
+        }
+    }
+
+    // MARK: 6a, reached from the long view
+
+    /// The correction receipt lives at the close of Us rather than beside the
+    /// evidence, because the two are about different subjects. Evidence is
+    /// what the *couple* did for a horizon; this is what the *app* changed
+    /// because it was corrected. Putting a line about the app's own behaviour
+    /// under a heading about theirs would be the app taking credit for their
+    /// week.
+    ///
+    /// Hidden entirely until a correction has actually taught it something —
+    /// `behaviourChanges` derives from `state.corrections`, so an untouched
+    /// account sees nothing rather than an empty promise.
+    private var whatIveLearned: some View {
+        Button {
+            showsCorrections = true
+        } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                FieldRuleLine()
+
+                FieldLabel("What I've changed")
+                    .padding(.top, 18)
+
+                Text("You corrected me, and I kept it.")
+                    .font(FieldType.reasoning)
+                    .foregroundStyle(.fieldInk(.reasoning))
+                    .fieldLineHeight(1.5, size: 13)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Shows what WE changed after being corrected")
+        .accessibilityIdentifier("field.us.corrections.open")
     }
 
     // MARK: Before there is anything
@@ -93,7 +143,16 @@ struct FieldUsZone: View {
                 .accessibilityHidden(true)
         }
         .padding(.top, FieldMetrics.sectionGap)
-        .accessibilityElement(children: .combine)
+        // Ignore the child text nodes and expose one deliberate container.
+        // `.combine` inherits static-text traits from its children, which
+        // makes the identifier change XCUI element type across OS releases.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            "What this becomes. This is the long view. "
+                + "Us holds one horizon and the ordinary evidence that "
+                + "you're getting there. When the horizon needs a decision, "
+                + "one question shows up here."
+        )
         .accessibilityIdentifier("field.us.empty")
     }
 
@@ -197,10 +256,21 @@ struct FieldUsZone: View {
             .padding(.bottom, 20)
 
             FieldReasoning(
-                text: FieldSampleData.evidenceReasoning,
+                text: evidenceReasoning,
                 accent: store.identity.personA.color
             )
         }
+    }
+
+    /// The line under the evidence, counted rather than asserted.
+    ///
+    /// This used to print `FieldSampleData.evidenceReasoning` — "Three ordinary
+    /// things" — to every couple, however many things they actually had. The
+    /// sentence is the same shape; the number is now theirs.
+    private var evidenceReasoning: String {
+        let count = store.state.evidence.count
+        return "\(count.spelled.capitalized) ordinary thing"
+            + "\(count == 1 ? "" : "s"). That's what a horizon is made of."
     }
 
     // MARK: One thing to say
@@ -310,4 +380,3 @@ struct FieldUsZone: View {
     }
 
 }
-

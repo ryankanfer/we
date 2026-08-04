@@ -80,15 +80,37 @@ final class FieldZoneUITests: XCTestCase {
 
         input.tap()
         input.typeText("call the plumber")
-        app.buttons["field.capture.submit"].tap()
+
+        let dismissKeyboard = app.buttons["field.capture.dismiss"]
+        XCTAssertTrue(
+            waitForHittable(dismissKeyboard),
+            "the capture keyboard must offer a reliable way back to the field"
+        )
+        dismissKeyboard.tap()
+
+        let submit = app.buttons["field.capture.submit"]
+        XCTAssertTrue(
+            waitForHittable(submit),
+            "the visible File it control must be hittable after dismissing the keyboard"
+        )
+        submit.tap()
 
         let forToday = app.buttons["field.receipt.today"]
         XCTAssertTrue(forToday.waitForExistence(timeout: 6))
         forToday.tap()
         // Tapping it reads as "Not today", which is the only confirmation the
         // control itself gives — the date chip above carries the rest.
-        XCTAssertTrue(
-            app.buttons["field.receipt.today"].label.contains("Not today")
+        let todayStateUpdated = XCTNSPredicateExpectation(
+            predicate: NSPredicate(
+                format: "label CONTAINS[c] %@",
+                "Not today"
+            ),
+            object: forToday
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [todayStateUpdated], timeout: 6),
+            .completed,
+            "the receipt must confirm that the captured item is now for today"
         )
 
         app.buttons["field.receipt.send"].tap()
@@ -103,6 +125,110 @@ final class FieldZoneUITests: XCTestCase {
                 .waitForExistence(timeout: 6)
         )
         XCTAssertFalse(app.staticTexts["Today is clear."].exists)
+    }
+
+    // MARK: The escapes, and reaching the phone
+
+    /// "Ask me again tonight" was wired to nothing at all: the handler
+    /// switched on a button's weight and only knew what to do with the filled
+    /// one. Tapping it left the same hero on screen — which is exactly what a
+    /// person who tapped it would not have noticed, and would have been
+    /// promised anyway.
+    @MainActor
+    func testTheEscapeOnAStatementActuallyDefersIt() throws {
+        let app = launchZones()
+
+        let hero = app.staticTexts["Send the grocery list"]
+        XCTAssertTrue(hero.waitForExistence(timeout: 8))
+
+        let escape = app.buttons["field.moment.postpone"]
+        XCTAssertTrue(waitForHittable(escape))
+        XCTAssertEqual(escape.label, "ASK ME AGAIN TONIGHT")
+        escape.tap()
+
+        // Something else is the day's one thing now, or the day is clear.
+        // Either is a real answer; the same hero coming back is not.
+        let gone = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"),
+            object: hero
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [gone], timeout: 6),
+            .completed,
+            "a deferred thing came straight back"
+        )
+    }
+
+    /// The safety story, end to end.
+    ///
+    /// The app is about to act outward on somebody's behalf, so it stops and
+    /// shows what it found first. This runs on an empty account with the
+    /// resolver that finds nobody — which is the *common* case and the one
+    /// most likely to be a dead end, so it is the one worth driving: it has
+    /// to say plainly that it has no number, refuse to guess at one, and
+    /// still leave a way to finish the thing.
+    @MainActor
+    func testReachingOutStopsForAConfirmationAndNeverGuesses() throws {
+        let app = launchEmpty()
+        let input = app.textFields["field.capture.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 12))
+
+        input.tap()
+        input.typeText("call the vet friday")
+
+        let dismissKeyboard = app.buttons["field.capture.dismiss"]
+        XCTAssertTrue(waitForHittable(dismissKeyboard))
+        dismissKeyboard.tap()
+
+        let submit = app.buttons["field.capture.submit"]
+        XCTAssertTrue(waitForHittable(submit))
+        submit.tap()
+
+        let send = app.buttons["field.receipt.send"]
+        XCTAssertTrue(waitForHittable(send))
+        send.tap()
+
+        let sent = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"),
+            object: send
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [sent], timeout: 6),
+            .completed,
+            "the receipt never crossed"
+        )
+
+        // The wording decides the verb, and the verb is the one that reaches
+        // a phone. Addressed by role: every button style uppercases its
+        // label, and the words change with the thing.
+        let act = app.buttons["field.moment.act"]
+        XCTAssertTrue(
+            waitForHittable(act),
+            "a thing that says 'call' offered no way to make one"
+        )
+        XCTAssertEqual(act.label, "MAKE THE CALL")
+        act.tap()
+
+        let confirmation = app.otherElements["field.outreach.confirm"]
+        XCTAssertTrue(
+            confirmation.waitForExistence(timeout: 8),
+            "the app acted outward without stopping to show what it found"
+        )
+        XCTAssertTrue(
+            app.staticTexts
+                .matching(
+                    NSPredicate(
+                        format: "label CONTAINS[c] %@",
+                        "not going to guess"
+                    )
+                )
+                .firstMatch
+                .waitForExistence(timeout: 4),
+            "a missing number has to be said out loud, not papered over"
+        )
+        // And it is not a dead end.
+        XCTAssertTrue(app.buttons["field.outreach.complete"].exists)
+        XCTAssertTrue(app.buttons["field.outreach.dismiss"].exists)
     }
 
     // MARK: Category rooms
@@ -124,16 +250,68 @@ final class FieldZoneUITests: XCTestCase {
         // surfaces by identifier through a plain-styled Button, but the rows
         // are unambiguous: Life itself never lists an item, so seeing one
         // means the room is up.
+        //
+        // A row is a button now — tapping one opens the item, to move it or
+        // take it off — so it answers to `buttons`, not `staticTexts`.
         XCTAssertTrue(
-            app.staticTexts["Miso's teeth"].waitForExistence(timeout: 6),
+            app.buttons["Miso's teeth"].waitForExistence(timeout: 6),
             "tapping a category should open its room"
         )
-        XCTAssertTrue(app.staticTexts["Dylan's birthday — Sunday"].exists)
+        XCTAssertTrue(app.buttons["Dylan's birthday — Sunday"].exists)
 
         app.buttons["Done"].firstMatch.tap()
         XCTAssertTrue(
-            app.staticTexts["Miso's teeth"].waitForNonExistence(timeout: 4)
+            app.buttons["Miso's teeth"].waitForNonExistence(timeout: 4)
         )
+    }
+
+    /// Tapping a row opens the item, and the item can be moved and removed.
+    ///
+    /// Filing used to be one-way: a receipt could be corrected before it was
+    /// sent, and after that an item's word and its day were fixed forever.
+    @MainActor
+    func testAnItemCanBeMovedAndRemoved() throws {
+        let app = launchZones()
+        XCTAssertTrue(
+            app.buttons["field.nav.life"].waitForExistence(timeout: 8)
+        )
+        app.buttons["field.nav.life"].tap()
+        settleOnLife(app)
+
+        let care = app.buttons["field.life.care"]
+        XCTAssertTrue(waitForHittable(care))
+        care.tap()
+
+        let row = app.buttons["Miso's teeth"]
+        XCTAssertTrue(row.waitForExistence(timeout: 6))
+        row.tap()
+
+        XCTAssertTrue(
+            app.buttons["field.item.remove"].waitForExistence(timeout: 4),
+            "tapping a row should open the item"
+        )
+
+        // Its current home stays visible and selected; the rest remain move
+        // destinations.
+        let current = app.buttons["field.item.currentCategory"]
+        XCTAssertTrue(current.waitForExistence(timeout: 3))
+        XCTAssertTrue(current.isSelected)
+
+        let destination = app.buttons
+            .matching(identifier: "field.correction.option")
+            .firstMatch
+        XCTAssertTrue(destination.waitForExistence(timeout: 3))
+        destination.tap()
+
+        // Removing it, which is the one act on this screen that asks first.
+        let remove = app.buttons["field.item.remove"]
+        XCTAssertTrue(waitForHittable(remove))
+        remove.tap()
+        app.buttons["Remove it"].firstMatch.tap()
+
+        // The sheet closes with the thing it was about, and the row is gone
+        // from the room underneath it.
+        XCTAssertTrue(row.waitForNonExistence(timeout: 4))
     }
 
     /// The pull-for-calendar gesture lives on the same screen as the category
@@ -154,7 +332,7 @@ final class FieldZoneUITests: XCTestCase {
         // If the pull gesture had fired instead, the calendar would be up and
         // this row would not be.
         XCTAssertTrue(
-            app.staticTexts["Send the grocery list"]
+            app.buttons["Send the grocery list"]
                 .waitForExistence(timeout: 6),
             "a tap should open the room, not the calendar"
         )
@@ -300,10 +478,12 @@ final class FieldZoneUITests: XCTestCase {
         app.launchEnvironment["WE_REPOSITORY"] = "preview"
         app.launchEnvironment["WE_PREVIEW_SCENARIO"] = "ready"
         app.launchEnvironment["WE_SKIP_PROMISE"] = "1"
-        // Otherwise signing out lands on Soft Start rather than sign in.
-        app.launchEnvironment["WE_SKIP_SOFT_START"] = "1"
+        app.launchEnvironment["WE_SKIP_WALKTHROUGH"] = "1"
         app.launchEnvironment["WE_DISABLE_CREDENTIAL_PROMPTS"] = "1"
-        app.launchArguments += ["-hasSeenLivingConfluencePromise", "YES"]
+        app.launchArguments += [
+            "-hasSeenLivingConfluencePromise", "YES",
+            "-hasSeenWalkthrough", "YES",
+        ]
         app.launch()
 
         let we = app.buttons["field.nav.we"]
@@ -315,8 +495,9 @@ final class FieldZoneUITests: XCTestCase {
         signOut.tap()
 
         XCTAssertTrue(
-            app.staticTexts["Welcome back."].waitForExistence(timeout: 8),
-            "signing out should return to sign in, not leave the zones up"
+            app.buttons["welcome.start"].waitForExistence(timeout: 8),
+            "signing out should return to the welcome screen, not leave the "
+                + "zones up"
         )
     }
 
@@ -367,6 +548,74 @@ final class FieldZoneUITests: XCTestCase {
         XCTAssertTrue(app.buttons["field.onboarding.finish"].isEnabled)
     }
 
+    // MARK: Rendered contracts
+
+    /// Stable attachment names are part of the CI contract: the visual-diff
+    /// job exports these from the xcresult and compares them to the committed
+    /// reference set.
+    @MainActor
+    func testRenderedContractCapturesTheThreeZones() throws {
+        let app = launchZones()
+        XCTAssertTrue(app.staticTexts["TODAY"].waitForExistence(timeout: 8))
+        keepScreenshot(of: app, named: "golden.field.today.seeded")
+
+        app.buttons["field.nav.life"].tap()
+        XCTAssertTrue(app.staticTexts["LIFE"].waitForExistence(timeout: 4))
+        keepScreenshot(of: app, named: "golden.field.life.seeded")
+
+        app.buttons["field.nav.us"].tap()
+        XCTAssertTrue(app.staticTexts["US"].waitForExistence(timeout: 4))
+        keepScreenshot(of: app, named: "golden.field.us.seeded")
+    }
+
+    @MainActor
+    func testEmptyUsAtMaximumAccessibilitySettings() throws {
+        let app = launchEmpty(maximumAccessibility: true)
+        let us = app.buttons["field.nav.us"]
+        XCTAssertTrue(us.waitForExistence(timeout: 12))
+        us.tap()
+
+        let empty = app.otherElements["field.us.empty"]
+        XCTAssertTrue(empty.waitForExistence(timeout: 6))
+        XCTAssertTrue(
+            empty.label.contains("This is the long view"),
+            "the empty state must explain itself as one coherent element"
+        )
+        keepScreenshot(
+            of: app,
+            named: "golden.field.us.empty.accessibility5"
+        )
+    }
+
+    /// XCTest's audit produces structured issues in the xcresult, which makes
+    /// an accessibility failure reviewable instead of a bare boolean.
+    @MainActor
+    func testCriticalZonesPassAccessibilityAudit() throws {
+        let app = launchEmpty(maximumAccessibility: true)
+        XCTAssertTrue(
+            app.textFields["field.capture.input"]
+                .waitForExistence(timeout: 12)
+        )
+
+        try app.performAccessibilityAudit(for: [
+            .hitRegion,
+            .sufficientElementDescription,
+            .textClipped,
+            .trait,
+        ])
+
+        app.buttons["field.nav.us"].tap()
+        XCTAssertTrue(
+            app.otherElements["field.us.empty"].waitForExistence(timeout: 6)
+        )
+        try app.performAccessibilityAudit(for: [
+            .hitRegion,
+            .sufficientElementDescription,
+            .textClipped,
+            .trait,
+        ])
+    }
+
     // MARK: Launch
 
     /// All three zones stay mounted in the paging TabView, so a category
@@ -395,22 +644,86 @@ final class FieldZoneUITests: XCTestCase {
         return false
     }
 
+    // MARK: - ○ Yours
+    //
+    // CIRCLE.md §2's grammar has to be visible in the chrome: one circle is
+    // yours, two circles are WE. Both marks live in the nav bar for that
+    // reason, so the first thing worth asserting is that they are both there.
+
+    @MainActor
+    func testTheYoursMarkSitsBesideTheWEMark() {
+        let app = launchZones()
+        // Matched across element types rather than as `otherElements`: the WE
+        // mark carries `.isButton` and the personal one is a Button, so both
+        // land in different collections than a plain container would.
+        let yours = app.descendants(matching: .any)["field.nav.yours"]
+        let we = app.descendants(matching: .any)["field.nav.we"]
+
+        XCTAssertTrue(
+            yours.waitForExistence(timeout: 8),
+            "the personal mark is missing from the navigation bar"
+        )
+        XCTAssertTrue(we.exists, "the WE mark is missing from the navigation bar")
+    }
+
+    /// §2: the mark is wordless after the two teaching moments, and it never
+    /// carries a badge or a count. VoiceOver gets the word and nothing else —
+    /// "Yours, one waiting" would be the forbidden count, read aloud.
+    @MainActor
+    func testTheYoursMarkIsWordlessAndUncounted() {
+        let app = launchZones()
+        let mark = app.descendants(matching: .any)["field.nav.yours"]
+        XCTAssertTrue(mark.waitForExistence(timeout: 8))
+
+        XCTAssertEqual(mark.label, "Yours")
+        XCTAssertTrue(
+            mark.label.rangeOfCharacter(from: .decimalDigits) == nil,
+            "the mark is carrying a count"
+        )
+    }
+
+    /// §7: it opens onto somewhere to write, and on nothing at all when there
+    /// is nothing — not onto a feed, and not onto an empty inbox with a zero
+    /// in it.
+    @MainActor
+    func testYoursOpensOntoWritingAndAQuietEmptyState() {
+        let app = launchZones()
+        let mark = app.descendants(matching: .any)["field.nav.yours"]
+        XCTAssertTrue(mark.waitForExistence(timeout: 8))
+        mark.tap()
+
+        XCTAssertTrue(
+            app.textViews["yours.compose"].waitForExistence(timeout: 5),
+            "the space did not open onto somewhere to write"
+        )
+        XCTAssertTrue(app.staticTexts["Nothing is waiting for you."].exists)
+    }
+
+    @MainActor
     private func launchOnboarding() -> XCUIApplication {
         let app = XCUIApplication()
+        WEUITestLaunchSupport.configure(app)
         app.launchEnvironment["WE_REPOSITORY"] = "preview"
         app.launchEnvironment["WE_PREVIEW_SCENARIO"] = "choosinghue"
         app.launchEnvironment["WE_SKIP_PROMISE"] = "1"
+        app.launchEnvironment["WE_SKIP_WALKTHROUGH"] = "1"
         app.launchEnvironment["WE_DISABLE_CREDENTIAL_PROMPTS"] = "1"
-        app.launchArguments += ["-hasSeenLivingConfluencePromise", "YES"]
+        app.launchArguments += [
+            "-hasSeenLivingConfluencePromise", "YES",
+            "-hasSeenWalkthrough", "YES",
+        ]
         app.launch()
         return app
     }
 
+    @MainActor
     private func launchZones() -> XCUIApplication {
         let app = XCUIApplication()
+        WEUITestLaunchSupport.configure(app)
         app.launchEnvironment["WE_FIELD"] = "seeded"
         app.launchEnvironment["WE_REPOSITORY"] = "preview"
         app.launchEnvironment["WE_SKIP_PROMISE"] = "1"
+        app.launchEnvironment["WE_SKIP_WALKTHROUGH"] = "1"
         app.launchEnvironment["WE_DISABLE_CREDENTIAL_PROMPTS"] = "1"
         app.launch()
         return app
@@ -418,14 +731,26 @@ final class FieldZoneUITests: XCTestCase {
 
     /// What a real couple starts with: nothing. Deliberately *not* seeded —
     /// the fictional couple hides every state this app has on day one.
-    private func launchEmpty() -> XCUIApplication {
+    @MainActor
+    private func launchEmpty(
+        maximumAccessibility: Bool = false
+    ) -> XCUIApplication {
         let app = XCUIApplication()
+        WEUITestLaunchSupport.configure(
+            app,
+            maximumDynamicType: maximumAccessibility,
+            reduceMotion: true,
+            reduceTransparency: maximumAccessibility
+        )
         app.launchEnvironment["WE_REPOSITORY"] = "preview"
         app.launchEnvironment["WE_PREVIEW_SCENARIO"] = "ready"
         app.launchEnvironment["WE_SKIP_PROMISE"] = "1"
-        app.launchEnvironment["WE_SKIP_SOFT_START"] = "1"
+        app.launchEnvironment["WE_SKIP_WALKTHROUGH"] = "1"
         app.launchEnvironment["WE_DISABLE_CREDENTIAL_PROMPTS"] = "1"
-        app.launchArguments += ["-hasSeenLivingConfluencePromise", "YES"]
+        app.launchArguments += [
+            "-hasSeenLivingConfluencePromise", "YES",
+            "-hasSeenWalkthrough", "YES",
+        ]
         app.launch()
         return app
     }

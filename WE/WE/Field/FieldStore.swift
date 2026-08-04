@@ -12,6 +12,9 @@
 
 import Foundation
 import Observation
+// For `significantTimeChangeNotification` only — the one thing that tells an
+// app the clock was moved or a timezone crossed. Nothing else here touches UI.
+import UIKit
 
 // MARK: - Persistence seam
 //
@@ -20,18 +23,61 @@ import Observation
 // previews stay honest.
 
 protocol FieldBackend: Sendable {
+    /// The member holding this client. Ownership is a persistence fact, not a
+    /// presentation default: every capture and filed item derives from this.
+    var viewerOwner: FieldOwner { get }
+
     func load() async throws -> FieldState
     func append(_ capture: FieldCapture) async throws
     func record(_ correction: FieldCorrection) async throws
     func upsert(_ item: LifeItem) async throws
+    /// Removing a filed item, for both of them, with no recovery.
+    ///
+    /// A real delete rather than a `deleted_at` flag: the app tells people the
+    /// thing is gone, and a row that is still there but hidden makes that
+    /// sentence untrue in the one place it matters.
+    func delete(itemID: String) async throws
     /// Answering a promotion question is the only way a horizon is ever
     /// created, so this is the only route by which Us gains anything.
     func upsert(_ horizon: FieldHorizon) async throws
+    /// And answering an occasion question is the only way a cluster is. Until
+    /// this existed the table was read and never written, so every occasion
+    /// any couple had was one that arrived with their seed data.
+    func upsert(_ cluster: FieldCluster) async throws
     func answer(question: String, choice: String) async throws
     func setHeld(_ topic: FieldHeldTopic) async throws
     func setStandingRule(_ rule: FieldStandingRule) async throws
     func setIdentity(_ identity: FieldIdentity) async throws
+    /// The learned hour, and the last day the app spoke.
+    ///
+    /// Written because the two controls that change it are real controls: an
+    /// hour somebody shifted, or a day they told the app to stay quiet. Both
+    /// used to evaporate on relaunch, which is the app forgetting an
+    /// instruction it was given while claiming to have learned from it.
+    func setDailyMoment(_ moment: FieldDailyMoment) async throws
     func changes() -> AsyncStream<Void>
+
+    /// How much of this person's solo history has not crossed to their
+    /// partner, so the disclosure can name a number before anybody commits.
+    func soloHistoryCount() async throws -> Int
+
+    /// Cross it. Returns how many rows moved.
+    ///
+    /// Scoped server-side to the caller's own rows, so this can never publish
+    /// a partner's history — see `field_share_solo_history()` in
+    /// `20260803180000_field_solo_visibility.sql`.
+    func shareSoloHistory() async throws -> Int
+}
+
+/// Defaulted rather than required, so the in-memory backend, the previews, the
+/// gallery, and every test fake keep conforming without a line of change.
+///
+/// Zero is the honest answer for all of them: a backend with no database
+/// behind it has no solo era to cross, and returning nothing means the
+/// disclosure never appears where it would be meaningless.
+extension FieldBackend {
+    func soloHistoryCount() async throws -> Int { 0 }
+    func shareSoloHistory() async throws -> Int { 0 }
 }
 
 /// Everything the app persists. One value, so a load is atomic and a
@@ -156,6 +202,20 @@ final class FieldStore {
     /// it, or not at all.
     private var pendingCorrections: [FieldCorrection] = []
 
+    /// Items somebody said to raise with both of them anyway, and the day
+    /// they said it. See `raiseWithBoth`.
+    private(set) var overriddenAddressing: [String: Date] = [:]
+
+    /// The outward action waiting on a yes.
+    ///
+    /// Ephemeral on purpose: an app relaunch is not a confirmation, and a
+    /// number somebody never looked at is not a number they agreed to call.
+    var pendingOutreach: FieldOutreachRequest?
+
+    /// Something the app opened on somebody's behalf, and has not been told
+    /// the outcome of. See `FieldMomentView` — it asks, once.
+    var awaitingOutcome: FieldOutcomeQuestion?
+
     /// Category subtitles the on-device model has written, and the shape of
     /// the items each was written about.
     ///
@@ -166,10 +226,50 @@ final class FieldStore {
     private(set) var writtenSubtitles: [LifeCategory: String] = [:]
     private var subtitleFingerprints: [LifeCategory: Int] = [:]
 
-    /// Overridden in previews and UI tests so the fixed sample date holds.
-    var now: Date
+    /// The instant every derivation is dated against.
+    ///
+    /// Stored rather than computed, deliberately. `todaySelection` is read
+    /// several times a frame and each read has to see the same instant — and
+    /// a computed `{ Date() }` would never invalidate anything under
+    /// `@Observable`, so midnight would arrive and nothing on screen would
+    /// know. One stored observable value means the day turning is one redraw
+    /// rather than none. See `FieldClock`.
+    private(set) var now: Date
 
+    // MARK: What the app knows, and how sure it is
+
+    /// Whether what the zones are drawing is current, remembered, or missing.
+    ///
+    /// The app is allowed to say "this is what I last saw." It is not allowed
+    /// to say "there is nothing here" when what it means is "I could not
+    /// reach the server" — that is the app telling a couple their
+    /// relationship is empty, and it is the failure this enum exists to make
+    /// impossible to express.
+    enum LoadState: Equatable {
+        /// Before the first answer. Not a spinner: the zones simply draw
+        /// whatever was cached, which is usually right.
+        case loading
+        case loaded
+        /// Reachable once, not now. Carries when.
+        case stale(Date)
+        /// Never loaded, and nothing cached to fall back on. The only state
+        /// that shows a retry.
+        case failed
+    }
+
+    private(set) var loadState: LoadState = .loading
+
+    /// When the server last answered — from the cache at launch, then from
+    /// each successful load. What `.stale` renders.
+    private(set) var lastLoadedAt: Date?
+
+    private let clock: FieldClock
     private let backend: FieldBackend?
+    /// Where a number comes from. Defaults to the one that finds nobody, for
+    /// the same reason `backend` defaults to nil: a preview, a gallery run or
+    /// a screenshot must not depend on what is in this machine's address
+    /// book, and must never leave the process.
+    private let resolver: any FieldTargetResolver
     private let calendar = Calendar.gregorianUS
 
     /// Both defaults resolve inside the body rather than in the parameter
@@ -178,14 +278,81 @@ final class FieldStore {
     /// `FieldState.seed` and `FieldSampleData.today` are both main
     /// actor-isolated — so referencing them as defaults warns today and fails
     /// outright in Swift 6 language mode.
+    ///
+    /// An explicit `now:` *is* a pinned clock: the caller named an instant and
+    /// nothing should move it under them. Passing neither is the gallery, and
+    /// the gallery's date is the sample couple's.
     init(
         state: FieldState? = nil,
         now: Date? = nil,
-        backend: FieldBackend? = nil
+        backend: FieldBackend? = nil,
+        clock: FieldClock? = nil,
+        resolver: (any FieldTargetResolver)? = nil,
+        lastLoadedAt: Date? = nil
     ) {
         self.state = state ?? .seed
-        self.now = now ?? FieldSampleData.today
+        self.lastLoadedAt = lastLoadedAt
+        self.clock = clock
+            ?? now.map { FieldFixedClock(now: $0) }
+            ?? FieldFixedClock(now: FieldSampleData.today)
+        self.now = self.clock.now
         self.backend = backend
+        self.resolver = resolver ?? FieldNoTargetResolver()
+    }
+
+    // MARK: The day turning
+
+    /// Re-reads the clock. That is the whole of "the day turned" — nothing is
+    /// recomputed here because nothing was ever cached: `todaySelection`,
+    /// `thisWeek`, and every pressure value are derived from `now` on read.
+    ///
+    /// Gated on the day or the hour rather than the instant. `now` is
+    /// observable, so writing it on every foreground would redraw all three
+    /// zones over a two-second difference nobody can see. The hour is the
+    /// finest grain anything actually depends on: `violatesStandingRule`
+    /// reads the hour, so does the ambient wash, and everything else reads
+    /// the day.
+    func tick() {
+        guard clock.advances else { return }
+
+        let current = clock.now
+        let sameDay = calendar.isDate(current, inSameDayAs: now)
+        let sameHour = calendar.component(.hour, from: current)
+            == calendar.component(.hour, from: now)
+        guard !(sameDay && sameHour) else { return }
+
+        now = current
+    }
+
+    /// Keeps `now` true for as long as the app is on screen.
+    ///
+    /// Two sources, because neither covers the other's case: the calendar day
+    /// changing is the only thing that fires for an app left open across
+    /// midnight, and the significant time change covers a timezone crossing
+    /// or a hand-set clock. Both do the same thing, so there is no ordering
+    /// to get wrong. Foregrounding is handled by the caller, which ticks on
+    /// the way in — the system posts neither of these for the hours a process
+    /// spent suspended.
+    func followTheClock() async {
+        guard clock.advances else { return }
+
+        let names: [Notification.Name] = [
+            .NSCalendarDayChanged,
+            UIApplication.significantTimeChangeNotification,
+        ]
+
+        await withTaskGroup(of: Void.self) { group in
+            for name in names {
+                group.addTask { @MainActor [weak self] in
+                    let stream = NotificationCenter.default.notifications(
+                        named: name
+                    ).map { _ in () }
+                    for await _ in stream {
+                        self?.tick()
+                    }
+                }
+            }
+        }
     }
 
     // MARK: Derived
@@ -193,10 +360,22 @@ final class FieldStore {
     var identity: FieldIdentity { state.identity }
 
     var speaker: FieldOwner {
-        // Which of the two is holding the phone. Until multi-device identity
-        // is wired this is person A; it never affects routing, only the tint
-        // on a capture chip.
-        .a
+        backend?.viewerOwner ?? .a
+    }
+
+    /// The two questions the app can ask that are not about a single item.
+    ///
+    /// `todaySelection` already returns whichever of them won, shaped into a
+    /// moment. These expose the proposals themselves, for a surface that needs
+    /// to draw the two things being related rather than one headline about
+    /// them — which is what the walkthrough does, and it is the reason it can
+    /// be said to show the real rule rather than a picture of one.
+    var occasionProposal: FieldOccasion.Proposal? {
+        FieldOccasion.proposal(selectorContext)
+    }
+
+    var promotionProposal: FieldPromotion.Proposal? {
+        FieldPromotion.proposal(selectorContext)
     }
 
     private var selectorContext: FieldTodaySelector.Context {
@@ -209,6 +388,14 @@ final class FieldStore {
             horizons: state.horizons,
             heldTopics: state.heldTopics,
             standingRules: state.standingRules,
+            // Today's overrides only. Filtered here rather than cleaned up on
+            // a timer: the day turning is not an event anything has to
+            // subscribe to if every read is dated.
+            overriddenAddressing: Set(
+                overriddenAddressing
+                    .filter { calendar.isDate($0.value, inSameDayAs: now) }
+                    .keys
+            ),
             calendar: calendar
         )
     }
@@ -231,11 +418,14 @@ final class FieldStore {
     private var suggestionContext: FieldCaptureSuggestions.Context {
         FieldCaptureSuggestions.Context(
             now: now,
+            speaker: speaker,
             lifeItems: state.lifeItems,
             clusters: state.clusters,
             horizons: state.horizons,
             rhythms: state.rhythms,
             partners: state.partners,
+            captures: state.captures,
+            corrections: state.corrections,
             calendar: calendar
         )
     }
@@ -246,8 +436,21 @@ final class FieldStore {
         FieldTimely.nudges(selectorContext)
     }
 
-    /// What the pills under the capture field offer. Read from this couple's
-    /// own week, and generic only when there is nothing yet to read.
+    /// What "Caught this week" is actually counting.
+    ///
+    /// It counted every capture ever, which is a different number with a
+    /// different meaning: a couple's second month opened with "Caught this
+    /// week · 214", a figure that is not about this week and reads like a
+    /// scoreboard — and this app does not keep score.
+    var capturesThisWeek: [FieldCapture] {
+        let cutoff = calendar.date(byAdding: .day, value: -7, to: now) ?? now
+        return state.captures.filter { $0.capturedAt >= cutoff }
+    }
+
+    /// What the pills under the capture field offer. Read fresh on every
+    /// access from this couple's current week and the viewer's own recent
+    /// choices; nothing is cached across a capture, correction, or clock tick.
+    /// They are generic only when there is honestly nothing yet to read.
     var captureSuggestions: [String] {
         FieldCaptureSuggestions.suggest(suggestionContext)
     }
@@ -487,10 +690,16 @@ final class FieldStore {
             now: now,
             calendar: calendar
         )
-        // Until enough corrections exist to derive from, the receipt shows the
-        // seeded set rather than an empty screen — it is a periodic surface,
-        // not a live one.
-        return derived.count >= 3 ? derived : FieldSampleData.behaviourChanges
+        // Whatever was actually derived, including none.
+        //
+        // This used to fall back to `FieldSampleData.behaviourChanges` below a
+        // count of three, which meant the receipt was *always* fiction: the
+        // third card reads a reply rate, nothing in the app writes a reply
+        // rate, so the derived count could never reach the threshold. A real
+        // couple was shown the fictional couple's changes and told they were
+        // their own. An empty receipt is the honest answer to "what have I
+        // learned" before anything has been corrected.
+        return derived
     }
 
     var monthsLearning: Int {
@@ -695,6 +904,31 @@ final class FieldStore {
         correctingReceipt = lastReceipt
     }
 
+    /// Backing out of the picker. Opening "Wrong place" is not a commitment to
+    /// move anything — a person who taps it to see the options and decides the
+    /// app was right the first time needs a way back that is not sending.
+    func cancelCorrection() {
+        correctingReceipt = nil
+    }
+
+    /// A category this couple names themselves, from the correction picker.
+    ///
+    /// The classifier grows categories on its own, and it is deliberately
+    /// conservative about it — which means it sometimes has no word for a
+    /// thing that obviously deserves one. This is the other direction: the
+    /// person supplies the heading, and the correction it comes with teaches
+    /// the classifier to use it next time, exactly like any other correction.
+    ///
+    /// Returns the category it filed to, or `nil` when the name is not one —
+    /// too long, too short, or a reserved word. The caller says so; this does
+    /// not invent a substitute.
+    @discardableResult
+    func correct(toNewCategory name: String) -> LifeCategory? {
+        guard let category = LifeCategory(named: name) else { return nil }
+        correct(to: category)
+        return category
+    }
+
     /// One tap to a corrected destination. Every correction becomes training
     /// signal that surfaces later in the correction receipt (6a).
     ///
@@ -732,6 +966,116 @@ final class FieldStore {
         Task { [backend] in try? await backend?.upsert(item) }
     }
 
+    // MARK: Changing a filed thing
+    //
+    // Until these existed, filing was one-way. A receipt could be corrected
+    // before it was sent — `correct(to:)` — and after that the item's category
+    // and date were fixed forever, which made a mistyped word or a cancelled
+    // plan permanent. These are the same three acts the capture flow already
+    // offers, made available to something already on a page.
+
+    /// An item that came from the phone's own calendar, which this app does
+    /// not own. The permission string promises, in these words: "I never add,
+    /// change, or delete anything."
+    private func isImported(_ itemID: String) -> Bool {
+        itemID.hasPrefix("cal:")
+    }
+
+    /// Gone, for both of them.
+    ///
+    /// Refused for an imported event at this seam rather than only in the UI —
+    /// a promise the app made about somebody else's calendar should not depend
+    /// on which screen the call came from.
+    ///
+    /// The chip under the capture field goes with it. A capture and the item it
+    /// filed share one id, and "it goes from every screen, and there is no
+    /// undo" is not true while the proof-of-catch is still sitting there — a
+    /// pill for a thing that no longer exists is the app contradicting itself
+    /// on the screen a couple looks at most.
+    func remove(_ itemID: String) {
+        guard !isImported(itemID),
+              let index = state.lifeItems.firstIndex(where: { $0.id == itemID })
+        else { return }
+
+        state.lifeItems.remove(at: index)
+        state.captures.removeAll { $0.id == itemID }
+        Task { [backend] in try? await backend?.delete(itemID: itemID) }
+    }
+
+    /// Moves a filed item to another category, and teaches the classifier.
+    ///
+    /// The correction is the point. Moving something by hand is the clearest
+    /// signal the app ever gets about where this shape of thing belongs, and
+    /// dropping it would make the same mistake again next week. This is why it
+    /// records a `FieldCorrection` exactly as `correct(to:)` does for a
+    /// receipt.
+    func refile(_ itemID: String, to category: LifeCategory) {
+        guard !isImported(itemID),
+              let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
+              state.lifeItems[index].category != category
+        else { return }
+
+        let original = state.lifeItems[index].category
+        state.lifeItems[index].category = category
+
+        // Moving into a category that does not carry dates drops the date
+        // rather than putting a due date on a film — the same rule
+        // `FieldClassifier.correct` applies to a receipt.
+        if !category.carriesDates {
+            state.lifeItems[index].dueOn = nil
+            state.lifeItems[index].closesAt = nil
+        }
+
+        let item = state.lifeItems[index]
+        let correction = FieldCorrection(
+            id: UUID().uuidString,
+            input: item.title,
+            original: original,
+            corrected: category,
+            correctedAt: now
+        )
+        state.corrections.append(correction)
+
+        Task { [backend] in
+            try? await backend?.upsert(item)
+            try? await backend?.record(correction)
+        }
+    }
+
+    /// The same act by a name the couple supplies. Returns `nil` when the name
+    /// is not a heading — see `LifeCategory(named:)`.
+    @discardableResult
+    func refile(
+        _ itemID: String,
+        toNewCategory name: String
+    ) -> LifeCategory? {
+        guard let category = LifeCategory(named: name) else { return nil }
+        refile(itemID, to: category)
+        return category
+    }
+
+    /// Moves an item on the calendar, or takes it off one.
+    ///
+    /// `nil` clears the cut-off with the date: a window that closes at 9pm on
+    /// no particular day is not a thing, and leaving `closesAt` behind would
+    /// keep the item ranking at the top of Today with nothing to show for it.
+    func redate(_ itemID: String, to day: Date?) {
+        guard !isImported(itemID),
+              let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
+              state.lifeItems[index].category.carriesDates
+        else { return }
+
+        state.lifeItems[index].dueOn = day.map {
+            Calendar.gregorianUS.startOfDay(for: $0)
+        }
+        if day == nil {
+            state.lifeItems[index].closesAt = nil
+        }
+
+        let item = state.lifeItems[index]
+        Task { [backend] in try? await backend?.upsert(item) }
+    }
+
     func answer(_ question: FieldQuestion, with choice: FieldChoice) {
         // A promotion question has no horizon behind it yet — answering it is
         // what decides whether there is ever going to be one.
@@ -740,7 +1084,22 @@ final class FieldStore {
             if choice.id == proposal.affirmative?.id {
                 promote(proposal, answering: choice)
             } else {
-                hold(question, reason: "You said not this year.")
+                // A real answer, not a postponement. "Not this year" is a
+                // decision, and the app owes it the same finality it owes a
+                // yes.
+                decline(question, reason: "You said not this year.")
+            }
+            return
+        }
+
+        // An occasion question has no cluster behind it either, when the
+        // occasion is one the app is offering to form.
+        if let proposal = FieldOccasion.proposal(selectorContext),
+           proposal.question.id == question.id {
+            if choice.id == proposal.affirmative?.id {
+                attach(proposal)
+            } else {
+                decline(question, reason: "You said they're not related.")
             }
             return
         }
@@ -817,22 +1176,256 @@ final class FieldStore {
         Task { [backend] in try? await backend?.upsert(horizon) }
     }
 
-    /// Not now. Recorded as a held topic, which is what stops the app raising
-    /// it again — see `FieldTodaySelector.isHeld`.
-    func hold(_ question: FieldQuestion, reason: String) {
-        let subject = question.id
-            .replacingOccurrences(of: "promote:", with: "")
+    /// Yes — so the two things are shown together, and counted together.
+    ///
+    /// The same promise `promote` makes, and for the same reason: **nothing
+    /// moves.** The item keeps its category, keeps its owner, and stays in the
+    /// room the couple has been looking at it in. All that changes is that the
+    /// occasion now knows about it — which is what lets Today say "three
+    /// things wait on this" truthfully instead of only about seed data.
+    ///
+    /// When the occasion does not exist yet, this is also the moment it comes
+    /// into being. The app never creates an empty one: an occasion with
+    /// nothing hanging off it is a date, and the calendar already has those.
+    private func attach(_ proposal: FieldOccasion.Proposal) {
+        let clusterID = proposal.clusterID ?? form(proposal)
+        guard let clusterID else { return }
+
+        setCluster(clusterID, on: proposal.itemID)
+
+        // The anchor joins its own occasion. Without this the visit would sit
+        // outside the group it named, and the cluster would claim one member
+        // while displaying two.
+        if let anchorItemID = proposal.anchorItemID {
+            setCluster(clusterID, on: anchorItemID)
+        }
+    }
+
+    /// Builds the occasion around the thing that dated it.
+    ///
+    /// The rationale is written in the app's voice and is the only place a
+    /// user will ever read *why* these are one group, so it says the true
+    /// reason rather than a generic one.
+    private func form(_ proposal: FieldOccasion.Proposal) -> String? {
+        guard let anchorItemID = proposal.anchorItemID,
+              let anchor = state.lifeItems.first(where: {
+                  $0.id == anchorItemID
+              })
+        else { return nil }
+
+        let cluster = FieldCluster(
+            id: UUID().uuidString,
+            title: FieldOccasion.shortTitle(anchor.title),
+            rationale: "You put these together. I'll keep anything else that "
+                + "belongs with them here too — and ask first, every time.",
+            tint: anchor.owner,
+            timeframe: proposal.anchorDate.map {
+                DateFormatter.fieldWeekdayShort.string(from: $0).uppercased()
+            } ?? "NO DATE",
+            anchorDate: proposal.anchorDate
+        )
+        state.clusters.insert(cluster, at: 0)
+
+        Task { [backend] in try? await backend?.upsert(cluster) }
+        return cluster.id
+    }
+
+    /// One place that writes the column, so the in-memory item and the row can
+    /// never disagree about which occasion it is in.
+    private func setCluster(_ clusterID: String?, on itemID: String) {
+        guard let index = state.lifeItems.firstIndex(where: {
+            $0.id == itemID
+        }) else { return }
+
+        state.lifeItems[index].clusterID = clusterID
+        let item = state.lifeItems[index]
+        Task { [backend] in try? await backend?.upsert(item) }
+    }
+
+    /// Not now — with a "now" that ends.
+    ///
+    /// Every hold used to be written with `surfaceOn: nil`, and
+    /// `FieldDeferral.shouldRaise` returns false for a nil date. So "ask me
+    /// again tonight" meant "never ask me again", and the button was a lie in
+    /// the quietest possible way: it did exactly what it said until the
+    /// evening it was supposed to come back.
+    func hold(
+        id: String,
+        subject: String,
+        until window: FieldDeferralWindow,
+        reason: String
+    ) {
         let topic = FieldHeldTopic(
-            id: question.id,
+            id: id,
             title: subject,
-            timing: "NOT NOW",
+            timing: window.chip,
             reason: reason,
-            surfaceOn: nil,
+            surfaceOn: FieldDeferral.surfaceDate(
+                window,
+                from: now,
+                moment: state.dailyMoment,
+                calendar: calendar
+            ),
             wasOverridden: false,
             wasDismissed: false
         )
-        state.heldTopics.append(topic)
+        upsertHeld(topic)
+    }
+
+    func hold(
+        _ question: FieldQuestion,
+        until window: FieldDeferralWindow,
+        reason: String
+    ) {
+        hold(
+            id: question.id,
+            subject: Self.subject(ofQuestion: question),
+            until: window,
+            reason: reason
+        )
+    }
+
+    /// What a held row is *about*, read back out of the question's id.
+    ///
+    /// The id is a route, not a sentence — `promote:japan`, or
+    /// `occasion:<cluster>:<item>` — and the topic list shows this string to a
+    /// person. An occasion's id is two identifiers and would read as machine
+    /// noise, so it is named by the thing it was asked about instead.
+    private static func subject(ofQuestion question: FieldQuestion) -> String {
+        guard !question.id.hasPrefix("occasion:") else {
+            return FieldOccasion.shortTitle(question.prompt)
+        }
+        return question.id.replacingOccurrences(of: "promote:", with: "")
+    }
+
+    /// They said no, which is a different answer from "not now".
+    ///
+    /// The app promised the thing stays where it is and it stops asking, and
+    /// `wasDismissed` is that promise as a fact rather than as a date far
+    /// enough out to look like one.
+    func decline(_ question: FieldQuestion, reason: String) {
+        let subject = Self.subject(ofQuestion: question)
+        upsertHeld(
+            FieldHeldTopic(
+                id: question.id,
+                title: subject,
+                timing: "NOT NOW",
+                reason: reason,
+                surfaceOn: nil,
+                wasOverridden: false,
+                wasDismissed: true
+            )
+        )
+    }
+
+    /// Replaced rather than appended. Holding the same thing twice is one
+    /// decision restated, not two rows.
+    private func upsertHeld(_ topic: FieldHeldTopic) {
+        if let index = state.heldTopics.firstIndex(where: { $0.id == topic.id }) {
+            state.heldTopics[index] = topic
+        } else {
+            state.heldTopics.append(topic)
+        }
         Task { [backend] in try? await backend?.setHeld(topic) }
+    }
+
+    // MARK: Acting outward
+
+    /// The whole outward path, in one place.
+    ///
+    /// Every decision inside it is made by a pure function; this only
+    /// sequences them and holds the answer for the screen. It opens nothing —
+    /// the view does that, after somebody has read what was found and said
+    /// yes. That is not a nicety: the worst thing this feature can do is dial
+    /// a wrong number, and the only real defence is that a person sees it
+    /// first.
+    func begin(_ act: FieldAct, for itemID: String) async {
+        guard let item = state.lifeItems.first(where: { $0.id == itemID })
+        else { return }
+
+        // Nothing to reach anybody about. The button does what it always did.
+        let extraction = FieldTargetPhrasing.extract(
+            from: item.title,
+            act: act,
+            identity: state.identity
+        )
+        guard act != .none, let extraction else {
+            complete(itemID)
+            return
+        }
+
+        // Asked at the tap, and only for a person — this is the first moment
+        // the app can explain why it wants the address book, because it is
+        // the moment somebody asked it to call somebody.
+        if extraction.kind == .person,
+           !FieldContactsResolver.wasAsked {
+            pendingOutreach = FieldOutreachRequest(
+                id: itemID,
+                act: act,
+                itemTitle: item.title,
+                query: extraction.query,
+                candidates: [],
+                state: .needsContactsPermission
+            )
+            return
+        }
+
+        let candidates = await resolver.resolve(extraction.query)
+
+        pendingOutreach = FieldOutreachRequest(
+            id: itemID,
+            act: act,
+            itemTitle: item.title,
+            query: extraction.query,
+            candidates: candidates,
+            state: candidates.isEmpty ? .foundNothing : .found
+        )
+    }
+
+    /// Granting contacts and immediately doing the thing that was asked for.
+    /// A permission prompt that leaves you back where you started is its own
+    /// small insult.
+    func grantContactsAndRetry() async {
+        guard let request = pendingOutreach else { return }
+        _ = await FieldContactsResolver.request()
+        pendingOutreach = nil
+        await begin(request.act, for: request.id)
+    }
+
+    /// The app opened the phone. That is all it knows.
+    ///
+    /// Whether the vet had a slot is a fact only the person has, so the app
+    /// asks once rather than deciding — marking it done here would be the app
+    /// claiming to have done something it did not do.
+    func outreachDidOpen(_ request: FieldOutreachRequest, target: FieldTarget?) {
+        pendingOutreach = nil
+        awaitingOutcome = FieldOutcomeQuestion(
+            id: request.id,
+            question: request.act.pastTense(target: target?.name)
+        )
+    }
+
+    func resolveOutcome(_ question: FieldOutcomeQuestion, done: Bool) {
+        awaitingOutcome = nil
+        if done { complete(question.id) }
+    }
+
+    func dismissOutreach() {
+        pendingOutreach = nil
+    }
+
+    /// "Ask Dylan anyway."
+    ///
+    /// The presence rule re-addresses a shared thing to whoever is here; this
+    /// is the person overruling that. It does not send anything, because
+    /// there is nothing to send it with — all it does is stop the app
+    /// explaining, for the rest of today, that one of them is away.
+    ///
+    /// Ephemeral and dated on purpose: tomorrow the partner is still away and
+    /// the app should say so again rather than quietly carrying an override
+    /// forward into a day nobody made it in.
+    func raiseWithBoth(_ itemID: String) {
+        overriddenAddressing[itemID] = now
     }
 
     // MARK: Deferral (6d)
@@ -868,15 +1461,29 @@ final class FieldStore {
     func shiftMoment(byHours delta: Int) {
         let shifted = state.dailyMoment.sendMinute + delta * 60
         state.dailyMoment.sendMinute = min(max(shifted, 5 * 60), 22 * 60)
+        persistMoment()
     }
 
     func skipToday() {
         state.dailyMoment.lastSentOn = now
+        persistMoment()
+    }
+
+    private func persistMoment() {
+        let moment = state.dailyMoment
+        Task { [backend] in try? await backend?.setDailyMoment(moment) }
     }
 
     // MARK: Onboarding (6f)
 
+    func canChooseSwatch(for owner: FieldOwner) -> Bool {
+        backend == nil || owner == speaker
+    }
+
     func choose(_ swatch: FieldSwatch, for owner: FieldOwner) {
+        // A live device may only choose the colour for the person holding it.
+        // Backend-free gallery/previews still allow both rows to be explored.
+        guard canChooseSwatch(for: owner) else { return }
         switch owner {
         case .a: state.identity.personA = swatch
         case .b: state.identity.personB = swatch
@@ -917,15 +1524,101 @@ final class FieldStore {
     // MARK: Loading
 
     func load() async {
-        guard let backend else { return }
-        if let loaded = try? await backend.load() {
-            state = loaded
+        guard let backend else {
+            // No backend at all is the gallery and the previews, where the
+            // state on hand is the whole truth and there is nothing to wait
+            // for.
+            loadState = .loaded
+            return
         }
+
+        await loadOnce()
+
         for await _ in backend.changes() {
-            if let refreshed = try? await backend.load() {
-                state = refreshed
-            }
+            await loadOnce()
         }
+    }
+
+    /// One attempt, and an honest record of how it went.
+    ///
+    /// This used to be `try?` twice over, which made a failed load
+    /// pixel-identical to a brand new account: both left `state` untouched at
+    /// its empty default, and the zones drew somebody's relationship as though
+    /// it had never existed. The distinction below is the entire point — the
+    /// app is allowed to not know something, and is not allowed to say the
+    /// thing is not there.
+    private func loadOnce() async {
+        guard let backend else { return }
+        do {
+            state = try await backend.load()
+            lastLoadedAt = now
+            loadState = .loaded
+        } catch {
+            // Cached data is still worth drawing; it was true recently and
+            // saying so is more useful than an empty screen. Without a cache
+            // there is nothing honest to draw, and the zones offer a retry.
+            loadState = lastLoadedAt.map(LoadState.stale) ?? .failed
+        }
+    }
+
+    /// For the inline retry the zones offer when there is nothing cached.
+    func retryLoad() async {
+        loadState = .loading
+        await loadOnce()
+    }
+
+    // MARK: The solo-to-shared boundary (2a)
+
+    /// How many of this person's solo-era rows have not crossed. Nil until
+    /// asked, so the disclosure cannot flash before the number is known.
+    private(set) var soloHistoryCount: Int?
+
+    /// Set once the person has answered, either way. Read from
+    /// `FieldCrossingDecision`, which remembers it across launches — declining
+    /// has to be as durable as accepting, or the app asks again tomorrow and
+    /// "keep it to myself" means "not yet".
+    private(set) var hasAnsweredCrossing = false
+
+    /// Whether to show the disclosure at all.
+    ///
+    /// Deliberately requires a positive count rather than merely a partner:
+    /// somebody who paired on their first day has no solo history, and asking
+    /// them what to do with nothing is a dialog about an empty set.
+    var owesCrossingDecision: Bool {
+        !hasAnsweredCrossing && (soloHistoryCount ?? 0) > 0
+    }
+
+    func considerCrossing(decision: FieldCrossingDecision) async {
+        hasAnsweredCrossing = decision.wasAnswered
+        guard !hasAnsweredCrossing else { return }
+        soloHistoryCount = try? await backend?.soloHistoryCount()
+    }
+
+    /// Bring it across, then reload so the zones show the same thing the
+    /// partner now sees.
+    ///
+    /// Nil means nothing crossed. The answer is deliberately *not* recorded in
+    /// that case: a failed request is not a decision, and remembering it as one
+    /// would mean somebody tapped "bring it across", nothing moved, and they
+    /// were never asked again. The question stays open until it is answered by
+    /// something that actually happened.
+    @discardableResult
+    func shareSoloHistory(
+        decision: FieldCrossingDecision
+    ) async -> Int? {
+        guard let backend,
+              let shared = try? await backend.shareSoloHistory()
+        else { return nil }
+        decision.remember()
+        hasAnsweredCrossing = true
+        await loadOnce()
+        return shared
+    }
+
+    /// Keep it. Recorded, so it is a decision and not a postponement.
+    func keepSoloHistoryPrivate(decision: FieldCrossingDecision) {
+        decision.remember()
+        hasAnsweredCrossing = true
     }
 }
 
@@ -938,59 +1631,79 @@ final class FieldStore {
 final class FieldMemoryBackend: FieldBackend, @unchecked Sendable {
     private var state: FieldState
     private let lock = NSLock()
+    let viewerOwner: FieldOwner
 
-    init(state: FieldState = .seed) {
+    init(
+        state: FieldState = .seed,
+        viewerOwner: FieldOwner = .a
+    ) {
         self.state = state
+        self.viewerOwner = viewerOwner
     }
 
     func load() async throws -> FieldState {
         lock.withLock { state }
     }
 
+    // MARK: The writes
+    //
+    // Every one of them is `FieldMutation.apply`, and none of them is a second
+    // description of what a write means.
+    //
+    // They used to be eleven hand-written bodies, and the cost of that was not
+    // theoretical: `setHeld` here upserted correctly for months while the
+    // Supabase implementation could not insert at all, so every preview,
+    // gallery run, and UI test saw a hold survive and no real couple did. The
+    // shared conformance suite closed the gap between *those* two. This closes
+    // it between both of them and the outbox's replay, which is the third
+    // implementation of the same rules and the newest place for them to drift.
+
+    private func apply(_ mutation: FieldMutation) {
+        lock.withLock { mutation.apply(to: &state) }
+    }
+
     func append(_ capture: FieldCapture) async throws {
-        lock.withLock { state.captures.insert(capture, at: 0) }
+        apply(.append(capture))
     }
 
     func record(_ correction: FieldCorrection) async throws {
-        lock.withLock { state.corrections.append(correction) }
+        apply(.record(correction))
     }
 
     func upsert(_ item: LifeItem) async throws {
-        lock.withLock {
-            if let index = state.lifeItems.firstIndex(where: { $0.id == item.id }) {
-                state.lifeItems[index] = item
-            } else {
-                state.lifeItems.insert(item, at: 0)
-            }
-        }
+        apply(.upsertItem(item))
+    }
+
+    func delete(itemID: String) async throws {
+        apply(.deleteItem(id: itemID))
     }
 
     func upsert(_ horizon: FieldHorizon) async throws {
-        lock.withLock {
-            if let index = state.horizons.firstIndex(where: { $0.id == horizon.id }) {
-                state.horizons[index] = horizon
-            } else {
-                state.horizons.insert(horizon, at: 0)
-            }
-        }
+        apply(.upsertHorizon(horizon))
     }
 
-    func answer(question: String, choice: String) async throws {}
+    func upsert(_ cluster: FieldCluster) async throws {
+        apply(.upsertCluster(cluster))
+    }
+
+    func answer(question: String, choice: String) async throws {
+        apply(.answer(question: question, choice: choice))
+    }
 
     func setHeld(_ topic: FieldHeldTopic) async throws {
-        lock.withLock {
-            if let index = state.heldTopics.firstIndex(where: { $0.id == topic.id }) {
-                state.heldTopics[index] = topic
-            }
-        }
+        apply(.setHeld(topic))
     }
 
     func setStandingRule(_ rule: FieldStandingRule) async throws {
-        lock.withLock { state.standingRules.append(rule) }
+        apply(.setStandingRule(rule))
     }
 
     func setIdentity(_ identity: FieldIdentity) async throws {
-        lock.withLock { state.identity = identity }
+        apply(.setIdentity(identity))
+    }
+
+    func setDailyMoment(_ moment: FieldDailyMoment) async throws {
+        apply(.setDailyMoment(moment))
     }
 
     func changes() -> AsyncStream<Void> {

@@ -687,6 +687,11 @@ final class SupabaseRepository: Repository {
             .from("couple_members")
             .select("profile_id,hue,profiles(name)")
             .eq("couple_id", value: membership.coupleID)
+            // `member_slot` is the database's stable A/B contract. Postgres
+            // row order is otherwise undefined, so leaving this implicit can
+            // swap sides between launches and persist the viewer's work under
+            // their partner.
+            .order("member_slot", ascending: true)
             .execute()
             .value
         async let insightsRequest: [InsightDTO] = client
@@ -1007,7 +1012,9 @@ final class SupabaseRepository: Repository {
 
     private func authenticatedUser(_ user: User) -> AuthenticatedUser {
         AuthenticatedUser(
-            id: user.id.uuidString,
+            // Postgres renders UUIDs lowercase; Swift's uuidString is
+            // uppercase. Match Postgres so ID comparisons hold.
+            id: user.id.uuidString.lowercased(),
             email: user.email ?? ""
         )
     }

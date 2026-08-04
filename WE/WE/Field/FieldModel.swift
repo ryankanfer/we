@@ -339,6 +339,25 @@ struct LifeItem: Identifiable, Codable, Hashable, Sendable {
     /// floor that a within-the-day cut-off starts at, so the two never trade
     /// places on a rounding difference.
     private static let dateCeiling = 0.8
+
+    /// The same ramp, for a date that has no item of its own — an occasion's
+    /// anchor. Factored out rather than duplicated so a question about Friday
+    /// and the things due on Friday cannot drift apart in how urgent they
+    /// think Friday is.
+    static func anchorPressure(
+        on date: Date,
+        now: Date,
+        calendar: Calendar = .gregorianUS
+    ) -> Double {
+        let days = calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: now),
+            to: calendar.startOfDay(for: date)
+        ).day ?? 99
+
+        if days < 0 { return max(0.15, 0.55 - Double(-days) / 60) }
+        return max(0.1, min(dateCeiling, 1 - Double(days) / 14))
+    }
 }
 
 
@@ -564,7 +583,19 @@ struct FieldHeldTopic: Identifiable, Codable, Hashable, Sendable {
     /// Set when the user chose to leave it. The app does not re-raise.
     var wasDismissed: Bool
 
+    /// Waiting for its moment. Shown, dimmed, under "what I'm watching" —
+    /// which is why a topic somebody has finished with is not one.
     var isHeld: Bool { !wasOverridden && !wasDismissed }
+
+    /// Whether the app should stay off the subject.
+    ///
+    /// Both answers mean "don't raise this": one is "not yet" and one is
+    /// "no". Only an override — the person asking for it now — puts the
+    /// subject back in play. Distinguishing the two mattered the moment
+    /// "not this year" started setting `wasDismissed` instead of pretending
+    /// to be an indefinite hold, because the ranking's filter asked
+    /// `isHeld` and a declined topic would have come straight back.
+    var isSettled: Bool { !wasOverridden }
 }
 
 /// A user-authored constraint on the intelligence's behaviour.
@@ -718,10 +749,70 @@ struct FieldMomentAction: Identifiable, Hashable, Sendable {
         case quiet
     }
 
+    /// What the button does, decided where the button is made.
+    ///
+    /// It used to be inferred at the tap site from `weight`, which is how
+    /// "Ask me again tonight" spent its whole life doing nothing: the handler
+    /// only knew how to act on the filled one, and the `-primary` / `-escape`
+    /// ids that were supposed to distinguish them were parsed nowhere. An
+    /// escape that silently does nothing is worse than no escape — the person
+    /// tapped it, believed the app, and the same thing came back tomorrow.
+    enum Role: Hashable, Sendable {
+        /// The filled verb under a statement. `.none` means it only marks the
+        /// thing done, which is all this ever did.
+        case act(FieldAct)
+        case choice(FieldChoice)
+        /// "Ask me again tonight." Named `postpone` because `defer` is a
+        /// keyword.
+        case postpone(FieldDeferralWindow)
+        /// "Ask Dylan anyway" — overriding the presence rule (6b).
+        case overrideAbsence(FieldOwner)
+    }
+
     let id: String
     var title: String
     var weight: Weight
     var tint: FieldOwner?
+    var role: Role
+}
+
+/// What a sentence is asking someone to *do*.
+///
+/// Not a new judgement: `FieldTodaySelector.primaryVerb` has been making it
+/// since the beginning by reading the item's own wording, and then keeping
+/// only the word it printed on the button. This is the same judgement, kept —
+/// which is what lets the button reach the phone instead of only describing
+/// what somebody should go and do with it.
+enum FieldAct: String, Codable, Hashable, Sendable {
+    case call
+    case message
+    case email
+    case book
+    case schedule
+    case pay
+    case order
+    /// Nothing in the wording asks for anything outward. The button marks the
+    /// thing done.
+    case none
+}
+
+/// When a held thing comes back.
+///
+/// A named window rather than a raw date, so the button, the stored topic and
+/// the "what I'm holding" line cannot disagree about what "tonight" means.
+enum FieldDeferralWindow: String, Codable, Hashable, Sendable {
+    /// "Ask me again tonight."
+    case thisEvening
+    /// "Not yet", on a question.
+    case tomorrow
+
+    /// The chip on the held-topic card.
+    var chip: String {
+        switch self {
+        case .thisEvening: "TONIGHT"
+        case .tomorrow: "TOMORROW"
+        }
+    }
 }
 
 /// A line in "what I'm watching" on the resolved Today screen.
@@ -731,6 +822,13 @@ struct FieldWatchItem: Identifiable, Hashable, Sendable {
     var owner: FieldOwner
     /// Deferred items render at 0.45 — dimmed, because they are being held.
     var isDeferred: Bool
+    /// The filed thing this line is reading back, when there is one.
+    ///
+    /// A watched line is a reading of something: sometimes a Life item, and
+    /// sometimes a horizon question or a held topic, which are not items and
+    /// have nowhere to open. Only the first kind is reachable, so only the
+    /// first kind carries an id — the rest stay text, honestly.
+    var itemID: String?
 }
 
 // MARK: - Calendar and formatters
@@ -753,6 +851,8 @@ extension DateFormatter {
     }
 
     nonisolated static let fieldWeekday = make("EEEE")
+    /// "FRI" — the form a cluster's timeframe chip takes.
+    nonisolated static let fieldWeekdayShort = make("EEE")
     nonisolated static let fieldShortDate = make("d MMM")
     nonisolated static let fieldMonthYear = make("MMMM yyyy")
     nonisolated static let fieldMonthShort = make("MMM yyyy")

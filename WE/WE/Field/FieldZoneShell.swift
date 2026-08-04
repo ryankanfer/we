@@ -22,10 +22,14 @@ import SwiftUI
 
 @MainActor
 struct FieldZoneShell: View {
+    /// Provided in all three modes — `FieldRoot` injects the live session and
+    /// `WEApp` injects a preview one for the gallery and seeded runs.
+    @EnvironmentObject private var session: AppSession
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @State private var store: FieldStore
     @State private var showsAccount = false
+    @State private var showsYours = false
 
     // Constructed in the body, not as a default argument. Default argument
     // expressions are evaluated in a nonisolated context, so `= FieldStore()`
@@ -49,6 +53,14 @@ struct FieldZoneShell: View {
                 navigationBar
                     .frame(maxHeight: .infinity, alignment: .bottom)
                     .transition(.opacity)
+
+                // Above the navigation bar and below everything else, in all
+                // three zones at once, because what it reports is true of all
+                // three at once.
+                FieldLoadStateLine(store: store)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .padding(.bottom, 96)
+                    .transition(.opacity)
             }
 
             if store.calendarOpen {
@@ -62,17 +74,105 @@ struct FieldZoneShell: View {
         .animation(.fieldZone(reduceMotion), value: store.activeZone)
         .animation(.fieldZone(reduceMotion), value: store.calendarOpen)
         .task { await store.load() }
+        // The day turning, for as long as the app is on screen. Owned by the
+        // store — it is the only thing that holds `now` — but driven from
+        // here, because a `.task` is cancelled with the view and a Task the
+        // store started would have to reinvent that.
+        .task { await store.followTheClock() }
         // Both directions matter: backgrounding is the last chance to write
         // an accurate moment, and foregrounding is when yesterday's may have
         // gone stale.
+        //
+        // The tick comes first and is the reason this comment is now true.
+        // Re-planning before catching the clock up plans against the day the
+        // app went to sleep on, which is exactly what it claimed not to do.
         .onChange(of: scenePhase) { _, phase in
             guard phase == .background || phase == .active else { return }
+            if phase == .active {
+                store.tick()
+                // §5's ninety-day rule is about the product, not this room, so
+                // this fires on every foreground whether or not Yours is ever
+                // opened. Without it, somebody who used the shared side daily
+                // and never opened the space would have their private writing
+                // swept out from under them at ninety days.
+                if FieldEntry.Mode.current == .live {
+                    Task {
+                        try? await YoursSupabaseBackend(
+                            client: SupabaseClientProvider.shared.client
+                        )?.touch()
+                    }
+                }
+            }
             Task { await store.refreshDailyMoment() }
         }
         .fullScreenCover(isPresented: $showsAccount) {
             FieldAccountView()
                 .environment(store)
         }
+        .fullScreenCover(isPresented: $showsYours) {
+            YoursSurface(store: yoursStore())
+        }
+        // 2a. Asked once, on the first arrival in the zones after a second
+        // person joins — which is where both people land, whichever of them
+        // redeemed the code.
+        //
+        // Nothing has crossed by this point and nothing can without an answer,
+        // because the boundary is enforced in RLS rather than here. That is
+        // what makes it safe to ask on arrival rather than mid-redemption: the
+        // screen is the door, not the lock.
+        .fullScreenCover(isPresented: crossingBinding) {
+            if let decision = crossingDecision {
+                FieldCrossingView(decision: decision)
+                    .environment(store)
+            }
+        }
+        .task(id: session.snapshot?.membership?.coupleID) {
+            guard let decision = crossingDecision else { return }
+            await store.considerCrossing(decision: decision)
+        }
+    }
+
+    /// Read-only in the outward direction: the cover closes when the store
+    /// says the question has been answered, never because a gesture dismissed
+    /// it. `interactiveDismissDisabled` on the view is the other half.
+    private var crossingBinding: Binding<Bool> {
+        Binding(
+            get: { store.owesCrossingDecision && crossingDecision != nil },
+            set: { _ in }
+        )
+    }
+
+    /// Built per presentation rather than held, because the store owns
+    /// ephemeral state — the draft, the open drawer, the visit — and a visit
+    /// that outlived the screen would defeat the presentation gate: the whole
+    /// point of §5 is that the next entry waits until somebody comes back.
+    ///
+    /// The mode decides the backend, rather than whether a client happens to
+    /// exist. `SupabaseClientProvider.shared.client` is non-nil in seeded and
+    /// gallery runs too — the configuration comes from the bundle, not from
+    /// being signed in — so keying off it would send `WE_FIELD=seeded`, which
+    /// promises no network, straight at the network and leave every UI test
+    /// asserting on a failed load.
+    private func yoursStore() -> YoursStore {
+        let clock = FieldLiveClock.app
+        let backend: YoursBackend = switch FieldEntry.Mode.current {
+        case .live:
+            YoursSupabaseBackend(client: SupabaseClientProvider.shared.client)
+                ?? YoursMemoryBackend(clock: clock)
+        case .seeded, .gallery:
+            YoursMemoryBackend(clock: clock)
+        }
+        return YoursStore(backend: backend, clock: clock)
+    }
+
+    private var crossingDecision: FieldCrossingDecision? {
+        guard let user = session.user?.id,
+              let couple = session.snapshot?.membership?.coupleID
+        else { return nil }
+        return FieldCrossingDecision(
+            userID: user,
+            coupleID: couple
+        )
     }
 
     // MARK: The pager
@@ -119,6 +219,14 @@ struct FieldZoneShell: View {
                 zoneLabel(.us)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            // At the trailing edge rather than between the labels, so the
+            // LIFE / WE / US symmetry the handoff specifies is untouched.
+            //
+            // Beside the WE mark deliberately: CIRCLE.md §2 makes the whole
+            // product legible at a glance — one circle is yours, two apart is
+            // invited, two joined is WE — and that grammar only teaches itself
+            // if the two marks are visible in the same place at the same time.
+            .overlay(alignment: .trailing) { yoursMark }
 
             indicator
         }
@@ -195,6 +303,32 @@ struct FieldZoneShell: View {
         .accessibilityIdentifier("field.nav.we")
         .accessibilityAction { store.returnHome() }
         .accessibilityAction(named: "Account") { showsAccount = true }
+    }
+
+    /// The way in, and the mark that carries the whole state grammar.
+    ///
+    /// Not a fourth zone: `FieldZone.rawValue` is the indicator's offset
+    /// multiplier over a 48pt track and the enum is persisted, so a fourth
+    /// case fights both — and §7's surface is not zone-shaped anyway. Not a
+    /// long-press either, because the WE mark's long-press is the account.
+    ///
+    /// A cover, like the account and the crossing. Wordless: after the two
+    /// teaching moments the shape carries it alone, so there is no label here
+    /// and no settings row anywhere that names it.
+    private var yoursMark: some View {
+        Button {
+            showsYours = true
+        } label: {
+            YoursMark(
+                style: .compact,
+                presence: .living,
+                hue: store.identity.personA.color
+            )
+            .frame(width: 44, height: 44)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("field.nav.yours")
     }
 
     /// A 48 × 1pt track containing a 16pt segment filled with the blend,

@@ -13,3 +13,6 @@ supabase/.temp/
 
 # Xcode build output
 .build/
+
+# Local output from scripts/qa; GitHub Actions uploads this as evidence.
+artifacts/

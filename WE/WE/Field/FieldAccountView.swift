@@ -19,9 +19,11 @@ import SwiftUI
 struct FieldAccountView: View {
     @Environment(FieldStore.self) private var store
     @EnvironmentObject private var session: AppSession
+    @EnvironmentObject private var walkthrough: WalkthroughPresenter
     @Environment(\.dismiss) private var dismiss
 
     @State private var showsDelete = false
+    @State private var showsFeedback = false
 
     var body: some View {
         ZStack {
@@ -38,6 +40,12 @@ struct FieldAccountView: View {
                     noticing
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
+                    understanding
+                        .padding(.bottom, FieldMetrics.sectionGapLoose)
+
+                    trouble
+                        .padding(.bottom, FieldMetrics.sectionGapLoose)
+
                     leaving
                 }
                 .padding(.top, FieldMetrics.screenTop)
@@ -51,6 +59,12 @@ struct FieldAccountView: View {
         .fullScreenCover(isPresented: $showsDelete) {
             FieldDeleteAccountView()
                 .environmentObject(session)
+        }
+        .fullScreenCover(isPresented: $showsFeedback) {
+            WEFeedbackView(
+                accountID: session.user?.id,
+                email: session.user?.email
+            )
         }
     }
 
@@ -178,6 +192,70 @@ struct FieldAccountView: View {
         }?.isEnabled ?? true
     }
 
+    // MARK: Understanding
+
+    /// The way back to the explanation, months after the one time it played.
+    ///
+    /// It lives here rather than on a zone because it is not part of using the
+    /// app — nobody needs it twice in a week. Dismissing it and then wanting
+    /// it back is a real thing that happens, though, and an explanation you
+    /// cannot find again may as well not exist.
+    private var understanding: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldRuleLine()
+
+            FieldLabel("How it works")
+                .padding(.top, 20)
+                .padding(.bottom, 18)
+
+            Button("See how WE works") {
+                // Dismissed first: this surface is a full-screen cover, and
+                // the walkthrough is presented at the scene root above it.
+                dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    walkthrough.replay()
+                }
+            }
+            .buttonStyle(FieldOutlinedButtonStyle())
+            .accessibilityIdentifier("field.account.walkthrough")
+            .padding(.bottom, 14)
+
+            Text("Three short journeys through what WE notices, told with a "
+                + "real couple.")
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.metadataProse))
+                .fieldLineHeight(1.5, size: 14.5)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // MARK: When it breaks
+
+    /// Above Leaving, and deliberately so: a beta tester who cannot make the
+    /// app work will find the way out on their own. The way to say *why* is
+    /// the thing that has to be easier to reach than the door.
+    private var trouble: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldRuleLine()
+
+            FieldLabel("If something goes wrong")
+                .padding(.top, 20)
+                .padding(.bottom, 18)
+
+            Button("Send feedback") { showsFeedback = true }
+                .buttonStyle(FieldOutlinedButtonStyle())
+                .accessibilityIdentifier("field.account.feedback")
+                .padding(.bottom, 14)
+
+            Text("You'll see everything that gets sent before it goes. "
+                 + "Nothing either of you has written is in it.")
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.metadataProse))
+                .fieldLineHeight(1.5, size: 14.5)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     // MARK: Leaving
 
     private var leaving: some View {
@@ -189,8 +267,10 @@ struct FieldAccountView: View {
                 .padding(.bottom, 18)
 
             Button("Sign out") {
-                // Nothing should be waiting for someone who has left.
-                FieldMomentDelivery.cancel()
+                // The cancel that used to be here is inside `signOut` now,
+                // with the rest of the purge contract. It was correct on this
+                // one button and missing from the two in `ContentView`, which
+                // is the argument for it not living on a button at all.
                 Task { await session.signOut() }
             }
             .buttonStyle(FieldOutlinedButtonStyle())

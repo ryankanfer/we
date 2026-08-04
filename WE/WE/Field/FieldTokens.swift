@@ -815,6 +815,66 @@ struct FieldLabel: View {
     }
 }
 
+/// A tracked mono word inside a hairline capsule.
+///
+/// The app's one small tappable token: the correction picker's destinations,
+/// the item sheet's categories and days, and the two account actions on sign
+/// in. Selected fills faintly rather than inverting — nothing at this size
+/// earns the ink block a filled button gets.
+struct FieldChip: View {
+    let word: String
+    var isSelected = false
+    var tint: Color?
+    var action: () -> Void
+
+    init(
+        _ word: String,
+        isSelected: Bool = false,
+        tint: Color? = nil,
+        action: @escaping () -> Void
+    ) {
+        self.word = word
+        self.isSelected = isSelected
+        self.tint = tint
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Text(word)
+                .font(FieldType.dateCount)
+                .tracking(FieldTracking.dateCount)
+                .foregroundStyle(
+                    isSelected ? .fieldInk(.headline) : .fieldInk(.legend)
+                )
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background {
+                    if isSelected {
+                        Capsule().fill(
+                            tint?.opacity(0.14)
+                                ?? FieldPalette.ink.opacity(0.10)
+                        )
+                    }
+                }
+                .overlay {
+                    Capsule().stroke(
+                        isSelected
+                            ? (tint ?? FieldPalette.ink).opacity(0.5)
+                            : FieldRule.secondaryButton,
+                        lineWidth: 1
+                    )
+                }
+                // The capsule remains visually compact; the transparent frame
+                // supplies Apple's 44pt minimum touch target.
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
 /// The italic "why this, now" line, indented behind a person-coloured rule.
 ///
 /// Almost every surface carries one. It is the mechanism by which the moat —

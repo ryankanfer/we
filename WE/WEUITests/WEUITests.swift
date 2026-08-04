@@ -10,13 +10,20 @@ final class WEUITests: XCTestCase {
     @MainActor
     func testAAuthRecoveryPairingAndHueRoutes() throws {
         var app = launch(scenario: "signedout")
-        XCTAssertTrue(
-            app.staticTexts["Welcome back."].waitForExistence(timeout: 4)
-        )
+        // Signed out now lands on the welcome screen, not the account gate.
+        // Sign-in is one of its three doors.
+        openSignIn(in: app)
 
-        app.buttons["Forgot password?"].tap()
+        // By identifier: the button's label is uppercased by the Field button
+        // style, so matching on the sentence form depends on the accessibility
+        // label surviving, which is not something this test is about.
+        app.buttons["account.forgotPassword"].tap()
+        // No navigation bar to assert on any more: the gates are drawn in the
+        // zones' language, which has no title chrome. The headline is the
+        // screen's identity, and DONE ✕ is how every covering surface in this
+        // app closes.
         XCTAssertTrue(
-            app.navigationBars["Password reset"]
+            app.staticTexts["We'll send a link."]
                 .waitForExistence(timeout: 2)
         )
         app.buttons["Done"].tap()
@@ -31,7 +38,7 @@ final class WEUITests: XCTestCase {
             app.staticTexts["Your side is ready."]
                 .waitForExistence(timeout: 3)
         )
-        let createSpace = app.buttons["Create an invitation"]
+        let createSpace = app.buttons["pairing.createInvitation"]
         createSpace.tap()
         XCTAssertTrue(
             app.staticTexts.matching(
@@ -70,9 +77,10 @@ final class WEUITests: XCTestCase {
                 app.navigationBars["Profile"].waitForExistence(timeout: 2)
             )
             deleteCurrentPreviewAccount(in: app)
+            // Deleting the account returns you to the front door, not to a
+            // sign-in form for an account that no longer exists.
             XCTAssertTrue(
-                app.staticTexts["Welcome back."]
-                    .waitForExistence(timeout: 4)
+                app.buttons["welcome.start"].waitForExistence(timeout: 4)
             )
             app.terminate()
         }
@@ -146,72 +154,95 @@ final class WEUITests: XCTestCase {
             scenario: "waiting",
             accessibilityTextSize: true
         )
-        let sendButton = waitingApp.buttons["Send the invitation"]
+        let sendButton = waitingApp.buttons["waiting.share"]
         scrollUntilVisible(sendButton, in: waitingApp, maxSwipes: 10)
         XCTAssertTrue(sendButton.isHittable)
-        let copyButton = waitingApp.buttons["Copy"]
+        let copyButton = waitingApp.buttons["waiting.copy"]
         scrollUntilVisible(copyButton, in: waitingApp, maxSwipes: 4)
         XCTAssertTrue(copyButton.isHittable)
     }
 
     @MainActor
-    func testSoftStartDeliversValueBeforeAccountAndPreviewsExactOffer()
-        throws
-    {
-        let app = launch(
-            scenario: "signedout",
-            skipsSoftStart: false
-        )
-        resetSoftStartIfNeeded(in: app)
+    func testWelcomeOffersThreeDoorsAndAsksForNothingFirst() throws {
+        let app = launch(scenario: "signedout")
 
-        let privateInput = app.textViews["softStart.input"]
-        XCTAssertTrue(privateInput.waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            app.buttons["welcome.start"].waitForExistence(timeout: 4)
+        )
+        XCTAssertTrue(app.buttons["welcome.join"].isHittable)
+        XCTAssertTrue(app.buttons["welcome.signIn"].isHittable)
         XCTAssertTrue(
             app.staticTexts.matching(
                 NSPredicate(
                     format: "label CONTAINS %@",
-                    "Begin with"
+                    "A shared space for"
                 )
             ).firstMatch.exists
         )
+        // The point of this screen: nothing is asked for before a door is
+        // chosen. No credential field, no capture field.
         XCTAssertFalse(app.textFields["Email"].exists)
+        XCTAssertFalse(app.textViews.firstMatch.exists)
 
-        let privateNote = "I would love a quieter Friday evening."
-        privateInput.tap()
-        privateInput.typeText(privateNote)
-        app.buttons["softStart.prepare"].tap()
-
+        app.buttons["welcome.start"].tap()
         XCTAssertTrue(
-            app.staticTexts.matching(
-                NSPredicate(
-                    format: "label CONTAINS %@",
-                    "One thing you"
-                )
-            ).firstMatch.waitForExistence(timeout: 12)
+            app.staticTexts["Begin on your side."]
+                .waitForExistence(timeout: 3),
+            "Start a WE space should open account creation, not sign-in"
         )
-        XCTAssertTrue(
-            app.staticTexts.matching(
-                NSPredicate(
-                    format: "label BEGINSWITH %@",
-                    "Prepared on this iPhone"
-                )
-            ).firstMatch.exists
-        )
-        XCTAssertFalse(app.textFields["Email"].exists)
+    }
 
-        app.buttons["proposal.offer"].tap()
-        XCTAssertTrue(
-            app.staticTexts["Offer only this"]
-                .waitForExistence(timeout: 3)
-        )
-        XCTAssertTrue(app.staticTexts["A quieter Friday"].exists)
-        XCTAssertTrue(app.staticTexts["How should Friday feel?"].exists)
-        XCTAssertTrue(app.staticTexts["Quiet · Open · Social"].exists)
-        XCTAssertFalse(app.textViews[privateNote].exists)
+    @MainActor
+    func testWelcomeIsUsableAtAccessibilityTextSizeAndPassesAudit() throws {
+        let app = launch(scenario: "signedout", accessibilityTextSize: true)
 
-        app.buttons["offer.confirm"].tap()
         XCTAssertTrue(
-            app.staticTexts["Welcome back."]
+            app.buttons["welcome.start"].waitForExistence(timeout: 4)
+        )
+        // At AX5 the screen scrolls. Every door still has to be reachable —
+        // the sign-in one is last, so it is the one that would be stranded.
+        for identifier in ["welcome.join", "welcome.signIn"] {
+            let door = app.buttons[identifier]
+            scrollUntilVisible(door, in: app, maxSwipes: 8)
+            XCTAssertTrue(door.isHittable, "\(identifier) should be reachable")
+        }
+
+        try app.performAccessibilityAudit(
+            for: [
+                .hitRegion,
+                .sufficientElementDescription,
+                .textClipped,
+                .trait
+            ]
+        )
+    }
+
+    @MainActor
+    func testJoiningWithACodeCarriesItThroughAccountCreation() throws {
+        let app = launch(scenario: "signedout")
+        XCTAssertTrue(
+            app.buttons["welcome.join"].waitForExistence(timeout: 4)
+        )
+        app.buttons["welcome.join"].tap()
+
+        XCTAssertTrue(
+            app.staticTexts["Enter the code."].waitForExistence(timeout: 3)
+        )
+        let codeField = app.textFields["welcome.joinCode"]
+        XCTAssertTrue(codeField.waitForExistence(timeout: 2))
+        codeField.tap()
+        // Typed lowercase; the field is set to `.characters`, so it arrives
+        // uppercase without the binding having to rewrite it. Stripping
+        // punctuation and capping length are covered in `InvitationTests`.
+        codeField.typeText("wedemo")
+        XCTAssertEqual(codeField.value as? String, "WEDEMO")
+
+        app.buttons["welcome.joinCode.continue"].tap()
+
+        // The code is held, and the sheet moves straight on to making an
+        // account — joining needs a session, so it cannot happen yet.
+        XCTAssertTrue(
+            app.staticTexts["Begin on your side."]
                 .waitForExistence(timeout: 3)
         )
     }
@@ -232,8 +263,12 @@ final class WEUITests: XCTestCase {
     private func launch(
         scenario: String,
         skipsPromise: Bool = true,
+        // Default on, like the promise. The walkthrough opens over the welcome
+        // screen on a first run, and every test below that waits for a welcome
+        // button would otherwise fail for a reason that has nothing to do with
+        // what it is testing.
+        skipsWalkthrough: Bool = true,
         reduceMotion: Bool = false,
-        skipsSoftStart: Bool = true,
         accessibilityTextSize: Bool = false
     ) -> XCUIApplication {
         let app = XCUIApplication()
@@ -243,10 +278,11 @@ final class WEUITests: XCTestCase {
             "correct-password"
         app.launchEnvironment["WE_DISABLE_CREDENTIAL_PROMPTS"] = "1"
         app.launchEnvironment["WE_SKIP_PROMISE"] = skipsPromise ? "1" : "0"
-        app.launchEnvironment["WE_SKIP_SOFT_START"] =
-            skipsSoftStart ? "1" : "0"
+        app.launchEnvironment["WE_SKIP_WALKTHROUGH"] =
+            skipsWalkthrough ? "1" : "0"
         app.launchArguments += [
             "-hasSeenLivingConfluencePromise", skipsPromise ? "YES" : "NO",
+            "-hasSeenWalkthrough", skipsWalkthrough ? "YES" : "NO",
             "-UIAccessibilityReduceMotionEnabled",
             reduceMotion ? "YES" : "NO"
         ]
@@ -260,16 +296,17 @@ final class WEUITests: XCTestCase {
         return app
     }
 
+    /// Signed out opens on the welcome screen. Anything that needs the account
+    /// gate goes through its sign-in door first.
     @MainActor
-    private func resetSoftStartIfNeeded(in app: XCUIApplication) {
-        if app.buttons["offer.confirm"].waitForExistence(timeout: 1) {
-            app.buttons["Your proposal"].tap()
-        }
-
-        if app.buttons["proposal.keep"].waitForExistence(timeout: 1) {
-            app.buttons["Delete and start again"].tap()
-            app.sheets.buttons["Delete and start again"].tap()
-        }
+    private func openSignIn(in app: XCUIApplication) {
+        XCTAssertTrue(
+            app.buttons["welcome.signIn"].waitForExistence(timeout: 4)
+        )
+        app.buttons["welcome.signIn"].tap()
+        XCTAssertTrue(
+            app.staticTexts["Welcome back."].waitForExistence(timeout: 3)
+        )
     }
 
     @MainActor

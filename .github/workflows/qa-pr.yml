@@ -1,0 +1,164 @@
+name: WE QA - Pull Request
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-pr-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SUPABASE_CLI_VERSION: 2.45.5
+  DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+  IOS_RUNTIME: "26.2"
+  PR_SIMULATOR: iPhone 17 Pro
+  WE_QA_FIXED_NOW: "2025-08-13T12:00:00Z"
+  WE_QA_DISABLE_ANIMATIONS: "1"
+  TZ: UTC
+
+jobs:
+  database-contract:
+    name: Schema + privacy contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install pinned Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+
+      - name: Run migrations, pgTAP, and schema lint
+        run: bash scripts/qa/run-supabase-contract.sh artifacts/supabase
+
+      - name: Upload database evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-supabase-contract
+          path: artifacts/supabase
+          if-no-files-found: warn
+          retention-days: 14
+
+  ios-unit:
+    name: iOS build + unit
+    runs-on: macos-26
+    timeout-minutes: 40
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Verify pinned Xcode
+        run: |
+          test -x "$DEVELOPER_DIR/usr/bin/xcodebuild"
+          test "$(xcodebuild -version | head -n 1)" = "Xcode 26.3"
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: artifacts/swift-packages
+          key: swiftpm-${{ runner.os }}-xcode-26.3-${{ hashFiles('WE/WE.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            swiftpm-${{ runner.os }}-xcode-26.3-
+
+      - name: Create pinned simulator
+        id: simulator
+        run: bash scripts/qa/prepare-simulator.sh "$PR_SIMULATOR" "$IOS_RUNTIME" standard
+
+      - name: Build and run unit tests
+        run: |
+          bash scripts/qa/run-xcode-tests.sh \
+            unit \
+            "${{ steps.simulator.outputs.destination }}" \
+            artifacts/xcresults/unit.xcresult \
+            artifacts/DerivedData/unit
+
+      - name: Export test evidence
+        if: ${{ always() }}
+        run: |
+          bash scripts/qa/export-xcresult.sh \
+            artifacts/xcresults/unit.xcresult \
+            artifacts/reports/unit
+
+      - name: Upload unit-test evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-ios-unit
+          path: |
+            artifacts/xcresults/unit.xcresult
+            artifacts/xcresults/unit.log
+            artifacts/reports/unit
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Delete ephemeral simulator
+        if: ${{ always() && steps.simulator.outputs.udid != '' }}
+        run: bash scripts/qa/cleanup-simulator.sh "${{ steps.simulator.outputs.udid }}"
+
+  critical-ui-smoke:
+    name: Critical UI smoke
+    runs-on: macos-26
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Verify pinned Xcode
+        run: |
+          test -x "$DEVELOPER_DIR/usr/bin/xcodebuild"
+          test "$(xcodebuild -version | head -n 1)" = "Xcode 26.3"
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: artifacts/swift-packages
+          key: swiftpm-${{ runner.os }}-xcode-26.3-${{ hashFiles('WE/WE.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            swiftpm-${{ runner.os }}-xcode-26.3-
+
+      - name: Create pinned simulator
+        id: simulator
+        run: bash scripts/qa/prepare-simulator.sh "$PR_SIMULATOR" "$IOS_RUNTIME" standard
+
+      - name: Run serial critical-flow smoke tests
+        run: |
+          bash scripts/qa/run-xcode-tests.sh \
+            smoke \
+            "${{ steps.simulator.outputs.destination }}" \
+            artifacts/xcresults/ui-smoke.xcresult \
+            artifacts/DerivedData/ui-smoke
+
+      - name: Export test evidence
+        if: ${{ always() }}
+        run: |
+          bash scripts/qa/export-xcresult.sh \
+            artifacts/xcresults/ui-smoke.xcresult \
+            artifacts/reports/ui-smoke
+
+      - name: Upload UI-smoke evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-ui-smoke
+          path: |
+            artifacts/xcresults/ui-smoke.xcresult
+            artifacts/xcresults/ui-smoke.log
+            artifacts/reports/ui-smoke
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Delete ephemeral simulator
+        if: ${{ always() && steps.simulator.outputs.udid != '' }}
+        run: bash scripts/qa/cleanup-simulator.sh "${{ steps.simulator.outputs.udid }}"

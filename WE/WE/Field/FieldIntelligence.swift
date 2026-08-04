@@ -45,6 +45,10 @@ enum FieldTodaySelector {
         var horizons: [FieldHorizon]
         var heldTopics: [FieldHeldTopic]
         var standingRules: [FieldStandingRule]
+        /// Items the person said to raise with both of them anyway, today.
+        /// The presence rule (6b) re-addresses a shared thing to whoever is
+        /// here; this is them overruling it, and it is only ever about today.
+        var overriddenAddressing: Set<String> = []
         var calendar: Calendar = .gregorianUS
     }
 
@@ -87,6 +91,9 @@ enum FieldTodaySelector {
             /// A thing said twice with no date on it, and the one question
             /// that would settle whether it is real. See `FieldPromotion`.
             case promotion(FieldPromotion.Proposal)
+            /// A loose thing said while something dated is coming, and whether
+            /// the two belong together. See `FieldOccasion`.
+            case occasion(FieldOccasion.Proposal)
         }
 
         var origin: Origin
@@ -110,6 +117,7 @@ enum FieldTodaySelector {
         for item in context.lifeItems where !item.isDone {
             // A topic being deliberately held is not a candidate. Deferral
             // outranks urgency — that is the whole point of 6d.
+            if isHeld(itemID: item.id, in: context) { continue }
             if isHeld(item.title, in: context) { continue }
             if violatesStandingRule(item, context: context) { continue }
 
@@ -165,6 +173,33 @@ enum FieldTodaySelector {
             )
         }
 
+        // Ranked below a promotion on purpose. "Is Japan real" is a question
+        // about what the two of them want; "does this go with Friday" is a
+        // question about where a thing is filed. Both are worth asking and
+        // only one of them is worth interrupting for first.
+        if let proposal = FieldOccasion.proposal(context) {
+            let reach = reachability(for: .shared, context: context)
+            // Borrowed from the item the occasion is anchored on, so a visit
+            // on Friday pulls harder than one three weeks out — and so the
+            // question arrives while it is still useful to answer.
+            let pressure = proposal.anchorDate.map {
+                LifeItem.anchorPressure(
+                    on: $0,
+                    now: context.now,
+                    calendar: context.calendar
+                )
+            } ?? 0.25
+            candidates.append(
+                Candidate(
+                    origin: .occasion(proposal),
+                    priority: pressure * 0.5 + 0.6 * 0.3 + reach * 0.2,
+                    timePressure: pressure,
+                    unblockingValue: 0.6,
+                    reachability: reach
+                )
+            )
+        }
+
         return candidates.sorted { $0.priority > $1.priority }
     }
 
@@ -214,10 +249,21 @@ enum FieldTodaySelector {
         return max(0.2, min(1, 1 - Double(months) / 24))
     }
 
+    /// A subject being deliberately held.
+    ///
+    /// The substring match is for subjects — "Japan" holds every mention of
+    /// Japan, which is the point. It is the wrong rule for a *thing*: now
+    /// that "ask me again tonight" really holds an item, a topic titled
+    /// "Rent" would have silently suppressed every item with that word in it.
+    /// So an item is held by its id, and only a subject is held by its words.
     private static func isHeld(_ subject: String, in context: Context) -> Bool {
         context.heldTopics.contains {
-            $0.isHeld && subject.localizedCaseInsensitiveContains($0.title)
+            $0.isSettled && subject.localizedCaseInsensitiveContains($0.title)
         }
+    }
+
+    private static func isHeld(itemID: String, in context: Context) -> Bool {
+        context.heldTopics.contains { $0.isSettled && $0.id == itemID }
     }
 
     /// A standing rule is a hard constraint the user authored. The
@@ -255,7 +301,50 @@ enum FieldTodaySelector {
             return questionMoment(horizon, question, context: context)
         case .promotion(let proposal):
             return promotionMoment(proposal, context: context)
+        case .occasion(let proposal):
+            return occasionMoment(proposal, context: context)
         }
+    }
+
+    /// The question that puts two things together — or leaves them exactly
+    /// where they are, which is again the answer the app must be equally happy
+    /// with. The source line names the item being asked about, not the
+    /// occasion: the couple is being asked about a thought they wrote, and the
+    /// occasion is the app's suggestion, not their subject.
+    private static func occasionMoment(
+        _ proposal: FieldOccasion.Proposal,
+        context: Context
+    ) -> FieldMoment {
+        FieldMoment(
+            id: proposal.question.id,
+            source: "FROM LIFE · \(proposal.itemTitle.uppercased())",
+            headline: proposal.question.prompt,
+            reasoning: proposal.question.reasoning,
+            accent: .shared,
+            shape: .question(proposal.question),
+            actions: proposal.question.choices.map {
+                FieldMomentAction(
+                    id: $0.id,
+                    title: $0.title,
+                    weight: .outlined,
+                    tint: $0.tint,
+                    role: .choice($0)
+                )
+            } + [
+                FieldMomentAction(
+                    id: "\(proposal.question.id)-escape",
+                    title: "Ask me another time",
+                    weight: .quiet,
+                    tint: nil,
+                    role: .postpone(.tomorrow)
+                )
+            ],
+            addressedTo: nil,
+            remainder: remainder(
+                excluding: proposal.question.id,
+                context: context
+            )
+        )
     }
 
     private static func lifeMoment(
@@ -268,6 +357,11 @@ enum FieldTodaySelector {
         let away = context.partners.first { $0.isAway(on: context.now) }
         let addressee: FieldOwner? = {
             guard item.owner == .shared, let away else { return nil }
+            // They already said to bring this to both of them. The app made
+            // its case once; repeating it is not tact, it is nagging.
+            guard !context.overriddenAddressing.contains(item.id) else {
+                return nil
+            }
             return away.owner == .a ? .b : .a
         }()
 
@@ -276,7 +370,8 @@ enum FieldTodaySelector {
                 id: "\(item.id)-primary",
                 title: primaryVerb(for: item),
                 weight: .filled,
-                tint: nil
+                tint: nil,
+                role: .act(primaryAct(for: item))
             )
         ]
         if let addressee {
@@ -286,7 +381,8 @@ enum FieldTodaySelector {
                     id: "\(item.id)-override",
                     title: "Ask \(context.identity.name(for: absent)) anyway",
                     weight: .outlined,
-                    tint: nil
+                    tint: nil,
+                    role: .overrideAbsence(absent)
                 )
             )
         }
@@ -295,7 +391,8 @@ enum FieldTodaySelector {
                 id: "\(item.id)-escape",
                 title: "Ask me again tonight",
                 weight: .quiet,
-                tint: nil
+                tint: nil,
+                role: .postpone(.thisEvening)
             )
         )
 
@@ -334,14 +431,16 @@ enum FieldTodaySelector {
                     id: $0.id,
                     title: $0.title,
                     weight: .outlined,
-                    tint: $0.tint
+                    tint: $0.tint,
+                    role: .choice($0)
                 )
             } + [
                 FieldMomentAction(
                     id: "\(question.id)-escape",
                     title: "Not yet",
                     weight: .quiet,
-                    tint: nil
+                    tint: nil,
+                    role: .postpone(.tomorrow)
                 )
             ],
             addressedTo: nil,
@@ -368,14 +467,16 @@ enum FieldTodaySelector {
                     id: $0.id,
                     title: $0.title,
                     weight: .outlined,
-                    tint: $0.tint
+                    tint: $0.tint,
+                    role: .choice($0)
                 )
             } + [
                 FieldMomentAction(
                     id: "\(proposal.question.id)-escape",
                     title: "Ask me another time",
                     weight: .quiet,
-                    tint: nil
+                    tint: nil,
+                    role: .postpone(.tomorrow)
                 )
             ],
             addressedTo: nil,
@@ -385,17 +486,89 @@ enum FieldTodaySelector {
 
     /// The verb on the button under a moment.
     ///
-    /// The five given categories each have one that reads like the thing you
-    /// actually do. A category the app grew has no such knowledge behind it,
-    /// so it says the honest general one rather than guessing that Pets are
-    /// booked and Taxes are sent.
-    private static func primaryVerb(for item: LifeItem) -> String {
+    /// The thing itself first, its category second. A category is a rough
+    /// guess at what you do with something — Care held both "book the vet" and
+    /// "call your mother", and offering to Book the second one was the app
+    /// pretending to know more than it does. The item says what it is; when it
+    /// doesn't, the category's verb is a fair default; when that isn't known
+    /// either, the honest general one.
+    static func primaryVerb(for item: LifeItem) -> String {
+        if let verb = verbFromWording(item.title) { return verb }
+
         switch item.category {
-        case .food: "Send it"
-        case .care: "Book it"
-        case .money: "Move it"
-        case .buys: "Order it"
-        default: "Mark it done"
+        case .food: return "Send it"
+        case .care: return "Book it"
+        case .money: return "Move it"
+        case .buys: return "Order it"
+        default: return "Mark it done"
+        }
+    }
+
+    /// What the sentence itself asks for. Ordered most specific first, because
+    /// "book a table for dinner" is a booking before it is a dinner.
+    ///
+    /// One table, two answers: the word printed on the button, and the act it
+    /// stands for. They were the same reading all along — the act was simply
+    /// thrown away the moment the string was produced, which is why a button
+    /// saying "Make the call" could not place one.
+    private static let wordedActs: [(act: FieldAct, verb: String, words: [String])] = [
+        // Verbs the person actually said, first. A noun used to outrank them:
+        // "vet" sat in the booking row above everything, so "call the vet"
+        // came out as Book it — the app reading past the word somebody chose
+        // in favour of one it recognised. The nouns are still here, at the
+        // bottom, where they only speak when nobody else does.
+        (.book, "Book it", ["book", "booking", "appointment", "reserve",
+                            "reservation", "table for"]),
+        (.schedule, "Schedule it", ["schedule", "reschedule", "meeting",
+                                    "call with", "event", "invite"]),
+        (.call, "Make the call", ["call ", "ring ", "phone "]),
+        (.email, "Send it", ["email"]),
+        (.message, "Send it", ["text ", "message", "rsvp", "reply", "forward"]),
+        (.pay, "Pay it", ["pay", "bill", "rent", "invoice", "transfer",
+                          "deposit"]),
+        (.order, "Order it", ["order", "buy", "cart", "amazon", "restock",
+                              "refill"]),
+        (.none, "Pack it", ["pack", "packing", "suitcase"]),
+        (.none, "Renew it", ["renew", "renewal", "registration", "license",
+                             "licence", "passport"]),
+        (.none, "Cancel it", ["cancel", "unsubscribe", "return "]),
+        // Deliberately `.none`. "Talk to Sam" is a fair word to put on a
+        // button and a terrible reason to pick up a phone — the app was told
+        // about a conversation, not asked to start one.
+        (.none, "Ask them", ["ask ", "check with", "talk to"]),
+        // Nouns, last. "Miso's teeth" and "dentist tuesday" name no verb at
+        // all, and a booking is the only thing anybody does with either.
+        (.book, "Book it", ["vet", "dentist", "haircut", "hotel", "tickets"]),
+    ]
+
+    /// `nil` when the wording gives nothing away, which is most of the time —
+    /// a guess here is worse than the category's honest default.
+    static func verbFromWording(_ title: String) -> String? {
+        match(title)?.verb
+    }
+
+    /// What tapping the verb should actually do.
+    ///
+    /// Only the wording produces an act. A category's verb is a fair default
+    /// for a *label* and a bad basis for picking up a phone: Care held both
+    /// "book the vet" and "call your mother", and the category knows the
+    /// difference between them no better than it ever did. That asymmetry is
+    /// the whole difference between writing a word on a button and doing
+    /// something in the world.
+    static func primaryAct(for item: LifeItem) -> FieldAct {
+        match(item.title)?.act ?? .none
+    }
+
+    private static func match(
+        _ title: String
+    ) -> (act: FieldAct, verb: String, words: [String])? {
+        // Padded so a trailing word still matches the space-suffixed entries
+        // above ("call " must not fire on "recall").
+        let text = " \(title.lowercased()) "
+        return wordedActs.first { entry in
+            entry.words.contains {
+                text.contains($0.hasSuffix(" ") ? " \($0)" : $0)
+            }
         }
     }
 
@@ -425,6 +598,31 @@ enum FieldTodaySelector {
                 + "so I'm bringing this to you rather than to both of you."
         }
         if let dueOn = item.dueOn {
+            let days = context.calendar.dateComponents(
+                [.day],
+                from: context.calendar.startOfDay(for: context.now),
+                to: context.calendar.startOfDay(for: dueOn)
+            ).day ?? 0
+
+            // Nothing is cleared at the end of a day — Today is a reading of
+            // Life, and a day passing does not un-write anything. What used to
+            // happen instead was worse than clearing: the item silently lost a
+            // third of its pressure at midnight and was still described in the
+            // present tense, so the app told you a thing "lands Thursday"
+            // about last Thursday.
+            //
+            // It is named on the one day it is news, and then it stops being
+            // news and becomes a date that has gone by.
+            if days == -1 {
+                return "This was yesterday's, and it's still open. Nothing "
+                    + "else today has a cut-off."
+            }
+            if days < 0 {
+                let day = DateFormatter.fieldWeekday.string(from: dueOn)
+                return "This was down for \(day) and it's still open. "
+                    + "Nothing since has been more pressing."
+            }
+
             let day = DateFormatter.fieldWeekday.string(from: dueOn)
             return "It lands \(day), and it is the only thing between now and "
                 + "then that needs a decision."
@@ -514,7 +712,8 @@ enum FieldTodaySelector {
                         + "\(context.identity.name(for: asked.owner)) asked. "
                         + "No date on it.",
                     owner: asked.owner,
-                    isDeferred: false
+                    isDeferred: false,
+                    itemID: asked.id
                 )
             )
         }
@@ -744,12 +943,29 @@ enum FieldClassifier {
 
     /// Words that are never a category on their own — too general to name a
     /// list, or grammar rather than subject.
+    ///
+    /// The second block is the one that matters most in practice: the words
+    /// people put *in front of* the subject when they are scheduling
+    /// something. "mark hotel event tomorrow" starts with a verb this app
+    /// happens not to know, and the old rule read the first long word it saw —
+    /// so a couple ended up with a list called Mark. A verb is never a
+    /// heading, and neither is the word "event".
     private static let uncategorisable: Set<String> = [
         "thing", "things", "stuff", "something", "anything", "everything",
         "some", "with", "that", "this", "them", "they", "there", "here",
         "about", "from", "into", "then", "than", "when", "what", "just",
         "need", "want", "have", "get", "got", "make", "take", "keep", "look",
         "back", "over", "again", "more", "less", "before", "after",
+
+        // Scheduling scaffolding. Every one of these describes the *act of
+        // writing something down*, not the subject of it.
+        "mark", "note", "noted", "event", "events", "plan", "plans", "date",
+        "dates", "time", "times", "meeting", "meet", "invite", "entry",
+        "item", "items", "list", "lists", "task", "tasks", "todo", "reminder",
+        "remind", "calendar", "schedule", "week", "month", "year", "morning",
+        "afternoon", "evening", "night", "later", "soon", "sometime",
+        "check", "start", "finish", "done", "sort", "deal", "handle", "figure",
+        "please", "must", "should", "would", "could", "will", "going",
     ]
 
     /// The category for something with a verb or a day on it.
@@ -786,6 +1002,14 @@ enum FieldClassifier {
         }), let category = LifeCategory(named: domain.category) {
             return category
         }
+
+        // A day was named and nothing here recognised the subject. That is an
+        // event, not a list — the date already puts it on the calendar, and
+        // starting a heading for a thing happening once on Tuesday is how a
+        // couple ends up with thirty categories of one item each.
+        //
+        // Not everything needs a new category. This is the line.
+        if dayWords.contains(where: { lowered.contains($0) }) { return .notes }
 
         return invented(from: lowered) ?? .notes
     }
@@ -844,6 +1068,22 @@ enum FieldClassifier {
         input lowered: String,
         context: Context
     ) -> String {
+        // A day was named and nothing recognised the subject. Said first,
+        // before the "I started a heading" sentence, because no heading was
+        // started — that is the whole point of routing it here — and because
+        // the only thing the person needs to know is that the date landed.
+        if category == .notes,
+           dayWords.contains(where: { lowered.contains($0) }),
+           let dueOn = FieldPhrasing.tidy(
+               lowered,
+               now: context.now,
+               calendar: context.calendar
+           ).dueOn {
+            return "\(dayWord(dueOn, context: context)), so it's on the "
+                + "calendar. I didn't start a list for it — one thing "
+                + "happening once isn't a category."
+        }
+
         // Naming what it is *not* matters more than naming what it is. The
         // couple gave nothing here; the app grew a heading on its own, and it
         // should say so plainly enough to be argued with.
@@ -947,6 +1187,21 @@ enum FieldClassifier {
         context: Context
     ) -> [LifeItem] {
         context.lifeItems.filter { $0.category == category && !$0.isDone }
+    }
+
+    /// "Today", "Tomorrow", or the weekday — the way the day was said, not
+    /// 2 Aug 2026.
+    private static func dayWord(_ date: Date, context: Context) -> String {
+        let today = context.calendar.startOfDay(for: context.now)
+        if context.calendar.isDate(date, inSameDayAs: today) { return "Today" }
+        if let tomorrow = context.calendar.date(
+            byAdding: .day,
+            value: 1,
+            to: today
+        ), context.calendar.isDate(date, inSameDayAs: tomorrow) {
+            return "Tomorrow"
+        }
+        return DateFormatter.fieldWeekday.string(from: date)
     }
 
     private static func weeksSince(_ date: Date?, context: Context) -> Int {
@@ -1101,11 +1356,14 @@ enum FieldClassifier {
 enum FieldCaptureSuggestions {
     struct Context {
         var now: Date
+        var speaker: FieldOwner = .a
         var lifeItems: [LifeItem]
         var clusters: [FieldCluster]
         var horizons: [FieldHorizon]
         var rhythms: [FieldRhythm]
         var partners: [FieldPartner]
+        var captures: [FieldCapture] = []
+        var corrections: [FieldCorrection] = []
         var calendar: Calendar = .gregorianUS
 
         func open(_ category: LifeCategory) -> [LifeItem] {
@@ -1116,8 +1374,17 @@ enum FieldCaptureSuggestions {
         /// about. Absence is never itself a signal.
         var hasSomethingToReadFrom: Bool {
             !lifeItems.isEmpty || !clusters.isEmpty || !horizons.isEmpty
-                || !rhythms.isEmpty || !partners.isEmpty
+                || !rhythms.isEmpty || !partners.isEmpty || !captures.isEmpty
+                || !corrections.isEmpty
         }
+    }
+
+    private struct Candidate {
+        var phrase: String
+        var category: LifeCategory?
+        /// Urgency before personal fit. A near trip should still beat a weak
+        /// preference learned from two taps.
+        var relevance: Int
     }
 
     /// Four fits two lines on the narrowest phone. More is a menu, and a menu
@@ -1130,32 +1397,55 @@ enum FieldCaptureSuggestions {
         // list as evidence of a thin list, which is how a couple on their
         // first day got told what to have for dinner on Friday by an app that
         // had never met them.
-        guard context.hasSomethingToReadFrom else {
-            return FieldSampleData.canonicalInputs
+        // And nothing to read means nothing to offer. The pills used to fall
+        // back to `FieldSampleData.canonicalInputs` here — "steak", "fast and
+        // furious", "japan in the fall maybe" — which is the fictional
+        // couple's life. A pill is not a picture of an input: tapping one sets
+        // the draft and submits it, so a real couple's first day ended with a
+        // stranger's dinner filed under their food. Silence is the rule the
+        // rest of the app already follows.
+        guard context.hasSomethingToReadFrom else { return [] }
+
+        let candidates = [
+            packing(context).map {
+                Candidate(phrase: $0, category: .buys, relevance: 100)
+            },
+            slippingRhythm(context).map {
+                Candidate(phrase: $0, category: nil, relevance: 92)
+            },
+            occasion(context).map {
+                Candidate(phrase: $0, category: .buys, relevance: 86)
+            },
+            decisionNight(context).map {
+                Candidate(phrase: $0, category: .food, relevance: 78)
+            },
+            horizonIdea(context).map {
+                Candidate(phrase: $0, category: .notes, relevance: 68)
+            },
+            emptyWatchlist(context).map {
+                Candidate(phrase: $0, category: .watchlist, relevance: 58)
+            },
+        ]
+        .compactMap { $0 }
+        .filter { candidate in
+            !wasRecentlyCaptured(candidate.phrase, context)
+        }
+        .sorted { lhs, rhs in
+            score(lhs, context) > score(rhs, context)
         }
 
         var phrases: [String] = []
-
-        for candidate in [
-            packing(context),
-            slippingRhythm(context),
-            occasion(context),
-            decisionNight(context),
-            horizonIdea(context),
-            emptyWatchlist(context),
-        ] {
-            guard let candidate,
-                  !phrases.contains(where: {
-                      $0.caseInsensitiveCompare(candidate) == .orderedSame
-                  })
-            else { continue }
-            phrases.append(candidate)
+        for candidate in candidates {
+            guard !phrases.contains(where: {
+                $0.caseInsensitiveCompare(candidate.phrase) == .orderedSame
+            }) else { continue }
+            phrases.append(candidate.phrase)
             if phrases.count == limit { break }
         }
 
-        // Nothing to read yet. Say the four that teach the field what it is
-        // for, rather than half a screen of guesses about strangers.
-        return phrases.isEmpty ? FieldSampleData.canonicalInputs : phrases
+        // Every rule declined. Same answer as above: say nothing rather than
+        // reach for the demo set.
+        return phrases
     }
 
     /// Someone is leaving within the fortnight and nothing about it is filed.
@@ -1248,6 +1538,59 @@ enum FieldCaptureSuggestions {
     private static func mentioned(_ subject: String, in context: Context) -> Bool {
         context.lifeItems.contains {
             !$0.isDone && $0.title.localizedCaseInsensitiveContains(subject)
+        }
+    }
+
+    /// Learns only a preference in ordering, never a fact to invent. Recent
+    /// captures by the person holding this phone and destinations they
+    /// explicitly corrected toward make a relevant candidate a little more
+    /// likely to lead; urgency remains the dominant signal.
+    private static func score(
+        _ candidate: Candidate,
+        _ context: Context
+    ) -> Int {
+        guard let category = candidate.category else {
+            return candidate.relevance
+        }
+
+        let recentIDs = Set(
+            context.captures
+                .filter { $0.owner == context.speaker }
+                .sorted { $0.capturedAt > $1.capturedAt }
+                .prefix(12)
+                .map(\.id)
+        )
+        let recentUse = context.lifeItems.reduce(into: 0) { count, item in
+            if recentIDs.contains(item.id), item.category == category {
+                count += 1
+            }
+        }
+        let taughtUse = context.corrections.suffix(12).reduce(into: 0) {
+            count, correction in
+            if correction.corrected == category { count += 1 }
+        }
+
+        return candidate.relevance + min(recentUse, 4) * 4
+            + min(taughtUse, 3) * 3
+    }
+
+    /// The pills respond immediately after a person files one. Offering the
+    /// same wording back under an empty field would make the intelligence look
+    /// frozen even if a broader rule still happens to match.
+    private static func wasRecentlyCaptured(
+        _ phrase: String,
+        _ context: Context
+    ) -> Bool {
+        let cutoff = context.calendar.date(
+            byAdding: .day,
+            value: -28,
+            to: context.now
+        ) ?? context.now
+
+        return context.captures.contains {
+            $0.capturedAt >= cutoff
+                && $0.text.localizedCaseInsensitiveCompare(phrase)
+                    == .orderedSame
         }
     }
 
@@ -1401,6 +1744,48 @@ enum FieldDeferral {
         var partners: [FieldPartner]
         var standingRules: [FieldStandingRule]
         var calendar: Calendar = .gregorianUS
+    }
+
+    /// When a held thing comes back.
+    ///
+    /// Pure, so "tonight" is a testable fact rather than something that
+    /// happens to work on the machine it was written on. Seven in the
+    /// evening, and an hour from now if seven has already gone — agreeing to
+    /// come back at a time that is already behind you is the same broken
+    /// promise as never coming back at all, which is what a nil surface date
+    /// used to mean.
+    static func surfaceDate(
+        _ window: FieldDeferralWindow,
+        from now: Date,
+        moment: FieldDailyMoment,
+        calendar: Calendar = .gregorianUS
+    ) -> Date {
+        switch window {
+        case .thisEvening:
+            let evening = calendar.date(
+                bySettingHour: 19,
+                minute: 0,
+                second: 0,
+                of: now
+            )
+            guard let evening, evening > now else {
+                return now.addingTimeInterval(3600)
+            }
+            return evening
+
+        case .tomorrow:
+            // The hour the app has learned, rather than one it picked. If
+            // there is a right time to raise something with these two, the
+            // daily moment already knows it.
+            let start = calendar.startOfDay(for: now)
+            let tomorrow = calendar.date(byAdding: .day, value: 1, to: start)
+                ?? now.addingTimeInterval(86_400)
+            return calendar.date(
+                byAdding: .minute,
+                value: moment.sendMinute,
+                to: tomorrow
+            ) ?? tomorrow
+        }
     }
 
     /// Whether a topic should be raised now, and if not, why not.
@@ -1656,7 +2041,7 @@ enum FieldPromotion {
         in context: FieldTodaySelector.Context
     ) -> Bool {
         context.heldTopics.contains {
-            $0.isHeld && $0.title.localizedCaseInsensitiveContains(subject)
+            $0.isSettled && $0.title.localizedCaseInsensitiveContains(subject)
         }
     }
 
@@ -1667,6 +2052,396 @@ enum FieldPromotion {
         context.horizons.contains {
             $0.title.localizedCaseInsensitiveContains(subject)
         }
+    }
+}
+
+// MARK: - How something joins an occasion
+//
+// The other half of `FieldPromotion`, and its mirror image. Promotion is about
+// a thing said twice with no date on it: does it become a horizon in Us.
+// This is about a thing said once while something dated is already coming:
+// does it belong with that.
+//
+// The app has been *reading* occasions since the beginning — Today says "three
+// things wait on this", the capture field offers "gift for the wedding" — and
+// has never once been able to produce one. Every captured item was written
+// with `clusterID: nil`, and the column was read back but never written. So a
+// couple who had not been given a cluster by seed data could never have one,
+// and the sentence "WE notices what belongs together" was true only of
+// fiction.
+//
+// The rule is deliberately narrow, because a wrong guess here is worse than
+// silence: it files somebody's private thought under somebody else's visit.
+// There is exactly one signal, and it is a person.
+//
+//   1. Named.    "a bottle for Ryan's dad" while Ryan's dad is coming. There
+//                is no ambiguity to resolve, so the number of open occasions
+//                does not matter.
+//   2. Referred. "the coffee he likes", with no name in the sentence at all —
+//                proposed only when exactly one person-anchored occasion is
+//                open. Two visits in the same fortnight and the app cannot
+//                know which "he" is, so it says nothing. That guard is the
+//                whole reason this is allowed to ask at all.
+//
+// Nothing is inferred from a shared word. `FieldPromotion.subject(of:)` takes
+// the first long-enough word of a title, which is fine for finding two
+// mentions of Japan and disastrous here — "Send the grocery list" and "Send
+// the deposit" share their first long word and share nothing else.
+//
+// Saying no is a real answer with a real consequence, exactly as it is for a
+// promotion: the pairing is dismissed, and the app does not raise it again.
+
+enum FieldOccasion {
+    /// What the couple would be agreeing to. Two shapes, one question: when
+    /// `clusterID` is nil the occasion does not exist yet and answering yes
+    /// creates it around the anchor; when it is set, the item joins what is
+    /// already there.
+    struct Proposal: Identifiable, Hashable, Sendable {
+        var id: String
+        /// The existing occasion, when there is one.
+        var clusterID: String?
+        /// The dated thing the others hang off — "Ryan's dad is in town".
+        var occasionTitle: String
+        /// The item that anchors a not-yet-existing occasion. Nil once the
+        /// cluster is real, because then the cluster is the anchor.
+        var anchorItemID: String?
+        var anchorDate: Date?
+        /// The unattached item being asked about.
+        var itemID: String
+        var itemTitle: String
+        /// Which of the two readings fired. Named so the reasoning line can
+        /// say the true thing rather than a generic one.
+        var evidence: Evidence
+        var question: FieldQuestion
+
+        var affirmative: FieldChoice? { question.choices.first }
+    }
+
+    enum Evidence: Hashable, Sendable {
+        /// The sentence names the person: "for Ryan's dad".
+        case named(String)
+        /// The sentence only refers to them: "the coffee he likes".
+        case referred(pronoun: String)
+    }
+
+    /// How far ahead an occasion can be and still pull things toward it.
+    /// Beyond three weeks a dated thing is not yet an occasion, it is a plan,
+    /// and everything mentioned in between would be swept into it.
+    static let windowInDays = 21
+
+    static func proposal(_ context: FieldTodaySelector.Context) -> Proposal? {
+        let occasions = open(context)
+        guard !occasions.isEmpty else { return nil }
+
+        // Only one of them can be the answer to a bare pronoun. Counted over
+        // every open occasion, not over the ones that happen to match, so the
+        // guard cannot be satisfied by the app narrowing the field itself.
+        let isUnambiguous = occasions.count == 1
+
+        // Excluded by identity, not by shape. Filtering out anything that
+        // names a person would have thrown away the clearest case there is —
+        // "coffee for Ryan's dad" names him, and naming him is the whole
+        // reason it is safe to ask.
+        let anchors = Set(occasions.compactMap(\.anchorItemID))
+
+        for item in loose(context) where !anchors.contains(item.id) {
+            for occasion in occasions {
+                guard let evidence = read(
+                    item,
+                    against: occasion,
+                    isUnambiguous: isUnambiguous
+                ) else { continue }
+
+                let id = "occasion:\(occasion.id):\(item.id)"
+                guard !isSettled(id, in: context) else { continue }
+
+                return Proposal(
+                    id: id,
+                    clusterID: occasion.clusterID,
+                    occasionTitle: occasion.title,
+                    anchorItemID: occasion.anchorItemID,
+                    anchorDate: occasion.anchorDate,
+                    itemID: item.id,
+                    itemTitle: item.title,
+                    evidence: evidence,
+                    question: question(
+                        id: id,
+                        occasion: occasion,
+                        item: item,
+                        evidence: evidence,
+                        context: context
+                    )
+                )
+            }
+        }
+        return nil
+    }
+
+    // MARK: What counts as an occasion
+
+    /// An occasion the app already holds, or one it could form. Both are the
+    /// same thing to everything downstream, which is why they are one type.
+    struct Open: Hashable, Sendable {
+        var id: String
+        var title: String
+        var clusterID: String?
+        var anchorItemID: String?
+        var anchorDate: Date?
+        /// The person it is about, lowercased — "ryan's dad", "dylan".
+        var person: String
+    }
+
+    /// Every dated, person-anchored thing inside the window: the clusters that
+    /// exist, and the unattached dated items that could become one.
+    static func open(_ context: FieldTodaySelector.Context) -> [Open] {
+        var result: [Open] = []
+
+        for cluster in context.clusters {
+            guard let anchor = cluster.anchorDate,
+                  isInWindow(anchor, context),
+                  let person = person(in: cluster.title)
+                      ?? cluster.items(from: context.lifeItems)
+                          .lazy.compactMap({ person(in: $0.title) }).first
+            else { continue }
+
+            result.append(
+                Open(
+                    id: cluster.id,
+                    title: cluster.title,
+                    clusterID: cluster.id,
+                    anchorItemID: nil,
+                    anchorDate: anchor,
+                    person: person
+                )
+            )
+        }
+
+        for item in context.lifeItems {
+            guard !item.isDone,
+                  item.clusterID == nil,
+                  let due = item.dueOn,
+                  isInWindow(due, context),
+                  let person = person(in: item.title)
+            else { continue }
+
+            result.append(
+                Open(
+                    id: "item:\(item.id)",
+                    title: item.title,
+                    clusterID: nil,
+                    anchorItemID: item.id,
+                    anchorDate: due,
+                    person: person
+                )
+            )
+        }
+
+        return result
+    }
+
+    /// The things that could join one: open and unattached. Whether they are
+    /// the anchor of an occasion is decided by the caller, against the actual
+    /// anchors, rather than guessed at from the wording here.
+    private static func loose(
+        _ context: FieldTodaySelector.Context
+    ) -> [LifeItem] {
+        context.lifeItems.filter { !$0.isDone && $0.clusterID == nil }
+    }
+
+    // MARK: Reading one sentence against one occasion
+
+    static func read(
+        _ item: LifeItem,
+        against occasion: Open,
+        isUnambiguous: Bool
+    ) -> Evidence? {
+        let title = item.title.lowercased()
+
+        // Named. "for Ryan's dad" says who it is about, so nothing has to be
+        // resolved and nothing has to be unique. Matched as a phrase of whole
+        // words — `contains` alone would read "granddad" as "dad".
+        if containsPhrase(occasion.person, in: title) {
+            return .named(occasion.person)
+        }
+        // The unqualified form: an occasion about "Ryan's dad" is also matched
+        // by a sentence that just says "dad".
+        if let kin = occasion.person.split(separator: " ").last.map(String.init),
+           kinship.contains(kin),
+           containsWord(kin, in: title) {
+            return .named(kin)
+        }
+
+        // Referred. Only when there is exactly one thing it could mean.
+        guard isUnambiguous else { return nil }
+        for pronoun in pronouns where containsWord(pronoun, in: title) {
+            return .referred(pronoun: pronoun)
+        }
+        return nil
+    }
+
+    // MARK: The question
+
+    /// Two choices, and the second one is not a postponement. "Not related" is
+    /// a fact about the world that the app was wrong about, and it gets the
+    /// same finality "not this year" gets on a promotion.
+    private static func question(
+        id: String,
+        occasion: Open,
+        item: LifeItem,
+        evidence: Evidence,
+        context: FieldTodaySelector.Context
+    ) -> FieldQuestion {
+        FieldQuestion(
+            id: id,
+            prompt: "Does this belong with \(shortTitle(occasion.title))?",
+            stakes: "If it does, I'll show them together and it counts toward "
+                + "that day. If it doesn't, it stays exactly where it is and "
+                + "I stop asking.",
+            reasoning: reasoning(
+                occasion: occasion,
+                item: item,
+                evidence: evidence,
+                context: context
+            ),
+            choices: [
+                FieldChoice(
+                    id: "\(id):yes",
+                    title: "Keep them together",
+                    tint: .a
+                ),
+                FieldChoice(id: "\(id):no", title: "Not related", tint: .b),
+            ]
+        )
+    }
+
+    /// Why this, now — and specific enough that somebody can disagree with the
+    /// actual reason rather than with the app in general.
+    private static func reasoning(
+        occasion: Open,
+        item: LifeItem,
+        evidence: Evidence,
+        context: FieldTodaySelector.Context
+    ) -> String {
+        let when = occasion.anchorDate.map {
+            DateFormatter.fieldWeekday.string(from: $0)
+        }
+
+        switch evidence {
+        case .named(let person):
+            return "You wrote \(person) into both of these"
+                + (when.map { ", and \($0) is when it happens" } ?? "")
+                + ". That's the only reason I'm asking."
+        case .referred(let pronoun):
+            return "\"\(pronoun.capitalized)\" isn't anyone else here — "
+                + "\(shortTitle(occasion.title)) is the only thing coming "
+                + "that's about a person. That's a guess, which is why it's a "
+                + "question."
+        }
+    }
+
+    /// "Before your dad lands" → "your dad's visit" reads worse than the title
+    /// itself. The title is what they will see in Life, so the question names
+    /// it exactly, minus a trailing date they can already see.
+    static func shortTitle(_ title: String) -> String {
+        title.split(separator: "—").first
+            .map { $0.trimmingCharacters(in: .whitespaces) } ?? title
+    }
+
+    // MARK: Reading the state
+
+    /// Asked and answered, either way. Keyed to this exact pairing, so
+    /// declining "the coffee" against a visit does not silence it against
+    /// anything else.
+    private static func isSettled(
+        _ id: String,
+        in context: FieldTodaySelector.Context
+    ) -> Bool {
+        context.heldTopics.contains { $0.id == id && $0.isSettled }
+    }
+
+    private static func isInWindow(
+        _ date: Date,
+        _ context: FieldTodaySelector.Context
+    ) -> Bool {
+        let days = context.calendar.dateComponents(
+            [.day],
+            from: context.calendar.startOfDay(for: context.now),
+            to: context.calendar.startOfDay(for: date)
+        ).day ?? 0
+        // A day either side of "coming up": something that happened yesterday
+        // is still the thing everything this week was about.
+        return days >= -1 && days <= windowInDays
+    }
+
+    /// Who an occasion is about, if anybody: a kinship word, together with
+    /// whatever possessive stands in front of it.
+    ///
+    /// The qualifier is part of the person. "Ryan's dad" and "Dylan's dad" are
+    /// two different men, and an occasion that forgets which one it is about
+    /// will happily file one man's visit under the other's. So the word before
+    /// the kinship word is kept whenever it is a possessive — either a
+    /// pronoun, or any name in the possessive, which is how one partner refers
+    /// to the other's family.
+    static func person(in title: String) -> String? {
+        let words = title.lowercased()
+            .split(whereSeparator: { !$0.isLetter && $0 != "'" && $0 != "-" })
+            .map(String.init)
+
+        for (index, word) in words.enumerated() where kinship.contains(word) {
+            guard index > 0 else { return word }
+            let previous = words[index - 1]
+            let isPossessive = qualifiers.contains(previous)
+                || previous.hasSuffix("'s")
+            return isPossessive ? "\(previous) \(word)" : word
+        }
+        return nil
+    }
+
+    /// The possessives that can stand in front of a kinship word without being
+    /// a name. Anything ending in `'s` is treated as one too.
+    private static let qualifiers: Set<String> = [
+        "my", "your", "our", "his", "her", "their",
+    ]
+
+    static let kinship: Set<String> = [
+        "dad", "mum", "mom", "father", "mother", "parents", "brother",
+        "sister", "grandma", "grandpa", "granny", "aunt", "uncle", "cousin",
+        "nephew", "niece", "in-laws",
+    ]
+
+    /// Third person only. "I" and "you" are the two people holding the phone
+    /// and refer to nobody who could be visiting.
+    static let pronouns: [String] = [
+        "he", "him", "his", "she", "her", "hers", "they", "them", "their",
+    ]
+
+    /// Whole words, not substrings. Without this, "her" matches "there" and
+    /// "his" matches "this" — and the app confidently files a thought about
+    /// nothing under somebody's visit.
+    static func containsWord(_ word: String, in text: String) -> Bool {
+        words(of: text).contains(word.lowercased())
+    }
+
+    /// The same rule for a run of words, so "ryan's dad" matches the phrase
+    /// and not merely both halves of it somewhere in the sentence.
+    static func containsPhrase(_ phrase: String, in text: String) -> Bool {
+        let needle = words(of: phrase)
+        guard !needle.isEmpty else { return false }
+        let haystack = words(of: text)
+        guard haystack.count >= needle.count else { return false }
+
+        for start in 0...(haystack.count - needle.count) {
+            if Array(haystack[start..<(start + needle.count)]) == needle {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func words(of text: String) -> [String] {
+        text.lowercased()
+            .split(whereSeparator: { !$0.isLetter && $0 != "'" && $0 != "-" })
+            .map(String.init)
     }
 }
 

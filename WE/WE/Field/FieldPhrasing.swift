@@ -49,7 +49,12 @@ enum FieldPhrasing {
     ]
 
     /// Day phrases, longest first so "next week" is not read as "week".
-    private static let dayPhrases = [
+    ///
+    /// Internal rather than private because `FieldTargetPhrasing` strips the
+    /// same words when it works out who a sentence is about — "call the vet
+    /// friday" is about the vet, not about Friday. The two must agree, and
+    /// the only way to guarantee that is for there to be one list.
+    static let dayPhrases = [
         "the day after tomorrow", "day after tomorrow", "this weekend",
         "next weekend", "this week", "next week", "tomorrow", "tonight",
         "today", "weekend", "monday", "tuesday", "wednesday", "thursday",

@@ -135,33 +135,61 @@ Supabase session is not allowed to reopen cached relationship data.
 
 ## 8. Verification
 
-Automated Swift tests cover auth routing, preview variants, trust transformations, archive
-decoding, cache fallback, connection transitions, and shared-item behavior. UI tests cover the
-Promise, auth/recovery/pairing/hue routes, native tabs, contextual creation, Profile, account
-deletion, resilience states, Insight Detail, and a core accessibility audit.
+The committed `WE.xctestplan` is the source of truth for native tests. Pull requests publish
+three stable checks that should be required by the default branch ruleset:
 
-Database tests live in `supabase/tests/native_product.test.sql` and cover partner/outsider
-access, archived access, pairing concurrency, shared CRUD, realtime publication, account
-deletion, archive sanitization, and private/unrevealed leakage.
+- `Schema + privacy contract`
+- `iOS build + unit`
+- `Critical UI smoke`
 
-Run before release:
+The database check rebuilds an isolated local Supabase stack from all migrations, runs every
+pgTAP contract, and fails on schema-lint warnings. In addition to the existing native-product
+tests, `field_couple_contract.test.sql` exercises the production pairing RPCs as Partner A,
+Partner B, and an outsider. It proves server-owned actor attribution, RLS isolation, private
+answers, safe mutual reveal, and realtime publication.
+
+The Swift unit lane includes a transport-backed adapter contract that executes every live Field
+query and decodes the real PostgREST row shapes. The nightly live contract uses three isolated
+authenticated clients against a disposable QA Supabase project and covers pairing, onboarding,
+Partner B capture/correct/send, realtime arrival, restart, sign-out/sign-in, private answers,
+mutual reveal, account deletion, and the survivor archive. A second paired cohort then runs in
+two distinct simulator-hosted app processes: Partner A establishes a Realtime subscription,
+Partner B writes from the other simulator, and A must observe the capture as B. The service role
+never enters either app process; host coordinators use it only for exact user/couple setup and
+cleanup.
+
+The serial UI lane freezes the clock and animations. Nightly runs small and large iPhones plus a
+maximum-Dynamic-Type/Reduce-Motion/Reduce-Transparency profile, performs XCTest accessibility
+audits, compares named screenshots with committed references, and uploads the `.xcresult`,
+screenshots, diagnostics, and visual diffs even on failure. The app and WidgetKit extension are
+built together. A shared renderer also produces small/medium widget-content goldens; the
+SpringBoard/Lock Screen chrome and tinted host transformations remain outside public automation.
+
+Run the same database gate locally with Docker Desktop running:
 
 ```bash
-supabase test db
-supabase db lint --linked
-xcodebuild -project WE/WE.xcodeproj -scheme WE build
+bash scripts/qa/run-supabase-contract.sh artifacts/supabase
 ```
 
-Also complete these hands-on gates:
+Run a native lane against a prepared simulator with:
 
-1. Pair two authenticated simulator/device sessions.
-2. Exercise shared CRUD and the full request → accept → both submit → mutual-reveal loop.
-3. Restart both sessions and verify restoration.
-4. Disconnect, verify protected read-only cache behavior, reconnect, and verify refresh.
-5. Delete one account and inspect the survivor’s sanitized archive.
-6. Test small and large iPhones, largest Dynamic Type, VoiceOver, and Reduce Motion.
-7. Review Supabase security advisors and confirm callback URLs.
-8. Validate Private / Shared / Mutual and navigation with five target couples.
+```bash
+bash scripts/qa/run-xcode-tests.sh unit \
+  "platform=iOS Simulator,id=<UDID>" \
+  artifacts/xcresults/unit.xcresult \
+  artifacts/DerivedData/unit
+```
 
-Do not mark the milestone release-ready until all gates pass and local scheme credentials remain
-uncommitted.
+The remaining hands-on gates are genuinely human or operational:
+
+1. Use VoiceOver end to end and judge whether the language, order, and custom actions make sense,
+   not only whether the accessibility API reports no audit issue.
+2. Inspect the supported WidgetKit families in their real SpringBoard/Lock Screen hosts; the
+   automated goldens cover WE-owned content, not system-owned chrome.
+3. Review Supabase security advisors and confirm production callback URLs.
+4. Validate Private / Shared / Mutual, navigation, and emotional clarity with five target
+   couples.
+
+Do not mark the milestone release-ready until the required checks and nightly contract pass,
+these human gates are complete, and local scheme credentials remain uncommitted. Tests are never
+retried automatically; any temporary quarantine needs a named owner, linked defect, and expiry.

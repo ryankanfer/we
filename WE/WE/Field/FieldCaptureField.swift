@@ -16,6 +16,13 @@
 import SwiftUI
 
 struct FieldCaptureField: View {
+    /// What the field says before this couple has said anything.
+    ///
+    /// An instruction, not an example. It names the one thing the field does
+    /// and asks for nothing in particular, which is the only honest thing to
+    /// say to somebody the app has never met.
+    static let coldPlaceholder = "Anything. I'll work out where it goes."
+
     @Environment(FieldStore.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var isFocused: Bool
@@ -24,6 +31,9 @@ struct FieldCaptureField: View {
     /// dropped, not a list anybody works from — and Today is the one screen
     /// that must not accumulate.
     @State private var caughtIsOpen = false
+    /// The chip somebody tapped. A capture carries the id of the thing it
+    /// filed, so the proof-of-catch is also the way back to it.
+    @State private var openItem: FieldItemReference?
 
     var body: some View {
         @Bindable var store = store
@@ -52,6 +62,9 @@ struct FieldCaptureField: View {
 
             caughtThisWeek
                 .padding(.top, FieldMetrics.sectionGap)
+        }
+        .sheet(item: $openItem) { reference in
+            FieldItemSheet(itemID: reference.id)
         }
         .animation(.fieldZone(reduceMotion), value: store.lastReceipt)
         .animation(.fieldZone(reduceMotion), value: store.correctingReceipt)
@@ -104,7 +117,13 @@ struct FieldCaptureField: View {
                     // The placeholder is a suggestion too, and the same one
                     // the first pill offers — the field demonstrates itself
                     // with something true about this week.
-                    Text(store.captureSuggestions.first ?? "")
+                    //
+                    // Before there is a week to read, it falls back to an
+                    // instruction rather than to the demo phrases. A
+                    // placeholder cannot be tapped into the draft, so this is
+                    // the one place a cold field can say what it is for
+                    // without putting words in somebody's mouth.
+                    Text(store.captureSuggestions.first ?? Self.coldPlaceholder)
                         .font(FieldType.captureInput)
                         .foregroundStyle(.fieldInk(.monoLabel))
                 }
@@ -119,6 +138,12 @@ struct FieldCaptureField: View {
                     .accessibilityLabel("Tell WE anything")
                     .accessibilityIdentifier("field.capture.input")
             }
+            // Keep the broad focus affordance off the enclosing HStack. A tap
+            // gesture on that ancestor wins hit testing over the trailing
+            // submit Button, leaving "File it" visible to accessibility but
+            // impossible to activate.
+            .contentShape(Rectangle())
+            .onTapGesture { isFocused = true }
 
             if store.captureDraft.isEmpty {
                 caret
@@ -153,8 +178,6 @@ struct FieldCaptureField: View {
                 style: .continuous
             )
         )
-        .contentShape(Rectangle())
-        .onTapGesture { isFocused = true }
     }
 
     private var caret: some View {
@@ -195,6 +218,28 @@ struct FieldCaptureField: View {
                         .font(FieldType.dateCount)
                         .tracking(FieldTracking.dateCount)
                         .foregroundStyle(accent)
+
+                    // The way out. Nothing has been written yet, so leaving
+                    // costs nothing and needs no confirmation — but until
+                    // this existed the only ways past a receipt were to send
+                    // it or to type over it, and neither is "no".
+                    Button {
+                        store.dismissReceipt()
+                    } label: {
+                        Text("✕")
+                            .font(FieldType.subLabel)
+                            .foregroundStyle(.fieldInk(.recessive))
+                            // 44 square, which is the minimum a thumb is
+                            // owed. The mark itself stays small — the target
+                            // is what has to be generous, not the glyph.
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .padding(.trailing, -12)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Never mind")
+                    .accessibilityHint("Drops it without filing it")
+                    .accessibilityIdentifier("field.receipt.dismiss")
                 }
 
                 // What is actually about to be filed, when that is not what
@@ -287,34 +332,24 @@ struct FieldCaptureField: View {
 
     /// One tap to a corrected destination. Not a picker wheel, not a sheet —
     /// the handoff is explicit that the correction is a single tap.
+    ///
+    /// Two things the first version left out. The app grows categories on its
+    /// own and is deliberately shy about it, so "somewhere else entirely" has
+    /// to be an option a person can name themselves — otherwise the only
+    /// answer to a wrong heading is a differently wrong one. And opening this
+    /// is not a commitment: "Never mind" puts the receipt back untouched.
     private var correctionPicker: some View {
         FieldCard(accent: FieldPalette.ink.opacity(0.22)) {
-            VStack(alignment: .leading, spacing: 13) {
-                FieldLabel("Where should it go?", color: .fieldInk(.monoLabelQuiet))
-
-                FieldFlowLayout(spacing: 8, lineSpacing: 8) {
-                    ForEach(correctionOptions) { category in
-                        Button {
-                            store.correct(to: category)
-                        } label: {
-                            Text(category.word)
-                                .font(FieldType.dateCount)
-                                .tracking(FieldTracking.dateCount)
-                                .foregroundStyle(.fieldInk(.legend))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .overlay {
-                                    Capsule().stroke(
-                                        FieldRule.secondaryButton,
-                                        lineWidth: 1
-                                    )
-                                }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
+            FieldCategoryPicker(
+                options: correctionOptions,
+                choose: { store.correct(to: $0) },
+                name: { store.correct(toNewCategory: $0) },
+                cancel: { store.cancelCorrection() }
+            )
         }
+        // A new correction gets a new picker, so a half-typed heading from a
+        // previous one is never sitting there waiting.
+        .id(store.correctingReceipt?.id ?? "no-correction")
     }
 
     /// Every category that currently exists, including ones the app grew — a
@@ -352,6 +387,10 @@ struct FieldCaptureField: View {
                         .overlay {
                             Capsule().stroke(FieldRule.row, lineWidth: 1)
                         }
+                        // Keep the compact capsule while giving the button the
+                        // full iOS touch target around it.
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Try: \(phrase)")
@@ -370,7 +409,8 @@ struct FieldCaptureField: View {
     /// and the chips are the proof you ask for when you doubt it.
     @ViewBuilder
     private var caughtThisWeek: some View {
-        let count = store.state.captures.count
+        let caught = store.capturesThisWeek
+        let count = caught.count
 
         VStack(alignment: .leading, spacing: 14) {
             Button {
@@ -398,7 +438,7 @@ struct FieldCaptureField: View {
 
             if caughtIsOpen {
                 FieldFlowLayout(spacing: 7, lineSpacing: 7) {
-                    ForEach(store.state.captures) { capture in
+                    ForEach(caught) { capture in
                         chip(capture)
                     }
                 }
@@ -407,7 +447,38 @@ struct FieldCaptureField: View {
         }
     }
 
+    /// The chip, and the way back to what it filed.
+    ///
+    /// A capture is stamped with the receipt's id, which is the id of the item
+    /// that was filed — so the chip already knew where its thing lives and was
+    /// simply refusing to say. Tapping opens that item where the category room
+    /// and the calendar open it, which is the one surface that can answer
+    /// "where did this go" and let you move it if the answer is wrong.
+    ///
+    /// Inert when the item is gone, which is now the rare case rather than the
+    /// ordinary one: removing a filed thing takes its capture with it, so a
+    /// dead chip is only a capture from before that was true, or one whose
+    /// item left in the instant between a partner's delete and the reload. A
+    /// chip that opens an empty sheet is worse than one that does nothing.
+    @ViewBuilder
     private func chip(_ capture: FieldCapture) -> some View {
+        let filed = store.state.lifeItems.contains { $0.id == capture.id }
+
+        if filed {
+            Button {
+                openItem = FieldItemReference(id: capture.id)
+            } label: {
+                chipBody(capture)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens where it was filed")
+            .accessibilityIdentifier("field.caught.chip")
+        } else {
+            chipBody(capture)
+        }
+    }
+
+    private func chipBody(_ capture: FieldCapture) -> some View {
         HStack(spacing: 6) {
             FieldDot(
                 owner: capture.owner,

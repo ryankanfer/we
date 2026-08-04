@@ -4,9 +4,8 @@
 //
 //  The one line under a category word, written rather than concatenated.
 //
-//  On device, through `FoundationModels` — the same route `SoftStartCoordinator`
-//  takes for a private note. Nothing about a couple's Life leaves the phone to
-//  produce a subtitle, and the app has already promised as much.
+//  On device, through `FoundationModels`. Nothing about a couple's Life leaves
+//  the phone to produce a subtitle, and the app has already promised as much.
 //
 //  Every failure returns nil, and nil means *use the derived line*. A category
 //  is never left blank because a model was busy, unavailable, or wrong.

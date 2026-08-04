@@ -71,8 +71,10 @@ struct FieldCorrectionReceiptView: View {
             }
 
             Text(
-                "\(FieldSampleData.correctionCount.spelled.capitalized) "
-                    + "corrections changed how I work."
+                "\(store.state.corrections.count.spelled.capitalized) "
+                    + "correction"
+                    + "\(store.state.corrections.count == 1 ? "" : "s") "
+                    + "changed how I work."
             )
             .font(FieldType.pageHeadline)
             .foregroundStyle(.fieldInk(.headline))
