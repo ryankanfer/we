@@ -37,6 +37,14 @@
 	<string>AccentColor</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
+	<!--
+	  Where in-app feedback and diagnostics are addressed. Read from the
+	  bundle rather than compiled in, so a TestFlight build and a development
+	  build can differ without a code change. Blank turns the Send button
+	  into the Share Sheet rather than into a message addressed nowhere.
+	-->
+	<key>WESupportEmail</key>
+	<string>kanfer.ryan@gmail.com</string>
 	<key>SUPABASE_PUBLISHABLE_KEY</key>
 	<string>sb_publishable__suAVQyAW3B9BmcN7srkrA_ZlIfZxuY</string>
 	<key>SUPABASE_URL</key>
@@ -52,6 +60,8 @@
 	<true/>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>If you connect a calendar, I will read what is already on it so I can work the rest out by watching, instead of asking you to enter it. I never add, change, or delete anything.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>When you ask me to call or text someone, I look them up in your contacts to find the number. I look for the one name you asked about, I do not read the rest of your address book, and I do not keep a copy.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Newsreader_14pt-Light.ttf</string>
