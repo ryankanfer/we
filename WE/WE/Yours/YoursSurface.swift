@@ -35,6 +35,10 @@ struct YoursSurface: View {
     @State private var showsSnoozeConfirmation = false
     @State private var showsTeaching = false
 
+    /// The one held entry whose writing is currently on screen, if any. One at
+    /// a time — opening every card at once is the archive again.
+    @State private var openHeld: String?
+
     init(store: YoursStore) {
         _store = State(initialValue: store)
     }
@@ -53,15 +57,28 @@ struct YoursSurface: View {
                         offerCard(offer)
                     }
 
-                    living
+                    emptyLine
                     heldDrawer
                 }
                 .padding(.horizontal, FieldMetrics.screenSide)
-                .padding(.top, 30)
+                // Clearance for the close control, which is 44pt tall and
+                // overlays this scroll view at the top trailing corner. At 30
+                // the compose headline ran under it.
+                .padding(.top, 56)
                 .padding(.bottom, 80)
             }
-
-            closeButton
+        }
+        .overlay(alignment: .topTrailing) { closeButton }
+        // The receipt goes when the next thing is being written.
+        //
+        // It used to dismiss on tap, which cannot survive an Undo sitting
+        // inside it — the tap that meant "take that back" would have been
+        // swallowed by the tap that meant "stop telling me". Not a timer
+        // either: an Undo that disappears on a clock is a trap, and this is
+        // the only window in which a mistake is correctable at all.
+        .onChange(of: store.draft) { _, draft in
+            guard !draft.isEmpty else { return }
+            store.dismissSaveConfirmation()
         }
         .preferredColorScheme(.dark)
         .task {
@@ -140,12 +157,15 @@ struct YoursSurface: View {
             // at the moment of saving. Both dates, exactly, because forgetting
             // is invisible to the partner and completely legible to the owner
             // — and then never again as a countdown on the entry itself.
+            //
+            // The receipt carries the whole weight now. With nothing listed on
+            // this surface, this is the only time an entry is ever seen
+            // between being written and returning, so the dates lead in the
+            // reading weight rather than sitting under a paraphrase of them.
+            // And it offers the one way back: a mistake caught here would
+            // otherwise wait six weeks to become correctable.
             if let saved = store.justSaved {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(YoursCopy.saved)
-                        .font(FieldType.body)
-                        .foregroundStyle(.fieldInk(.headline))
-
                     Text(
                         YoursDates.saveDetail(
                             readyAt: saved.readyAt,
@@ -153,11 +173,20 @@ struct YoursSurface: View {
                             now: store.now
                         )
                     )
-                    .font(FieldType.reasoning)
-                    .foregroundStyle(.fieldInk(.legend))
+                    .font(FieldType.body)
+                    .foregroundStyle(.fieldInk(.headline))
+
+                    Text(YoursCopy.saved)
+                        .font(FieldType.reasoning)
+                        .foregroundStyle(.fieldInk(.legend))
+
+                    Button(YoursCopy.undoSave) {
+                        Task { await store.undoSave() }
+                    }
+                    .buttonStyle(FieldQuietButtonStyle())
+                    .accessibilityIdentifier("yours.undo")
                 }
                 .accessibilityIdentifier("yours.saved")
-                .onTapGesture { store.dismissSaveConfirmation() }
             }
 
             if !store.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -296,50 +325,35 @@ struct YoursSurface: View {
         }
     }
 
-    // MARK: Living
+    // MARK: Nothing waiting
+    //
+    // What used to be here was a list of everything living: each entry's text,
+    // with a mark beside it tracking how close it was to returning. It was a
+    // feed. Worse, it was a feed of the one kind of writing that is supposed
+    // to be put down and left alone — so the surface quietly rewarded coming
+    // back to re-read, which is the opposite of "write without deciding what
+    // it becomes".
+    //
+    // "Most recent only" is still a feed with one item in it, and a "Written"
+    // drawer is an archive wearing a coat. So: nothing. What you wrote is gone
+    // until it returns to you, exactly as promised, and the dated receipt at
+    // the moment of saving is what makes that a promise rather than a loss.
+    //
+    // Three things live on this surface now — compose, whatever returned
+    // today, and Held. Held is a control surface for deletion and correction,
+    // not somewhere to browse.
 
-    /// Reachable, unemphasised, and not a feed.
-    ///
-    /// The mark beside each entry is the only status it carries — outline
-    /// while living, lightening across the final week. No date, no countdown,
-    /// no ordering by anything but when it was written.
-    private var living: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            if store.snapshot.living.isEmpty, store.returned == nil {
-                Text(YoursCopy.empty)
-                    .font(FieldType.body)
-                    .foregroundStyle(.fieldInk(.legend))
-                    .accessibilityIdentifier("yours.empty")
-            }
-
-            ForEach(store.snapshot.living) { entry in
-                HStack(alignment: .top, spacing: 12) {
-                    YoursMark(
-                        style: .micro,
-                        presence: presence(for: entry),
-                        hue: .fieldInk(.headline)
-                    )
-                    .padding(.top, 2)
-
-                    Text(entry.body)
-                        .font(FieldType.listItem)
-                        .foregroundStyle(.fieldInk(.quietListItem))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
+    /// The one line, when there is nothing to say.
+    @ViewBuilder
+    private var emptyLine: some View {
+        if store.snapshot.held.isEmpty, store.returned == nil,
+           store.returnedOffer == nil, store.justSaved == nil
+        {
+            Text(YoursCopy.empty)
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.legend))
+                .accessibilityIdentifier("yours.empty")
         }
-    }
-
-    private func presence(for entry: YoursEntry) -> YoursMark.Presence {
-        if entry.state == .held { return .held }
-        if entry.state == .presented { return .returned }
-        if let progress = YoursDates.nearingProgress(
-            readyAt: entry.readyAt,
-            now: store.now
-        ) {
-            return .nearing(progress)
-        }
-        return .living
     }
 
     // MARK: Held
@@ -371,25 +385,70 @@ struct YoursSurface: View {
 
                 if store.showsHeldDrawer {
                     ForEach(store.snapshot.held) { entry in
-                        FieldCard {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text(entry.body)
-                                    .font(FieldType.listItem)
-                                    .foregroundStyle(.fieldInk(.headline))
-
-                                Button(YoursCopy.letThisReturn) {
-                                    Task { await store.letThisReturn(entry) }
-                                }
-                                .buttonStyle(FieldQuietButtonStyle())
-
-                                Button(YoursCopy.letGoNow) { releasing = entry }
-                                    .buttonStyle(FieldQuietButtonStyle())
-
-                                Button("Edit") { editing = entry }
-                                    .buttonStyle(FieldQuietButtonStyle())
-                            }
-                        }
+                        heldCard(entry)
                     }
+                }
+            }
+        }
+    }
+
+    /// The way out.
+    ///
+    /// The frame that positions this used to sit *outside* the `Button`, which
+    /// made the button's own layout frame the entire screen while the glyph
+    /// drew in the corner — so a tap anywhere on the surface dismissed it, and
+    /// as the last child of the `ZStack` it sat over the scroll view. Both the
+    /// padding and the hit shape belong inside the label; the *placement*
+    /// belongs to an `.overlay` on the root. Same shape as `doneButton` in
+    /// `FieldLearningSurfaces`.
+    /// One held thing, closed until it is opened.
+    ///
+    /// The drawer used to render every body in full the moment it opened,
+    /// which made Held the browsable archive the rest of this surface just
+    /// stopped being. A card is a mark and its actions; the writing appears
+    /// when somebody deliberately asks for it, one at a time.
+    ///
+    /// Still no preview and no truncated first line — a preview is browsing
+    /// with worse typography.
+    @ViewBuilder
+    private func heldCard(_ entry: YoursEntry) -> some View {
+        let isOpen = openHeld == entry.id
+
+        FieldCard {
+            VStack(alignment: .leading, spacing: 12) {
+                Button {
+                    openHeld = isOpen ? nil : entry.id
+                } label: {
+                    HStack(spacing: 12) {
+                        YoursMark(
+                            style: .micro,
+                            presence: .held,
+                            hue: .fieldInk(.headline)
+                        )
+
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(isOpen ? "Close this" : "Open this")
+                .accessibilityIdentifier("yours.held.card")
+
+                if isOpen {
+                    Text(entry.body)
+                        .font(FieldType.listItem)
+                        .foregroundStyle(.fieldInk(.headline))
+
+                    Button(YoursCopy.letThisReturn) {
+                        Task { await store.letThisReturn(entry) }
+                    }
+                    .buttonStyle(FieldQuietButtonStyle())
+
+                    Button(YoursCopy.letGoNow) { releasing = entry }
+                        .buttonStyle(FieldQuietButtonStyle())
+
+                    Button("Edit") { editing = entry }
+                        .buttonStyle(FieldQuietButtonStyle())
                 }
             }
         }
@@ -403,11 +462,12 @@ struct YoursSurface: View {
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(.fieldInk(.monoLabel))
                 .frame(width: 44, height: 44)
+                .padding(.trailing, 12)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-        .padding(.trailing, 12)
         .accessibilityLabel("Close")
+        .accessibilityIdentifier("yours.close")
     }
 }
 

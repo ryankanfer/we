@@ -50,6 +50,7 @@ struct FieldCrossingTests {
         func upsert(_ item: LifeItem) async throws {}
         func delete(itemID: String) async throws {}
         func upsert(_ horizon: FieldHorizon) async throws {}
+        func upsert(_ evidence: FieldEvidence) async throws {}
         func upsert(_ cluster: FieldCluster) async throws {}
         func answer(question: String, choice: String) async throws {}
         func setHeld(_ topic: FieldHeldTopic) async throws {}

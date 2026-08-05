@@ -33,6 +33,16 @@ struct FieldTodayZone: View {
     /// thing back.
     @State private var openItem: FieldItemReference?
 
+    /// Whether the circle has ever been explained on this device.
+    ///
+    /// Local rather than a column, and per device rather than per account, for
+    /// the same reason `yours.gesture.hinted` is: what it records is that a
+    /// hand has been shown what a control does. A new phone is a new place to
+    /// learn it, and nothing about a person's relationship is stored here.
+    @AppStorage("field.circle.taught") private var hasTaughtCircle = false
+
+    @State private var showsCircleTeaching = false
+
     var body: some View {
         FieldZoneScaffold(
             zone: .we,
@@ -78,8 +88,6 @@ struct FieldTodayZone: View {
                             .padding(.top, FieldMetrics.sectionGapLoose)
                             .padding(.bottom, FieldMetrics.sectionGap)
                     }
-
-                    horizonBlock
                 }
             }
         }
@@ -89,6 +97,11 @@ struct FieldTodayZone: View {
         .fullScreenCover(isPresented: $showsDeferral) {
             FieldDeferralView()
                 .environment(store)
+        }
+        .sheet(isPresented: $showsCircleTeaching) {
+            FieldCircleTeachingSheet(identity: store.identity) {
+                showsCircleTeaching = false
+            }
         }
     }
 
@@ -110,12 +123,7 @@ struct FieldTodayZone: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(spacing: 26) {
-                FieldIntelligenceMark(
-                    identity: store.identity,
-                    diameter: 28,
-                    ringDiameter: 70
-                )
-                .frame(height: 70)
+                circleMark
 
                 VStack(spacing: 16) {
                     Text(headline)
@@ -134,10 +142,82 @@ struct FieldTodayZone: View {
                         .frame(maxWidth: 270)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                // The combine stops here rather than wrapping the mark with
+                // it. The mark used to be inside this element and
+                // `accessibilityHidden(true)` besides — correct while it was
+                // decoration, and wrong the moment it became the only control
+                // on this screen. A button folded into a combined label is not
+                // a button to VoiceOver.
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(headline) \(detail)")
             }
             .frame(maxWidth: .infinity)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(headline) \(detail)")
+        }
+    }
+
+    // MARK: The circle
+    //
+    // The mark above "Today is clear." is the app's avatar for itself, and it
+    // is now the one place a person can say they are open to a moment
+    // together. See `FieldReadiness` and `FieldCircleSurfaces`.
+
+    /// A control where there is somebody to be open to, and the same quiet
+    /// drawing everywhere else.
+    ///
+    /// Nothing here reveals anything about the partner: the only states it can
+    /// draw are "you have not marked" and "you have", both of which this device
+    /// already knew. The bloom is not drawn here at all — it takes the whole
+    /// screen, from the shell.
+    @ViewBuilder
+    private var circleMark: some View {
+        if store.isCircleAvailable {
+            VStack(spacing: 10) {
+                Button {
+                    // The mark lands first, then the explanation. Teaching
+                    // *before* the first tap would be a modal nobody asked for
+                    // on somebody's first quiet morning in the app; teaching
+                    // at the moment of the tap answers the question the tap
+                    // just raised, which is the only moment it is genuinely
+                    // wanted. The tap is not spent — it counts.
+                    Task { await store.markReady() }
+                    if !hasTaughtCircle {
+                        hasTaughtCircle = true
+                        showsCircleTeaching = true
+                    }
+                } label: {
+                    FieldIntelligenceMark(
+                        identity: store.identity,
+                        diameter: 28,
+                        ringDiameter: 70
+                    )
+                    .frame(width: 70, height: 70)
+                    // The ring, not the 28pt disc. Anything smaller is a
+                    // target nobody can hit; anything larger starts stealing
+                    // taps from the headline underneath.
+                    .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(FieldCircleCopy.markLabel)
+                .accessibilityIdentifier("field.circle.mark")
+
+                // For the person who marked, and only for them. The partner's
+                // screen is unchanged either way — this says what *you* did,
+                // never what is being waited for.
+                if store.circle.state == .you {
+                    Text(FieldCircleCopy.marked)
+                        .font(FieldType.reasoning)
+                        .foregroundStyle(.fieldInk(.legend))
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.4), value: store.circle.state)
+        } else {
+            FieldIntelligenceMark(
+                identity: store.identity,
+                diameter: 28,
+                ringDiameter: 70
+            )
+            .frame(height: 70)
         }
     }
 
@@ -240,48 +320,13 @@ struct FieldTodayZone: View {
         .contentShape(Rectangle())
     }
 
-    @ViewBuilder
-    private var horizonBlock: some View {
-        if let horizon = store.primaryHorizon {
-            let countdown = horizon.countdown(now: store.now)
-
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 8) {
-                    FieldLabel("Next on the horizon")
-
-                    Text(
-                        [horizon.title, horizon.window]
-                            .compactMap { $0 }
-                            .joined(separator: " ")
-                            .replacingOccurrences(of: ", ", with: " · ")
-                    )
-                    .font(FieldType.cardTitle)
-                    .foregroundStyle(.fieldInk(.headline))
-                }
-
-                Spacer()
-
-                VStack(alignment: .trailing, spacing: 8) {
-                    Text(countdown)
-                        .font(FieldType.metric)
-                        .foregroundStyle(store.identity.personB.color)
-
-                    FieldLabel(
-                        "To tickets",
-                        font: FieldType.subLabel,
-                        tracking: FieldTracking.subLabel,
-                        color: .fieldInk(.headerMeta),
-                        isHeader: false
-                    )
-                }
-            }
-            .padding(.top, 22)
-            .contentShape(Rectangle())
-            .onTapGesture { store.go(to: .us) }
-            .accessibilityElement(children: .combine)
-            .accessibilityHint("Opens Us")
-        }
-    }
+    // The horizon is not repeated here.
+    //
+    // Us states it larger, with its thesis and its evidence attached, and a
+    // second rendering of the same sentence taught people that Today was where
+    // the long view lived. Today is about now; the horizon is the one thing on
+    // this app that explicitly is not. The old copy also carried a hardcoded
+    // "To tickets" sub-label, which was true of exactly one horizon.
 }
 
 // MARK: - (b) and (c)

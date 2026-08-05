@@ -37,12 +37,22 @@ enum FieldMutation: Codable, Sendable {
     case upsertItem(LifeItem)
     case deleteItem(id: String)
     case upsertHorizon(FieldHorizon)
+    case upsertEvidence(FieldEvidence)
     case upsertCluster(FieldCluster)
     case answer(question: String, choice: String)
     case setHeld(FieldHeldTopic)
     case setStandingRule(FieldStandingRule)
     case setIdentity(FieldIdentity)
     case setDailyMoment(FieldDailyMoment)
+    /// "I'd welcome a moment together", on the day it was meant.
+    ///
+    /// Queued like every other write so the circle works offline — a tap in a
+    /// tunnel is still a thing somebody meant, and losing it would make the
+    /// mark unreliable in exactly the way that stops people using it. The day
+    /// travels with the mutation rather than being read at flush time, so a
+    /// tap made on Tuesday evening that drains on Wednesday morning is still
+    /// Tuesday's.
+    case markReady(localDate: String)
 }
 
 // MARK: - Replay
@@ -80,6 +90,9 @@ extension FieldMutation {
         case .upsertHorizon(let horizon):
             Self.upsert(horizon, id: \.id, into: &state.horizons)
 
+        case .upsertEvidence(let evidence):
+            Self.upsert(evidence, id: \.id, into: &state.evidence)
+
         case .upsertCluster(let cluster):
             Self.upsert(cluster, id: \.id, into: &state.clusters)
 
@@ -108,6 +121,16 @@ extension FieldMutation {
 
         case .setDailyMoment(let moment):
             state.dailyMoment = moment
+
+        case .markReady:
+            // No local projection, for the same reason `.answer` has none:
+            // readiness is not part of `FieldState` at all. It is never
+            // cached, never loaded with the zones, and the only thing that can
+            // say whether the circle bloomed is the server, because that
+            // answer depends on a row this device is not permitted to read.
+            // Replaying an optimistic `.both` here would be the app inventing
+            // a partner's consent.
+            break
         }
     }
 
@@ -155,6 +178,8 @@ extension FieldMutation {
             try await backend.delete(itemID: id)
         case .upsertHorizon(let horizon):
             try await backend.upsert(horizon)
+        case .upsertEvidence(let evidence):
+            try await backend.upsert(evidence)
         case .upsertCluster(let cluster):
             try await backend.upsert(cluster)
         case .answer(let question, let choice):
@@ -167,6 +192,8 @@ extension FieldMutation {
             try await backend.setIdentity(identity)
         case .setDailyMoment(let moment):
             try await backend.setDailyMoment(moment)
+        case .markReady(let localDate):
+            try await backend.markReady(localDate: localDate)
         }
     }
 }
@@ -190,6 +217,7 @@ extension FieldMutation {
         case correction(String)
         case item(String)
         case horizon(String)
+        case evidence(String)
         case cluster(String)
         case heldTopic(String)
         case standingRule(String)
@@ -200,6 +228,12 @@ extension FieldMutation {
         /// has ever mattered.
         case identity
         case dailyMoment
+        /// The day marked, so two taps on one evening collapse to one write.
+        /// That is the compaction doing what the RPC would do anyway — the
+        /// mark is idempotent server-side — but it also means a repeated tap
+        /// never leaves a second queued entry that could drain as a second
+        /// request. Nothing about the repeat is recorded anywhere.
+        case readiness(String)
     }
 
     var subject: Subject {
@@ -211,12 +245,14 @@ extension FieldMutation {
         case .upsertItem(let item): .item(item.id)
         case .deleteItem(let id): .item(id)
         case .upsertHorizon(let horizon): .horizon(horizon.id)
+        case .upsertEvidence(let evidence): .evidence(evidence.id)
         case .upsertCluster(let cluster): .cluster(cluster.id)
         case .setHeld(let topic): .heldTopic(topic.id)
         case .setStandingRule(let rule): .standingRule(rule.id)
         case .setIdentity: .identity
         case .setDailyMoment: .dailyMoment
         case .answer(let question, _): .question(question)
+        case .markReady(let localDate): .readiness(localDate)
         }
     }
 

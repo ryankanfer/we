@@ -397,6 +397,66 @@ final class FieldZoneUITests: XCTestCase {
         XCTAssertTrue(we.isHittable)
     }
 
+    // MARK: The circle
+
+    /// The intelligence mark is a real button with a real label.
+    ///
+    /// It spent its whole life as decoration — inside a combined
+    /// accessibility element and `accessibilityHidden(true)` besides. Both
+    /// were right for an ornament and wrong the moment it became the only
+    /// control on the screen: a button folded into a combined label is not a
+    /// button to VoiceOver, and this is the entire route to the circle.
+    ///
+    /// Unlike the account action, this one *is* checkable — it is an ordinary
+    /// button rather than a custom action — so it is asserted here rather than
+    /// left to the Accessibility Inspector.
+    @MainActor
+    func testTheCircleMarkIsALabelledButtonAndTeachesOnce() throws {
+        let app = launchZones()
+
+        let mark = app.buttons["field.circle.mark"]
+        XCTAssertTrue(
+            mark.waitForExistence(timeout: 8),
+            "the mark is not exposed as a button at all"
+        )
+        XCTAssertFalse(
+            mark.label.isEmpty,
+            "the only control on this screen has no label"
+        )
+        XCTAssertTrue(mark.isHittable)
+
+        mark.tap()
+
+        // Taught at the moment of the first tap, because that is the moment
+        // the question arises: a tap that visibly does nothing is
+        // incomprehensible without it.
+        let teaching = app.otherElements["field.circle.teaching"]
+        XCTAssertTrue(
+            teaching.waitForExistence(timeout: 4),
+            "the first tap explained nothing"
+        )
+
+        app.buttons["Alright"].tap()
+        XCTAssertFalse(
+            teaching.waitForExistence(timeout: 1),
+            "the teaching stayed up after being dismissed"
+        )
+
+        // And the tap counted. Nothing here says anything about the partner —
+        // this is the app telling one person what they themselves did.
+        XCTAssertTrue(
+            app.staticTexts["Noted, just for you."]
+                .waitForExistence(timeout: 4),
+            "the mark landed and said nothing back"
+        )
+
+        // The room must not have opened: one person is not both of them.
+        XCTAssertFalse(
+            app.otherElements["field.circle.room"].exists,
+            "one person's tap opened a shared room"
+        )
+    }
+
     // MARK: Capture
 
     @MainActor
@@ -646,57 +706,112 @@ final class FieldZoneUITests: XCTestCase {
 
     // MARK: - ○ Yours
     //
-    // CIRCLE.md §2's grammar has to be visible in the chrome: one circle is
-    // yours, two circles are WE. Both marks live in the nav bar for that
-    // reason, so the first thing worth asserting is that they are both there.
+    // The way in is an upward drag on the navigation bar, and there is no
+    // control for it. That is the point: §2 wants the room wordless, and a
+    // permanent button in the chrome is the loudest possible way to describe
+    // somewhere private. What the bar carries instead is a hint, once.
 
+    /// The nav bar holds LIFE / WE / US and nothing else.
     @MainActor
-    func testTheYoursMarkSitsBesideTheWEMark() {
+    func testTheNavigationBarCarriesNoControlForYours() {
         let app = launchZones()
-        // Matched across element types rather than as `otherElements`: the WE
-        // mark carries `.isButton` and the personal one is a Button, so both
-        // land in different collections than a plain container would.
-        let yours = app.descendants(matching: .any)["field.nav.yours"]
         let we = app.descendants(matching: .any)["field.nav.we"]
+        XCTAssertTrue(we.waitForExistence(timeout: 8))
 
-        XCTAssertTrue(
-            yours.waitForExistence(timeout: 8),
-            "the personal mark is missing from the navigation bar"
+        XCTAssertFalse(
+            app.descendants(matching: .any)["field.nav.yours"].exists,
+            "the personal mark is back in the navigation bar"
         )
-        XCTAssertTrue(we.exists, "the WE mark is missing from the navigation bar")
     }
 
-    /// §2: the mark is wordless after the two teaching moments, and it never
-    /// carries a badge or a count. VoiceOver gets the word and nothing else —
-    /// "Yours, one waiting" would be the forbidden count, read aloud.
+    /// §2: nothing in the chrome carries a badge or a count. "Yours, one
+    /// waiting" would be the forbidden count, read aloud.
     @MainActor
-    func testTheYoursMarkIsWordlessAndUncounted() {
+    func testTheChromeCarriesNoCount() {
         let app = launchZones()
-        let mark = app.descendants(matching: .any)["field.nav.yours"]
-        XCTAssertTrue(mark.waitForExistence(timeout: 8))
+        let we = app.descendants(matching: .any)["field.nav.we"]
+        XCTAssertTrue(we.waitForExistence(timeout: 8))
 
-        XCTAssertEqual(mark.label, "Yours")
-        XCTAssertTrue(
-            mark.label.rangeOfCharacter(from: .decimalDigits) == nil,
-            "the mark is carrying a count"
-        )
+        XCTAssertEqual(we.label, "WE")
+        for label in [we.label, app.descendants(matching: .any)["field.nav.life"].label] {
+            XCTAssertTrue(
+                label.rangeOfCharacter(from: .decimalDigits) == nil,
+                "the chrome is carrying a count: \(label)"
+            )
+        }
     }
 
     /// §7: it opens onto somewhere to write, and on nothing at all when there
     /// is nothing — not onto a feed, and not onto an empty inbox with a zero
     /// in it.
     @MainActor
-    func testYoursOpensOntoWritingAndAQuietEmptyState() {
+    func testSwipingUpOnTheNavBarOpensOntoWritingAndAQuietEmptyState() {
         let app = launchZones()
-        let mark = app.descendants(matching: .any)["field.nav.yours"]
-        XCTAssertTrue(mark.waitForExistence(timeout: 8))
-        mark.tap()
+        swipeUpOnTheNavigationBar(app)
 
         XCTAssertTrue(
             app.textViews["yours.compose"].waitForExistence(timeout: 5),
-            "the space did not open onto somewhere to write"
+            "the swipe did not open the space"
         )
         XCTAssertTrue(app.staticTexts["Nothing is waiting for you."].exists)
+    }
+
+    /// The close control used to have the whole screen as its hit region — the
+    /// positioning frame sat outside the `Button` — so a tap anywhere
+    /// dismissed the room, including a tap meant for the writing field. Both
+    /// halves are asserted, because fixing one without the other is how it
+    /// broke in the first place.
+    @MainActor
+    func testTheCloseControlDismissesAndTheRestOfTheScreenDoesNot() {
+        let app = launchZones()
+        swipeUpOnTheNavigationBar(app)
+
+        let compose = app.textViews["yours.compose"]
+        XCTAssertTrue(compose.waitForExistence(timeout: 5))
+
+        // A raw coordinate in the lower middle of the screen — nowhere near
+        // the glyph, and deliberately not an element query. The regression was
+        // positional: the close button's layout frame was the whole window
+        // while it drew in the corner, so *empty space* was a dismiss target.
+        // Only a point tap can catch that coming back.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.62))
+            .tap()
+
+        XCTAssertTrue(
+            compose.waitForExistence(timeout: 2),
+            "tapping empty space inside the room dismissed it"
+        )
+
+        app.descendants(matching: .any)["yours.close"].tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["field.nav.we"]
+                .waitForExistence(timeout: 5),
+            "the close control did not dismiss the room"
+        )
+    }
+
+    /// Coordinate-driven rather than `app.swipeUp()`, which would drag the
+    /// zone's scroll view instead of the bar.
+    ///
+    /// Also clears the first-entry teaching sheet. It is `interactiveDismiss`
+    /// disabled and covers the room, so without this every assertion about
+    /// what the room does is really an assertion about a sheet sitting on top
+    /// of it — the element is found, and nothing on it can be touched.
+    @MainActor
+    private func swipeUpOnTheNavigationBar(_ app: XCUIApplication) {
+        let we = app.descendants(matching: .any)["field.nav.we"]
+        XCTAssertTrue(we.waitForExistence(timeout: 8))
+
+        let start = we.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(
+            forDuration: 0.05,
+            thenDragTo: start.withOffset(CGVector(dx: 0, dy: -120))
+        )
+
+        let begin = app.buttons["Begin"]
+        if begin.waitForExistence(timeout: 3) {
+            begin.tap()
+        }
     }
 
     @MainActor

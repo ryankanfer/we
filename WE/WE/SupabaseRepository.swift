@@ -530,26 +530,20 @@ final class SupabaseRepository: Repository {
     {
         let client = try configuredClient()
         let channel = client.channel("we-couple")
+        // Two, not nineteen.
+        //
+        // This channel used to register a `postgresChange` stream per V2 table
+        // on every launch, and every one of them woke the app to re-run a
+        // `loadRelationship` that no longer reads any of them. What is left is
+        // what the pre-couple flow actually depends on: `couple_members`, so
+        // the person waiting on a join code sees the moment somebody redeems
+        // it, and `relationship_archives`, which `AppSession.archives` reads.
+        //
+        // The Field zones do not use this channel at all — they have their
+        // own, in `FieldSupabaseBackend.changes()`, over `observedTables`.
         let tables = [
-            "insight_consent",
-            "shared_directions",
-            "offered_topics",
             "couple_members",
-            "dismissals",
-            "insight_declines",
-            "reflections",
-            "plans",
-            "responsibilities",
             "relationship_archives",
-            "relationship_presence",
-            "signal_consents",
-            "anchors",
-            "responsibility_handoffs",
-            "relationship_events",
-            "seasons",
-            "contextual_suggestions",
-            "contextual_suggestion_dismissals",
-            "insight_grace",
         ]
         let sourceStreams = tables.map {
             channel.postgresChange(
@@ -649,33 +643,6 @@ final class SupabaseRepository: Repository {
             hueChosenAt: membershipDTO.hueChosenAt
         )
 
-        let localDate = Calendar.current.dateComponents(
-            [.year, .month, .day],
-            from: Date()
-        )
-        let localDateValue = String(
-            format: "%04d-%02d-%02d",
-            localDate.year ?? 1970,
-            localDate.month ?? 1,
-            localDate.day ?? 1
-        )
-        _ = try? await client
-            .rpc(
-                "refresh_shared_moments",
-                params: RefreshSharedMomentsParameters(
-                    localDate: localDateValue
-                )
-            )
-            .execute()
-        _ = try? await client
-            .rpc(
-                "refresh_contextual_suggestions",
-                params: RefreshSharedMomentsParameters(
-                    localDate: localDateValue
-                )
-            )
-            .execute()
-
         async let couplesRequest: [CoupleDTO] = client
             .from("couples")
             .select("id,join_code")
@@ -694,205 +661,28 @@ final class SupabaseRepository: Repository {
             .order("member_slot", ascending: true)
             .execute()
             .value
-        async let insightsRequest: [InsightDTO] = client
-            .from("insights")
-            .select("id,seed_key,kind,domain,present,title,body,evidence,source,options,sort")
-            .eq("couple_id", value: membership.coupleID)
-            .order("sort", ascending: true)
-            .execute()
-            .value
-        async let consentRequest: [ConsentDTO] = client
-            .from("insight_consent")
-            .select(
-                "insight_id,visibility,owner_id,readiness,initiator_id,requested_at,accepted_at,resolution_type,resolution_choice"
-            )
-            .execute()
-            .value
-        async let responsesRequest: [ResponseDTO] = client
-            .from("responses")
-            .select("insight_id,profile_id,status,choice,note")
-            .eq("profile_id", value: user.id)
-            .execute()
-            .value
-        async let sharedDirectionsRequest: [SharedDirectionDTO] = client
-            .from("shared_directions")
-            .select(
-                "insight_id,couple_id,direction_key,eyebrow,title,message,symbol,created_at"
-            )
-            .eq("couple_id", value: membership.coupleID)
-            .execute()
-            .value
-        async let reflectionsRequest: [ReflectionDTO] = client
-            .from("reflections")
-            .select("id,couple_id,owner_id,domain,kind,text")
-            .eq("owner_id", value: user.id)
-            .execute()
-            .value
-        async let dismissalsRequest: [DismissalDTO] = client
-            .from("dismissals")
-            .select("insight_id,profile_id")
-            .execute()
-            .value
-        async let declinesRequest: [InsightDeclineDTO] = client
-            .from("insight_declines")
-            .select("insight_id,profile_id")
-            .execute()
-            .value
-        async let graceRequest: [DeclineGraceDTO] = client
-            .from("insight_grace")
-            .select(
-                "insight_id,profile_id,decline_count,suppress_until"
-            )
-            .eq("profile_id", value: user.id)
-            .execute()
-            .value
-        async let partnerAnswerStatusesRequest:
-            [PartnerAnswerStatusDTO] = client
-            .rpc("partner_answer_statuses")
-            .execute()
-            .value
-        async let plansRequest: [PlanDTO] = client
-            .from("plans")
-            .select("id,couple_id,title,note,scheduled_on,status,completed_at,created_by,updated_by,created_at,updated_at")
-            .eq("couple_id", value: membership.coupleID)
-            .order("scheduled_on", ascending: true, nullsFirst: false)
-            .execute()
-            .value
-        async let responsibilitiesRequest: [ResponsibilityDTO] = client
-            .from("responsibilities")
-            .select(
-                "id,couple_id,title,note,owner_id,scheduled_on,related_plan_id,suggestion_provenance,status,completed_at,created_by,updated_by,created_at,updated_at"
-            )
-            .eq("couple_id", value: membership.coupleID)
-            .order("created_at", ascending: true)
-            .execute()
-            .value
-        async let presenceRequest: [PresenceDTO] = client
-            .from("relationship_presence")
-            .select("couple_id,mode,changed_by,changed_at")
-            .eq("couple_id", value: membership.coupleID)
-            .limit(1)
-            .execute()
-            .value
-        async let signalConsentsRequest: [SignalConsentDTO] = client
-            .from("signal_consents")
-            .select("couple_id,profile_id,signal,enabled,updated_at")
-            .eq("profile_id", value: user.id)
-            .execute()
-            .value
-        async let anchorsRequest: [AnchorDTO] = client
-            .from("anchors")
-            .select(
-                "id,couple_id,title,note,cadence,is_active,created_by,created_at,updated_at"
-            )
-            .eq("couple_id", value: membership.coupleID)
-            .order("created_at", ascending: true)
-            .execute()
-            .value
-        async let handoffsRequest: [HandoffDTO] = client
-            .from("responsibility_handoffs")
-            .select(
-                "id,responsibility_id,couple_id,from_profile_id,to_profile_id,status,created_at,responded_at"
-            )
-            .eq("couple_id", value: membership.coupleID)
-            .order("created_at", ascending: false)
-            .execute()
-            .value
-        async let approachesRequest: [ApproachDTO] = client
-            .from("plan_approaches")
-            .select(
-                "id,plan_id,profile_id,approach,note,created_at"
-            )
-            .eq("couple_id", value: membership.coupleID)
-            .eq("profile_id", value: user.id)
-            .execute()
-            .value
-        async let eventsRequest: [RelationshipEventDTO] = client
-            .from("relationship_events")
-            .select(
-                "id,couple_id,event_type,source_id,title,occurred_at,provenance"
-            )
-            .eq("couple_id", value: membership.coupleID)
-            .order("occurred_at", ascending: true)
-            .execute()
-            .value
-        async let seasonsRequest: [SeasonDTO] = client
-            .from("seasons")
-            .select(
-                "id,couple_id,sequence,starts_at,cutoff_at,title,summary,event_ids,provenance,created_at"
-            )
-            .eq("couple_id", value: membership.coupleID)
-            .order("sequence", ascending: true)
-            .execute()
-            .value
-        async let suggestionsRequest: [ContextualSuggestionDTO] = client
-            .from("contextual_suggestions")
-            .select(
-                "id,couple_id,kind,related_plan_id,title,proposed_responsibility_title,proposed_scheduled_on,evidence,provenance,created_at,is_eligible,confirmed_responsibility_id"
-            )
-            .eq("couple_id", value: membership.coupleID)
-            .eq("is_eligible", value: true)
-            .is("confirmed_responsibility_id", value: nil)
-            .order("created_at", ascending: true)
-            .execute()
-            .value
-        async let suggestionDismissalsRequest:
-            [ContextualSuggestionDismissalDTO] = client
-            .from("contextual_suggestion_dismissals")
-            .select("suggestion_id")
-            .eq("profile_id", value: user.id)
-            .execute()
-            .value
-
-        let (
-            coupleDTOs,
-            memberDTOs,
-            insightDTOs,
-            consentDTOs,
-            responseDTOs,
-            reflectionDTOs,
-            dismissalDTOs,
-            declineDTOs,
-            planDTOs,
-            responsibilityDTOs
-        ) = try await (
+        // The V2 relationship layer is not fetched.
+        //
+        // `WEApp.content` hands the screen to `FieldRoot` the moment the
+        // session is ready, so `ContentView` and `ProfileView` — the only
+        // things that ever rendered any of this — now carry the states that
+        // come *before* a couple exists. `Field/CUTOVER.md`: "The zones are
+        // the app." Everything below used to run anyway: twenty-one parallel
+        // selects and two seeding RPCs on every cold start, for surfaces no
+        // signed-in, paired person can reach.
+        //
+        // Fetched still, because the pre-couple flow genuinely needs them:
+        // the profile, this person's archives, their membership, the couple's
+        // join code, and the two members.
+        //
+        // The tables, their RLS, and their RPCs are all untouched. Deleting
+        // client work is reversible in an afternoon; dropping tables is not,
+        // and "unused by today's UI" is weaker evidence than "unused after
+        // real beta behaviour". Revisit after beta.
+        let (coupleDTOs, memberDTOs) = try await (
             couplesRequest,
-            membersRequest,
-            insightsRequest,
-            consentRequest,
-            responsesRequest,
-            reflectionsRequest,
-            dismissalsRequest,
-            declinesRequest,
-            plansRequest,
-            responsibilitiesRequest
+            membersRequest
         )
-
-        let (
-            presenceDTOs,
-            signalConsentDTOs,
-            anchorDTOs,
-            handoffDTOs,
-            approachDTOs,
-            eventDTOs,
-            seasonDTOs,
-            suggestionDTOs,
-            suggestionDismissalDTOs
-        ) = try await (
-            presenceRequest,
-            signalConsentsRequest,
-            anchorsRequest,
-            handoffsRequest,
-            approachesRequest,
-            eventsRequest,
-            seasonsRequest,
-            suggestionsRequest,
-            suggestionDismissalsRequest
-        )
-        let graceDTOs = try await graceRequest
-        let partnerAnswerStatusDTOs =
-            try await partnerAnswerStatusesRequest
-        let sharedDirectionDTOs = try await sharedDirectionsRequest
 
         let members = try memberDTOs.map {
             try Member(
@@ -901,94 +691,21 @@ final class SupabaseRepository: Repository {
                 hue: memberHue($0.hue)
             )
         }
-        let consentByInsight = try Dictionary(
-            uniqueKeysWithValues: consentDTOs.map {
-                try ($0.insightID, consent($0))
-            }
-        )
-        var responsesByInsight = try Dictionary(
-            grouping: responseDTOs.map(response),
-            by: \.insightID
-        )
-        let sharedDirectionsByInsight = Dictionary(
-            uniqueKeysWithValues: sharedDirectionDTOs.map {
-                ($0.insightID, sharedDirection($0))
-            }
-        )
-        for status in partnerAnswerStatusDTOs where status.hasAnswered {
-            guard !responsesByInsight[
-                status.insightID,
-                default: []
-            ].contains(where: { $0.profileID == status.profileID })
-            else { continue }
-            responsesByInsight[status.insightID, default: []].append(
-                InsightResponse(
-                    insightID: status.insightID,
-                    profileID: status.profileID,
-                    status: .submitted,
-                    choice: nil,
-                    note: nil
-                )
-            )
-        }
-        let dismissalsByInsight = Dictionary(
-            grouping: dismissalDTOs,
-            by: \.insightID
-        )
-        let declinesByInsight = Dictionary(
-            grouping: declineDTOs,
-            by: \.insightID
-        )
-        let insights = try insightDTOs.map { dto in
-            let value = try insight(dto)
-            return InsightRecord(
-                insight: value,
-                consent: consentByInsight[value.id],
-                responses: responsesByInsight[value.id] ?? [],
-                sharedDirection: sharedDirectionsByInsight[value.id],
-                dismissedBy: Set(
-                    dismissalsByInsight[value.id, default: []].map(\.profileID)
-                ),
-                declinedBy: Set(
-                    declinesByInsight[value.id, default: []].map(\.profileID)
-                )
-            )
-        }
-        let dismissedSuggestionIDs = Set(
-            suggestionDismissalDTOs.map(\.suggestionID)
-        )
 
-        return try RelationshipSnapshot(
+        return RelationshipSnapshot(
             profile: profile,
             membership: membership,
             couple: coupleDTOs.first.map {
                 Couple(id: $0.id, joinCode: $0.joinCode)
             },
             members: members,
-            insights: insights,
-            reflections: reflectionDTOs.map(reflection),
-            plans: planDTOs.map(plan),
-            responsibilities: responsibilityDTOs.map {
-                try responsibility($0, userID: user.id)
-            },
+            insights: [],
+            reflections: [],
+            plans: [],
+            responsibilities: [],
             archives: archives,
             syncedAt: Date(),
-            v2: V2RelationshipState(
-                presence: try presenceDTOs.first.map(presence),
-                signalConsents: try signalConsentDTOs.map(signalConsent),
-                anchors: try anchorDTOs.map(anchor),
-                handoffs: try handoffDTOs.map(handoff),
-                approaches: try approachDTOs.map(approach),
-                events: try eventDTOs.map(relationshipEvent),
-                seasons: seasonDTOs.map(season),
-                suggestions: try suggestionDTOs.map {
-                    try contextualSuggestion(
-                        $0,
-                        dismissed: dismissedSuggestionIDs.contains($0.id)
-                    )
-                },
-                declineGrace: graceDTOs.map(declineGrace)
-            )
+            v2: .empty
         )
     }
 

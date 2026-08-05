@@ -40,6 +40,15 @@ protocol FieldBackend: Sendable {
     /// Answering a promotion question is the only way a horizon is ever
     /// created, so this is the only route by which Us gains anything.
     func upsert(_ horizon: FieldHorizon) async throws
+    /// The record that a horizon became real, and every ordinary week that
+    /// moved it.
+    ///
+    /// `field_evidence` was read on every load and written by nothing, so the
+    /// whole middle of Us — "what this week did for it" — was whatever seed
+    /// data happened to be there, and the "You decided X is real" line a
+    /// promotion produced was gone by the next launch. The table was not dead;
+    /// the write was missing.
+    func upsert(_ evidence: FieldEvidence) async throws
     /// And answering an occasion question is the only way a cluster is. Until
     /// this existed the table was read and never written, so every occasion
     /// any couple had was one that arrived with their seed data.
@@ -55,6 +64,25 @@ protocol FieldBackend: Sendable {
     /// used to evaporate on relaunch, which is the app forgetting an
     /// instruction it was given while claiming to have learned from it.
     func setDailyMoment(_ moment: FieldDailyMoment) async throws
+
+    /// "I'd welcome a moment together", for the caller's own day.
+    ///
+    /// Returns nothing, deliberately. The obvious signature hands back the
+    /// resulting state so a tap knows immediately whether it bloomed — but
+    /// then the offline path has nothing honest to return, and the queue would
+    /// have to invent one. Marking and asking are separate calls so that both
+    /// have the same meaning whether or not there is a network: the mark is
+    /// owed, the state is read.
+    func markReady(localDate: String) async throws
+
+    /// Whether the two of them are open to each other today.
+    ///
+    /// An RPC rather than a read of any table, because the answer has to be
+    /// computable without the caller ever being able to see their partner's
+    /// row. There is no value meaning "they have, you have not" — see
+    /// `FieldReadinessState`.
+    func readiness(localDate: String) async throws -> FieldReadiness
+
     func changes() -> AsyncStream<Void>
 
     /// How much of this person's solo history has not crossed to their
@@ -78,6 +106,15 @@ protocol FieldBackend: Sendable {
 extension FieldBackend {
     func soloHistoryCount() async throws -> Int { 0 }
     func shareSoloHistory() async throws -> Int { 0 }
+
+    /// `neither` for the same reason zero is: a backend with no couple behind
+    /// it has nobody to be open to, and the mark simply never blooms. Note
+    /// which way the default falls — a conformer that forgets to implement
+    /// this shows no circle rather than showing one that lies about a partner.
+    func markReady(localDate: String) async throws {}
+    func readiness(localDate: String) async throws -> FieldReadiness {
+        .neither(on: localDate)
+    }
 }
 
 /// Everything the app persists. One value, so a load is atomic and a
@@ -166,6 +203,28 @@ struct FieldState: Codable, Hashable, Sendable {
         captures: FieldSampleData.capturedThisWeek,
         dailyMoment: FieldSampleData.dailyMoment,
         learningSince: FieldSampleData.learningSince
+    )
+
+    /// The same fictional couple as `seed`, renamed and shifted three months
+    /// later — `WE_FIELD=demo`, for showing the product as it looks after a
+    /// real couple has been using it a while.
+    static let demo = FieldState(
+        identity: FieldDemoData.identity,
+        partners: FieldDemoData.partners,
+        lifeItems: FieldDemoData.lifeItems + FieldDemoData.mentioned,
+        clusters: FieldDemoData.clusters,
+        horizons: FieldDemoData.horizons,
+        rhythms: FieldDemoData.rhythms,
+        anchors: FieldDemoData.anchors,
+        threads: FieldDemoData.threads,
+        evidence: FieldDemoData.evidence,
+        seasons: [FieldDemoData.season],
+        heldTopics: FieldDemoData.heldTopics,
+        standingRules: FieldDemoData.standingRules,
+        corrections: [],
+        captures: FieldDemoData.capturedThisWeek,
+        dailyMoment: FieldDemoData.dailyMoment,
+        learningSince: FieldDemoData.learningSince
     )
 }
 
@@ -298,6 +357,12 @@ final class FieldStore {
         self.now = self.clock.now
         self.backend = backend
         self.resolver = resolver ?? FieldNoTargetResolver()
+        // Nobody, until the server says otherwise. The circle starts closed on
+        // every launch and is never restored from disk — there is nothing on
+        // disk to restore it from, deliberately.
+        self.storedReadiness = .neither(
+            on: FieldReadiness.localDate(for: self.clock.now)
+        )
     }
 
     // MARK: The day turning
@@ -700,14 +765,6 @@ final class FieldStore {
         // their own. An empty receipt is the honest answer to "what have I
         // learned" before anything has been corrected.
         return derived
-    }
-
-    var monthsLearning: Int {
-        FieldLearning.monthsLearning(
-            since: state.learningSince,
-            now: now,
-            calendar: calendar
-        )
     }
 
     var momentDecision: FieldMomentScheduler.Decision {
@@ -1159,21 +1216,34 @@ final class FieldStore {
         )
         state.horizons.insert(horizon, at: 0)
 
-        state.evidence.insert(
-            FieldEvidence(
-                id: UUID().uuidString,
-                statement: "You decided \(proposal.subject) is real.",
-                owner: .shared,
-                horizonID: horizon.id,
-                occurredAt: now
-            ),
-            at: 0
+        let evidence = FieldEvidence(
+            id: UUID().uuidString,
+            statement: "You decided \(proposal.subject) is real.",
+            owner: .shared,
+            horizonID: horizon.id,
+            occurredAt: now
         )
+        state.evidence.insert(evidence, at: 0)
 
         // Written, not just shown. A horizon that exists only in memory is
         // the same bug captures had before `persist` existed: it looks filed,
         // and it is gone on the next load.
-        Task { [backend] in try? await backend?.upsert(horizon) }
+        //
+        // The evidence goes with it, and used not to. This line was the entire
+        // reason `field_evidence` looked like a dead table: it was read on
+        // every load, and the one thing in the app that produces a row only
+        // ever produced it in memory. So the sentence recording that a couple
+        // decided something was real survived exactly until they closed the
+        // app.
+        //
+        // The horizon first, in that order: `field_evidence.horizon_id` is a
+        // foreign key, and an evidence row that arrived first would have its
+        // pointer set to null by `on delete set null`'s cousin — a violated
+        // reference — or be rejected outright.
+        Task { [backend] in
+            try? await backend?.upsert(horizon)
+            try? await backend?.upsert(evidence)
+        }
     }
 
     /// Yes — so the two things are shown together, and counted together.
@@ -1549,6 +1619,15 @@ final class FieldStore {
     /// thing is not there.
     private func loadOnce() async {
         guard let backend else { return }
+
+        // The circle rides the same signal as the zones. `changes()` fires on
+        // `field_readiness_bloom`, so this is what carries the second person's
+        // tap onto the first person's screen without a foreground — and it is
+        // deliberately outside the do/catch below, because whether the zones
+        // loaded and whether the couple is open to each other are two
+        // unrelated questions and neither should suppress the other.
+        await refreshReadiness()
+
         do {
             state = try await backend.load()
             lastLoadedAt = now
@@ -1620,6 +1699,109 @@ final class FieldStore {
         decision.remember()
         hasAnsweredCrossing = true
     }
+
+    // MARK: - The circle
+
+    /// The last answer the server gave, for the day it was about.
+    ///
+    /// Not in `FieldState`, and that is the important part: readiness is never
+    /// written to the cache on disk, never replayed from the outbox, and never
+    /// derived on device. It is the one thing here whose truth lives entirely
+    /// on the server, because the row that decides it is one this client is not
+    /// permitted to read.
+    private(set) var storedReadiness: FieldReadiness
+
+    /// The circle, as of today.
+    ///
+    /// Dated rather than cleared on a timer. An answer about yesterday is not
+    /// wrong, it is simply not about now — and a couple who bloomed last night
+    /// must not open the app this morning to last night's room still standing.
+    /// Reading through the day means midnight resets the circle with no
+    /// invalidation to remember and nothing to schedule.
+    var circle: FieldReadiness {
+        storedReadiness.localDate == todayLocalDate
+            ? storedReadiness
+            : .neither(on: todayLocalDate)
+    }
+
+    var todayLocalDate: String { FieldReadiness.localDate(for: now) }
+
+    /// Whether the mark is a control at all.
+    ///
+    /// False in the gallery and the previews, which have no backend — and a
+    /// mark that can be tapped there would be a control that cannot do the one
+    /// thing it exists to do. Everywhere else it is true, because `FieldRoot`
+    /// only takes the screen once the session is `.ready`, which is to say
+    /// once there is somebody to be open to.
+    var isCircleAvailable: Bool { backend != nil }
+
+    /// The day the room was closed, so it does not reopen behind the person
+    /// who just closed it.
+    ///
+    /// Ephemeral on purpose, and the exception that proves the rule about
+    /// residue: it is not written down anywhere, so relaunching offers the
+    /// room again for as long as the day lasts. That is the right behaviour —
+    /// both people are still open, and the app has no business deciding they
+    /// have had their moment.
+    private var roomClosedOn: String?
+
+    /// Whether to open the room. True only once both have marked and it has
+    /// not been closed today.
+    var shouldOpenRoom: Bool {
+        circle.hasBloomed && roomClosedOn != todayLocalDate
+    }
+
+    /// "I'd welcome a moment together."
+    ///
+    /// Optimistic to `.you` before the network, because the tap has to feel
+    /// like it landed and `.you` is the one thing this device can know for
+    /// certain about its own action. It is never optimistic to `.both`: that
+    /// would be the app inventing a partner's consent, and it is the only
+    /// state that puts words on both their screens.
+    ///
+    /// Idempotent all the way down — the mutation compacts on the day, and
+    /// `field_readiness_mark` inserts on conflict do nothing. Tapping twice
+    /// records nothing about the second tap, here or anywhere.
+    func markReady() async {
+        let day = todayLocalDate
+        if circle.state == .neither {
+            storedReadiness = FieldReadiness(
+                state: .you,
+                prompt: nil,
+                localDate: day
+            )
+        }
+
+        try? await backend?.markReady(localDate: day)
+
+        // Then ask, rather than trusting the write's own answer. This is what
+        // turns "I marked" into "we both did" when the partner got there
+        // first, and it is the same call the realtime tick makes — one path to
+        // the bloom, not two.
+        await refreshReadiness()
+    }
+
+    /// Re-read the circle. Called on every load and every realtime tick, so
+    /// the second person's tap blooms on the first person's screen without a
+    /// foreground.
+    ///
+    /// A failure leaves the last answer standing rather than resetting to
+    /// `neither`. The same rule `loadState` encodes for the zones: the app is
+    /// allowed not to know, and is not allowed to say a thing is not there.
+    func refreshReadiness() async {
+        guard let backend else { return }
+        let day = todayLocalDate
+        guard let answer = try? await backend.readiness(localDate: day) else {
+            return
+        }
+        storedReadiness = answer
+    }
+
+    /// Close the room. Nothing is kept, and nothing about it is recorded —
+    /// there is no row, no capture, and no measurement of how long it was open.
+    func closeRoom() {
+        roomClosedOn = todayLocalDate
+    }
 }
 
 // MARK: - In-memory backend
@@ -1633,12 +1815,28 @@ final class FieldMemoryBackend: FieldBackend, @unchecked Sendable {
     private let lock = NSLock()
     let viewerOwner: FieldOwner
 
+    /// Days this viewer has marked. Not part of `FieldState` — readiness is
+    /// never loaded with the zones and never cached, and putting it there
+    /// would be the one place it could leak onto disk.
+    private var markedDays: Set<String> = []
+
+    /// Whether the *other* person has already marked, for the days named here.
+    ///
+    /// A test seam and a gallery seam, and it has to be one: there is no
+    /// second person in this process, so without it the in-memory backend can
+    /// reach `.you` and never `.both`, and the bloom would have no reference
+    /// implementation to be checked against. Defaults to nobody, so an
+    /// ordinary preview shows an ordinary unmarked mark.
+    private let partnerMarkedDays: Set<String>
+
     init(
         state: FieldState = .seed,
-        viewerOwner: FieldOwner = .a
+        viewerOwner: FieldOwner = .a,
+        partnerMarkedDays: Set<String> = []
     ) {
         self.state = state
         self.viewerOwner = viewerOwner
+        self.partnerMarkedDays = partnerMarkedDays
     }
 
     func load() async throws -> FieldState {
@@ -1682,6 +1880,10 @@ final class FieldMemoryBackend: FieldBackend, @unchecked Sendable {
         apply(.upsertHorizon(horizon))
     }
 
+    func upsert(_ evidence: FieldEvidence) async throws {
+        apply(.upsertEvidence(evidence))
+    }
+
     func upsert(_ cluster: FieldCluster) async throws {
         apply(.upsertCluster(cluster))
     }
@@ -1705,6 +1907,54 @@ final class FieldMemoryBackend: FieldBackend, @unchecked Sendable {
     func setDailyMoment(_ moment: FieldDailyMoment) async throws {
         apply(.setDailyMoment(moment))
     }
+
+    // MARK: The circle
+    //
+    // Not routed through `apply` like the writes above, because readiness is
+    // not in `FieldState` and deliberately never will be — it is not loaded,
+    // not cached, and not replayable. `FieldMutation.markReady` says the same
+    // thing from the other side.
+
+    func markReady(localDate: String) async throws {
+        // Idempotent by construction: a set, so a second tap on the same day
+        // is not a second anything. Matches `field_readiness_mark`'s
+        // `on conflict do nothing`, and for the same reason — a repeat must
+        // leave no trace that could be read as pressure.
+        lock.withLock { _ = markedDays.insert(localDate) }
+    }
+
+    func readiness(localDate: String) async throws -> FieldReadiness {
+        lock.withLock {
+            let mine = markedDays.contains(localDate)
+            let theirs = partnerMarkedDays.contains(localDate)
+
+            // The ordering is the invariant. `theirs && !mine` falls through
+            // to `.neither`, exactly as the RPC's own branches do: a partner
+            // who has marked alone is indistinguishable from a partner who has
+            // not. If this ever grows a `.partner` case, the schema is no
+            // longer the thing enforcing the promise.
+            guard mine else { return .neither(on: localDate) }
+            guard theirs else {
+                return FieldReadiness(
+                    state: .you,
+                    prompt: nil,
+                    localDate: localDate
+                )
+            }
+            return FieldReadiness(
+                state: .both,
+                prompt: Self.samplePrompt,
+                localDate: localDate
+            )
+        }
+    }
+
+    /// One fixed line, not the server's rotation. The rotation is chosen by
+    /// `private.field_readiness_prompt` from the couple and the day, and
+    /// reimplementing that here would be a second copy of a rule whose whole
+    /// point is that both devices read one value.
+    static let samplePrompt =
+        "What would make tonight feel a little more like yours?"
 
     func changes() -> AsyncStream<Void> {
         AsyncStream { $0.finish() }

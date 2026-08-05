@@ -56,10 +56,11 @@ couple's own names from the session, and both roots pass `Date()` explicitly.
 **Where sample data is still correct:**
 
 - `WE_FIELD=gallery` and `WE_FIELD=seeded`, which exist to show the design.
-- Five screens reachable *only* from the gallery — `FieldPresenceView`,
-  `FieldDailyMomentView`, `FieldCorrectionReceiptView`, `FieldDeferralView`,
-  `FieldSeasonClosedView`. Nothing routes to them from a zone, so their
-  narrative is a rendering of the handoff, not something a user is told.
+- Four screens reachable *only* from the gallery — `FieldPresenceView`,
+  `FieldDailyMomentView`, `FieldDeferralView`, `FieldSeasonClosedView`. Nothing
+  routes to them from a zone, so their narrative is a rendering of the handoff,
+  not something a user is told. (`FieldCorrectionReceiptView` was the fifth;
+  6a is now three lines at the close of Us — `FieldUsZone.whatIveChanged`.)
 - Copy quoted from the spec: the onboarding questions, the closing line, and
   the four canonical capture phrases, which the handoff specifies as a
   demonstration of classification.

@@ -29,7 +29,21 @@ enum YoursCopy {
     /// The invitation, and the whole thesis in six words.
     static let compose = "Write without deciding what it becomes."
 
-    static let saved = "This will return in six weeks."
+    /// The reassurance under the dated receipt.
+    ///
+    /// It used to be "This will return in six weeks." — which the dated
+    /// sentence beneath it already said, more precisely. Nothing is listed on
+    /// this surface any more, so the receipt is doing the work the list used
+    /// to: it is the only confirmation that the writing landed, and the whole
+    /// thesis restated at the one moment somebody might doubt it.
+    ///
+    /// Not "Held" — that is a specific, deliberate state in this product, with
+    /// its own drawer and its own decision. Saying it here would collapse the
+    /// distinction the surface depends on.
+    static let saved = "You don't need to decide what this becomes yet."
+
+    /// Available only while the receipt is on screen.
+    static let undoSave = "Undo"
 
     /// The empty state. Not "no entries", not a count of zero — there is
     /// nothing to report and the sentence says so.

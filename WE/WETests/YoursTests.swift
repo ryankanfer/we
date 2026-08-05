@@ -311,6 +311,185 @@ struct YoursDestroyQueueTests {
     }
 }
 
+// MARK: - Taking it back
+
+/// A backend that is exactly the memory one until the network is asked to
+/// destroy something, at which point it is a phone in a lift.
+///
+/// Written out longhand rather than by making `YoursMemoryBackend` injectable:
+/// that type also backs the seeded and gallery runs, and a failure switch on it
+/// is a switch somebody can leave on in a build people look at.
+@MainActor
+private final class YoursOfflineLetGoBackend: YoursBackend {
+    private let wrapped: YoursMemoryBackend
+    private(set) var letGoAttempts = 0
+
+    init(_ wrapped: YoursMemoryBackend) { self.wrapped = wrapped }
+
+    private struct Offline: Error {}
+
+    func letGo(
+        entryID: String,
+        visit: YoursVisit?,
+        reason: YoursReleaseReason?
+    ) async throws {
+        letGoAttempts += 1
+        throw Offline()
+    }
+
+    /// Everything else is the real thing.
+    func load() async throws -> YoursSnapshot { try await wrapped.load() }
+    func save(clientID: String, body: String) async throws -> YoursEntry {
+        try await wrapped.save(clientID: clientID, body: body)
+    }
+    func edit(entryID: String, body: String) async throws -> YoursEntry {
+        try await wrapped.edit(entryID: entryID, body: body)
+    }
+    func presentNext(visit: YoursVisit) async throws -> YoursEntry? {
+        try await wrapped.presentNext(visit: visit)
+    }
+    func presentNextOffer(visit: YoursVisit) async throws -> YoursPreparedOffer? {
+        try await wrapped.presentNextOffer(visit: visit)
+    }
+    func keepForNow(entryID: String, visit: YoursVisit) async throws -> YoursEntry {
+        try await wrapped.keepForNow(entryID: entryID, visit: visit)
+    }
+    func hold(entryID: String, visit: YoursVisit?) async throws -> YoursEntry {
+        try await wrapped.hold(entryID: entryID, visit: visit)
+    }
+    func snooze(entryID: String, visit: YoursVisit) async throws -> YoursEntry {
+        try await wrapped.snooze(entryID: entryID, visit: visit)
+    }
+    func letThisReturn(entryID: String, body: String?) async throws -> YoursEntry {
+        try await wrapped.letThisReturn(entryID: entryID, body: body)
+    }
+    func updateHeld(entryID: String, body: String) async throws -> YoursEntry {
+        try await wrapped.updateHeld(entryID: entryID, body: body)
+    }
+    func prepareOffer(
+        entryID: String,
+        clientID: String,
+        title: String,
+        question: String,
+        options: [String],
+        visit: YoursVisit?
+    ) async throws -> YoursPreparedOffer {
+        try await wrapped.prepareOffer(
+            entryID: entryID,
+            clientID: clientID,
+            title: title,
+            question: question,
+            options: options,
+            visit: visit
+        )
+    }
+    func sendOffer(offerID: String) async throws {
+        try await wrapped.sendOffer(offerID: offerID)
+    }
+    func letOfferGo(
+        offerID: String,
+        visit: YoursVisit?,
+        reason: YoursReleaseReason?
+    ) async throws {
+        try await wrapped.letOfferGo(
+            offerID: offerID,
+            visit: visit,
+            reason: reason
+        )
+    }
+    func touch() async throws { try await wrapped.touch() }
+    func markTaught(_ moment: YoursTeachingMoment) async throws -> YoursOwnerState {
+        try await wrapped.markTaught(moment)
+    }
+}
+
+/// Nothing is listed on this surface any more, so the save receipt is the only
+/// moment an entry is visible between being written and returning six weeks
+/// later — and therefore the only moment a mistake is catchable. The thing that
+/// must never happen is an undone entry coming back.
+@Suite("Undo, and the entry never comes back")
+@MainActor
+struct YoursUndoTests {
+    @Test("Undoing a save destroys the entry rather than hiding the receipt")
+    func undoOnline() async {
+        let (memory, clock) = backend()
+        let store = YoursStore(backend: memory, clock: clock)
+        await store.open()
+
+        store.draft = "written by accident"
+        await store.save()
+        #expect(store.justSaved != nil)
+        #expect(try! await memory.load().living.count == 1)
+
+        await store.undoSave()
+
+        #expect(store.justSaved == nil)
+        #expect(store.snapshot.living.isEmpty)
+        // The one that matters: gone from the backend, not just from the view.
+        // A reload is what a relaunch does.
+        #expect(try! await memory.load().living.isEmpty)
+    }
+
+    @Test("Undo with no receipt on screen does nothing at all")
+    func undoWithoutASave() async {
+        let (memory, clock) = backend()
+        let store = YoursStore(backend: memory, clock: clock)
+        await store.open()
+
+        store.draft = "kept on purpose"
+        await store.save()
+        store.dismissSaveConfirmation()
+
+        await store.undoSave()
+        #expect(try! await memory.load().living.count == 1)
+    }
+
+    /// The race this exists to pin: an undo that fails at the network must not
+    /// leave the entry alive locally *or* forget the intent. `letGo` drops the
+    /// row before it consults the network and puts the destruction in
+    /// `YoursDestroyQueue`, which drains on the next open — so reconnecting
+    /// finishes the job instead of undoing the undo.
+    @Test("An undo made offline is still an undo after reconnecting")
+    func undoOffline() async {
+        let (memory, clock) = backend()
+        let queue = YoursDestroyQueue.shared
+        for pending in queue.pending() { queue.clear(entryID: pending.entryID) }
+
+        let offline = YoursOfflineLetGoBackend(memory)
+        let store = YoursStore(backend: offline, clock: clock)
+        await store.open()
+
+        store.draft = "written by accident, on a train"
+        await store.save()
+        let saved = store.justSaved
+        #expect(saved != nil)
+
+        await store.undoSave()
+
+        // Locally it is already gone — §11 does not wait for a network to tell
+        // somebody their own decision took effect.
+        #expect(store.justSaved == nil)
+        #expect(store.snapshot.living.isEmpty)
+        #expect(offline.letGoAttempts == 1)
+
+        // And the intent survived, keyed to the entry rather than to the words.
+        let pending = queue.pending()
+        #expect(pending.contains { $0.entryID == saved?.id })
+
+        // Reconnected: the queue drains against a backend that works, and the
+        // entry is destroyed for real. Nothing here reinstates it.
+        let reconnected = YoursStore(backend: memory, clock: clock)
+        await reconnected.drainDestroyQueue()
+        #expect(try! await memory.load().living.isEmpty)
+        #expect(!queue.pending().contains { $0.entryID == saved?.id })
+
+        // A relaunch reads from the backend, so this is what the next launch
+        // would show.
+        await reconnected.open()
+        #expect(reconnected.snapshot.living.isEmpty)
+    }
+}
+
 // MARK: - Nearing return
 
 @Suite("The stroke lightens, and never counts")
@@ -348,7 +527,8 @@ struct YoursNearingTests {
 @Suite("No numerals, no counts, no guilt")
 struct YoursCopyTests {
     private static let everything: [String] = [
-        YoursCopy.compose, YoursCopy.saved, YoursCopy.empty,
+        YoursCopy.compose, YoursCopy.saved, YoursCopy.undoSave,
+        YoursCopy.empty,
         YoursCopy.returnQuestion, YoursCopy.keepForNow, YoursCopy.letGo,
         YoursCopy.keepIndefinitely, YoursCopy.keepOnlyForMe,
         YoursCopy.prepareAnOffer, YoursCopy.letItGo, YoursCopy.snooze,

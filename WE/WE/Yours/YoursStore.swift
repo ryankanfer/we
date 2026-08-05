@@ -230,6 +230,29 @@ final class YoursStore {
         justSaved = nil
     }
 
+    /// Taking it back, while the receipt is still on screen.
+    ///
+    /// Nothing is listed on this surface any more, so the receipt is the only
+    /// moment an entry is ever visible before it goes away for six weeks — and
+    /// therefore the only moment a mistake can be caught. Without this, the
+    /// way to unsay something written by accident would be to wait six weeks
+    /// for it to come back and *then* let it go.
+    ///
+    /// Routed through `letGo` rather than a new delete, deliberately: that path
+    /// already removes the row locally before consulting the network and
+    /// enqueues the destruction in `YoursDestroyQueue` when the network is not
+    /// there. A save and an undo that raced in the queue would otherwise be
+    /// exactly how an "undone" entry comes back on reconnect.
+    ///
+    /// No reason is recorded. §13 asks why somebody released something they
+    /// had lived with; this is somebody correcting a typo seconds later, and
+    /// asking would be an interview nobody agreed to.
+    func undoSave() async {
+        guard let entry = justSaved else { return }
+        justSaved = nil
+        await letGo(entry, reason: nil, answeringReturn: false)
+    }
+
     /// §3: "Keep indefinitely is available from the first save, visually
     /// secondary." Two calls rather than one, because permanence is a decision
     /// about an entry and an entry has to exist to be decided about — and

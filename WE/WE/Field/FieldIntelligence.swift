@@ -2884,14 +2884,10 @@ enum FieldLearning {
         return changes
     }
 
-    /// The month number in the receipt's header.
-    static func monthsLearning(
-        since start: Date,
-        now: Date,
-        calendar: Calendar = .gregorianUS
-    ) -> Int {
-        max(1, calendar.dateComponents([.month], from: start, to: now).month ?? 1)
-    }
+    // `monthsLearning` lived here to number the correction receipt's header
+    // ("MONTH 1"). The receipt is gone and nothing else ever counted months —
+    // an elapsed-time figure is a tenure badge, and this app does not keep
+    // score of how long anybody has been using it.
 }
 
 extension DateFormatter {

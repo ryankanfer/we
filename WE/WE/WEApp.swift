@@ -117,6 +117,9 @@ struct WEApp: App {
             case .seeded:
                 FieldZoneShell()
                     .environmentObject(previewSession)
+            case .demo:
+                FieldZoneShell(store: FieldStore(state: .demo))
+                    .environmentObject(previewSession)
             case .live:
                 if let snapshot = host.session.snapshot,
                    isReady(host.session.state) {

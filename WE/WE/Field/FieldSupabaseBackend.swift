@@ -674,6 +674,43 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             .execute()
     }
 
+    /// The write this table never had.
+    ///
+    /// `field_evidence` has been in `load()` and in the realtime publication
+    /// since the zones shipped, and nothing has ever inserted a row. Us read a
+    /// table that only ever contained seed data, and the "You decided X is
+    /// real" line that `promote` produces alongside a new horizon lasted until
+    /// the next load and then was not there.
+    ///
+    /// `owner` is checked by `private.field_preserve_actor` on insert: shared
+    /// is always allowed, and a side may only author its own. Everything this
+    /// app currently writes here is shared, because it is a record of a
+    /// decision the two of them made.
+    func upsert(_ evidence: FieldEvidence) async throws {
+        var payload: [String: AnyJSON] = [
+            "couple_id": .string(coupleID.uuidString),
+            "statement": .string(evidence.statement),
+            "owner": .string(evidence.owner.rawValue),
+            "occurred_at": .string(
+                ISO8601DateFormatter().string(from: evidence.occurredAt)
+            ),
+        ]
+        if let existing = UUID(uuidString: evidence.id) {
+            payload["id"] = .string(existing.uuidString)
+        }
+        // Null rather than absent: the column is nullable and a horizon that
+        // was deleted sets it to null, so an upsert that omitted it would
+        // leave a stale pointer behind.
+        payload["horizon_id"] = evidence.horizonID
+            .flatMap { UUID(uuidString: $0) }
+            .map { .string($0.uuidString) } ?? .null
+
+        _ = try await client
+            .from("field_evidence")
+            .upsert(payload, onConflict: "id")
+            .execute()
+    }
+
     /// And the only way Life ever gains an occasion: somebody answered an
     /// occasion question with a yes.
     func upsert(_ cluster: FieldCluster) async throws {
@@ -830,6 +867,55 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             .value
     }
 
+    // MARK: - The circle
+
+    /// Both of these are RPCs and neither is a table read, which is the whole
+    /// security model rather than a style choice: `field_readiness` grants this
+    /// client no way to see a partner's row, so any client-side derivation of
+    /// "are we both open" could only ever answer for one person. The state is
+    /// computed where both rows are visible and returned as one of three words.
+    ///
+    /// See `20260805090000_field_readiness.sql`.
+
+    func markReady(localDate: String) async throws {
+        // The RPC returns the resulting state, and it is discarded here on
+        // purpose. `FieldBackend.markReady` returns nothing so that the online
+        // and offline paths mean the same thing; the store reads the state
+        // afterwards, through a call that works either way.
+        _ = try await client
+            .rpc("field_readiness_mark", params: ["p_local_date": localDate])
+            .execute()
+    }
+
+    func readiness(localDate: String) async throws -> FieldReadiness {
+        let rows: [ReadinessRow] = try await client
+            .rpc("field_readiness_state", params: ["p_local_date": localDate])
+            .execute()
+            .value
+
+        // A `returns table` RPC is a set, and an empty one is a real
+        // possibility if the function is ever rewritten. No rows means the
+        // server said nothing about today, and the honest reading of nothing
+        // is that nobody has marked — never that somebody has.
+        guard let row = rows.first,
+              let state = FieldReadinessState(rawValue: row.state)
+        else { return .neither(on: localDate) }
+
+        return FieldReadiness(
+            state: state,
+            // Only `.both` carries words, and the guard is here as well as in
+            // the RPC because a prompt rendered under any other state would be
+            // this device inventing the circle.
+            prompt: state == .both ? row.prompt : nil,
+            localDate: localDate
+        )
+    }
+
+    private struct ReadinessRow: Decodable {
+        let state: String
+        let prompt: String?
+    }
+
     // MARK: Realtime
     //
     // The partner's captures and corrections have to land without a refresh —
@@ -919,13 +1005,14 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         }
     }
 
-    /// Every table a `FieldState` is built from, and nothing else.
+    /// Every table a `FieldState` is built from, plus the two the circle
+    /// needs, and nothing else.
     ///
     /// Listed rather than derived: a table added to `load()` and forgotten
     /// here shows up as a partner's change not arriving until the next
     /// foreground, which is a slow and confusing bug. Adding to `load()`
     /// should mean adding here in the same edit.
-    /// Exactly the thirteen `load()` reads, in the same order.
+    /// The thirteen `load()` reads, in the same order, then readiness.
     ///
     /// A table here that realtime does not publish is harmless — it simply
     /// never fires. A table in `load()` and missing here is not: the partner's
@@ -946,5 +1033,17 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         "field_captures",
         "field_corrections",
         "field_daily_moment",
+        // Readiness is not part of `FieldState` and is not read by `load()`.
+        // It is here because a tick is a tick: the store re-reads the circle
+        // on the same signal it reloads the zones on, so the bloom arrives
+        // without a foreground.
+        //
+        // `field_readiness_bloom` is the one that carries the second tap
+        // across. `field_readiness` is published only for the same person's
+        // other device — RLS means it can never deliver a partner's mark, and
+        // that is exactly why the bloom had to be a separate, materialised
+        // table rather than something derived from this one client-side.
+        "field_readiness",
+        "field_readiness_bloom",
     ]
 }

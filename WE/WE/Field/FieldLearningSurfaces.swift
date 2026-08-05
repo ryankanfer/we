@@ -2,144 +2,26 @@
 //  FieldLearningSurfaces.swift
 //  WE
 //
-//  6a — the correction receipt.
 //  6d — deferral, said out loud.
 //
-//  These two are the retention argument, and they share one tonal rule:
+//  The tonal rule this file exists to hold: **every statistic on these screens
+//  is about the *app's* behaviour.** The app critiques itself and never the
+//  users. A changed reply rate is evidence that the app learned the right hour
+//  — never a compliance metric about a person.
 //
-//  **Every statistic on these screens is about the *app's* behaviour.** The
-//  app critiques itself and never the users. "Your reply rate went from 40% to
-//  91%" is framed as evidence that the app learned the right hour — not as a
-//  compliance metric.
+//  6a, the correction receipt, used to live here as a full screen. It was an
+//  essay: a headline, a subtitle, cards, a closing paragraph, and a button
+//  whose action was empty. It also miscounted, because the headline counted
+//  corrections while the cards counted the behaviour changes *derived* from
+//  them — three corrections producing one card read "Three corrections changed
+//  how I work." above a single card.
+//
+//  What survived is the only part that was ever load-bearing: the app can show
+//  that it changed. That is now three lines at the close of Us, next to the
+//  evidence it belongs beside. See `FieldUsZone.whatIveChanged`.
 //
 
 import SwiftUI
-
-// MARK: - 6a. The correction receipt
-
-struct FieldCorrectionReceiptView: View {
-    @Environment(FieldStore.self) private var store
-    @Environment(\.dismiss) private var dismiss
-
-    private var changes: [FieldBehaviourChange] { store.behaviourChanges }
-
-    var body: some View {
-        ZStack {
-            FieldPalette.bg.ignoresSafeArea()
-
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 0) {
-                    header
-                        .padding(.bottom, FieldMetrics.sectionGap)
-
-                    VStack(spacing: FieldMetrics.cardGap) {
-                        ForEach(changes) { change in
-                            card(change)
-                        }
-                    }
-                    .padding(.bottom, FieldMetrics.sectionGapLoose)
-
-                    closing
-                }
-                .padding(.top, FieldMetrics.screenTop)
-                .padding(.horizontal, FieldMetrics.screenSide)
-                .padding(.bottom, 60)
-            }
-        }
-        .overlay(alignment: .topTrailing) { doneButton(dismiss) }
-        .preferredColorScheme(.dark)
-        .accessibilityIdentifier("field.corrections")
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .firstTextBaseline) {
-                HStack(spacing: 10) {
-                    FieldIntelligenceMark(
-                        identity: store.identity,
-                        diameter: 14
-                    )
-                    FieldLabel("What I've learned")
-                }
-
-                Spacer()
-
-                Text("MONTH \(store.monthsLearning)")
-                    .font(FieldType.dateCount)
-                    .tracking(FieldTracking.dateCount)
-                    .foregroundStyle(.fieldInk(.headerMeta))
-            }
-
-            Text(
-                "\(store.state.corrections.count.spelled.capitalized) "
-                    + "correction"
-                    + "\(store.state.corrections.count == 1 ? "" : "s") "
-                    + "changed how I work."
-            )
-            .font(FieldType.pageHeadline)
-            .foregroundStyle(.fieldInk(.headline))
-            .fieldLineHeight(1.16, size: 32)
-            .fixedSize(horizontal: false, vertical: true)
-
-            Text(
-                "Every time you moved something, I kept the reason. Here's "
-                    + "what's different now."
-            )
-            .font(FieldType.body)
-            .foregroundStyle(.fieldInk(.sectionSubtitle))
-            .fieldLineHeight(1.6, size: 14.5)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    /// The observed behaviour as a mono label, the app's changed behaviour in
-    /// 18pt, and the outcome in italic at 0.48.
-    private func card(_ change: FieldBehaviourChange) -> some View {
-        FieldCard(accent: accentColor(change.accent)) {
-            VStack(alignment: .leading, spacing: 12) {
-                FieldLabel(
-                    change.observation,
-                    color: .fieldInk(.monoLabelQuiet)
-                )
-
-                Text(change.change)
-                    .font(.system(size: 18, design: .serif))
-                    .foregroundStyle(.fieldInk(.headline))
-                    .fieldLineHeight(1.35, size: 18)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Text(change.outcome)
-                    .font(FieldType.reasoning)
-                    .foregroundStyle(FieldPalette.ink.opacity(0.48))
-                    .fieldLineHeight(1.6, size: 13)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            "\(change.observation). \(change.change) \(change.outcome)"
-        )
-    }
-
-    private func accentColor(_ owner: FieldOwner) -> Color {
-        owner == .shared
-            ? FieldPalette.ink.opacity(0.22)
-            : store.identity.color(for: owner)
-    }
-
-    private var closing: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Still getting something wrong? Tell me once and it stops.")
-                .font(.system(size: 15, design: .serif))
-                .foregroundStyle(.fieldInk(.sectionSubtitle))
-                .fieldLineHeight(1.6, size: 15)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Button("Something's still off") {}
-                .buttonStyle(FieldOutlinedButtonStyle(tint: nil))
-        }
-    }
-}
 
 // MARK: - 6d. Deferral, said out loud
 

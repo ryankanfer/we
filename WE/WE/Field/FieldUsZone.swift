@@ -20,9 +20,6 @@ import SwiftUI
 struct FieldUsZone: View {
     @Environment(FieldStore.self) private var store
 
-    /// 6a, reached from the close of Us.
-    @State private var showsCorrections = false
-
     var body: some View {
         FieldZoneScaffold(
             zone: .us,
@@ -51,52 +48,51 @@ struct FieldUsZone: View {
                     afterThat
 
                     if !store.behaviourChanges.isEmpty {
-                        whatIveLearned
+                        whatIveChanged
                             .padding(.top, FieldMetrics.sectionGapLoose)
                     }
                 }
             }
         }
-        .fullScreenCover(isPresented: $showsCorrections) {
-            FieldCorrectionReceiptView()
-                .environment(store)
-        }
     }
 
-    // MARK: 6a, reached from the long view
+    // MARK: 6a, at the close of the long view
 
-    /// The correction receipt lives at the close of Us rather than beside the
-    /// evidence, because the two are about different subjects. Evidence is
-    /// what the *couple* did for a horizon; this is what the *app* changed
-    /// because it was corrected. Putting a line about the app's own behaviour
-    /// under a heading about theirs would be the app taking credit for their
-    /// week.
+    /// What the app changed, in the app's own words, and nowhere else.
+    ///
+    /// This lives at the close of Us rather than beside the evidence, because
+    /// the two are about different subjects. Evidence is what the *couple* did
+    /// for a horizon; this is what the *app* changed because it was corrected.
+    /// Putting a line about the app's own behaviour under a heading about
+    /// theirs would be the app taking credit for their week.
+    ///
+    /// It says its piece here and stops. There is nothing to tap: a teaser
+    /// that opened a page of the same sentences at greater length was the app
+    /// asking to be read about, which is the opposite of the claim it is
+    /// making. At most three lines, because a fourth is a changelog.
     ///
     /// Hidden entirely until a correction has actually taught it something —
     /// `behaviourChanges` derives from `state.corrections`, so an untouched
     /// account sees nothing rather than an empty promise.
-    private var whatIveLearned: some View {
-        Button {
-            showsCorrections = true
-        } label: {
-            VStack(alignment: .leading, spacing: 10) {
-                FieldRuleLine()
+    private var whatIveChanged: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            FieldRuleLine()
 
-                FieldLabel("What I've changed")
-                    .padding(.top, 18)
+            FieldLabel("What I've changed")
+                .padding(.top, 18)
+                .padding(.bottom, 4)
 
-                Text("You corrected me, and I kept it.")
+            ForEach(store.behaviourChanges.prefix(3)) { change in
+                Text(change.change)
                     .font(FieldType.reasoning)
                     .foregroundStyle(.fieldInk(.reasoning))
                     .fieldLineHeight(1.5, size: 13)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .accessibilityHint("Shows what WE changed after being corrected")
-        .accessibilityIdentifier("field.us.corrections.open")
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("field.us.corrections")
     }
 
     // MARK: Before there is anything

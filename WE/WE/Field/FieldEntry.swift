@@ -14,6 +14,9 @@
 //    WE_FIELD=gallery    the eleven accepted screens, for review
 //    WE_FIELD=seeded     the zones on the fictional couple, no network
 //                        (WE_FIELD=1 is an alias)
+//    WE_FIELD=demo       the zones on the same fictional couple, renamed
+//                        User 1 / User 2 and three months further along —
+//                        for showing the product as a matured demo account
 //
 //  What still runs the old way is everything *before* a couple exists — sign
 //  in, verification, password recovery, pairing, hue choice. Those are setup,
@@ -28,12 +31,15 @@ enum FieldEntry {
         case live
         /// The real app on seeded data — no couple, no network.
         case seeded
+        /// The real app on a demo couple three months in — no network.
+        case demo
         /// The review surface.
         case gallery
 
         static var current: Mode {
             switch ProcessInfo.processInfo.environment["WE_FIELD"] {
             case "seeded", "1": .seeded
+            case "demo": .demo
             case "gallery": .gallery
             default: .live
             }
@@ -241,7 +247,8 @@ struct FieldGallery: View {
     private enum Screen: String, CaseIterable, Identifiable {
         case zones = "01·03·05  The three zones"
         case calendar = "02  The calendar — takeover"
-        case corrections = "06  The correction receipt (6a)"
+        // 6a has no gallery entry: what the app changed is three lines at the
+        // close of Us now, not a screen. See `FieldUsZone.whatIveChanged`.
         case presence = "07  Presence (6b)"
         case moment = "08  One moment a day (6c)"
         case deferral = "09  Deferral, said out loud (6d)"
@@ -324,8 +331,6 @@ struct FieldGallery: View {
             FieldZoneShell(store: store)
         case .calendar:
             FieldCalendarSurface(store: store)
-        case .corrections:
-            FieldCorrectionReceiptView()
         case .presence:
             FieldPresenceView()
         case .moment:

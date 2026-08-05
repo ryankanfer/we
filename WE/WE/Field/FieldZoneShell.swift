@@ -31,6 +31,24 @@ struct FieldZoneShell: View {
     @State private var showsAccount = false
     @State private var showsYours = false
 
+    /// Whether the gesture into Yours has been shown once on this device.
+    ///
+    /// Deliberately `@AppStorage`, and deliberately *unlike* the two teaching
+    /// moments in `YoursOwnerState`, which are server-side because §2 rations
+    /// the word "Yours" across a person's lifetime and a second phone would
+    /// spend it again. This flag rations nothing and names nothing — it
+    /// records that a hand has been shown where to swipe, which is knowledge
+    /// about a device. A new phone is a new place to learn the gesture.
+    ///
+    /// It also has to be readable here, before `YoursStore` exists: the store
+    /// is built per presentation by `yoursStore()`, so anything it knows is
+    /// known only *after* somebody has already found the way in.
+    @AppStorage("yours.gesture.hinted") private var hasHintedGesture = false
+
+    /// Drives the hint's upward drift. Held here rather than in the hint so
+    /// the animation survives the bar's own re-layout on a zone change.
+    @State private var hintDrift: CGFloat = 2
+
     // Constructed in the body, not as a default argument. Default argument
     // expressions are evaluated in a nonisolated context, so `= FieldStore()`
     // cannot call a @MainActor initializer even though this type is
@@ -112,6 +130,21 @@ struct FieldZoneShell: View {
         .fullScreenCover(isPresented: $showsYours) {
             YoursSurface(store: yoursStore())
         }
+        // The circle. Presented from the shell rather than from Today, because
+        // the second person's tap can land while the first is reading Life —
+        // and the bloom is about both of them, not about a zone. The mark that
+        // starts it lives in Today; the room it opens does not.
+        .fullScreenCover(isPresented: roomBinding) {
+            FieldCircleRoom(
+                identity: store.identity,
+                // Non-nil whenever the state is `.both`, which is the only
+                // state this binding is true for. Nothing is invented locally
+                // if it somehow is nil — the room simply does not open, which
+                // is better than opening it around words nobody was given.
+                prompt: store.circle.prompt ?? "",
+                onClose: { store.closeRoom() }
+            )
+        }
         // 2a. Asked once, on the first arrival in the zones after a second
         // person joins — which is where both people land, whichever of them
         // redeemed the code.
@@ -130,6 +163,21 @@ struct FieldZoneShell: View {
             guard let decision = crossingDecision else { return }
             await store.considerCrossing(decision: decision)
         }
+    }
+
+    /// Open while both of them are open, closed once somebody closes it.
+    ///
+    /// The setter is live rather than ignored, unlike the crossing below: a
+    /// swipe down is a legitimate way to leave a room whose entire premise is
+    /// that it can be left without residue. Routing it through `closeRoom()`
+    /// rather than a local flag is what stops the cover reopening on the next
+    /// realtime tick, which would be the app pushing two people back into a
+    /// moment they had just stepped out of.
+    private var roomBinding: Binding<Bool> {
+        Binding(
+            get: { store.shouldOpenRoom && store.circle.prompt != nil },
+            set: { if !$0 { store.closeRoom() } }
+        )
     }
 
     /// Read-only in the outward direction: the cover closes when the store
@@ -159,7 +207,7 @@ struct FieldZoneShell: View {
         case .live:
             YoursSupabaseBackend(client: SupabaseClientProvider.shared.client)
                 ?? YoursMemoryBackend(clock: clock)
-        case .seeded, .gallery:
+        case .seeded, .demo, .gallery:
             YoursMemoryBackend(clock: clock)
         }
         return YoursStore(backend: backend, clock: clock)
@@ -209,6 +257,8 @@ struct FieldZoneShell: View {
 
     private var navigationBar: some View {
         VStack(spacing: 10) {
+            gestureHint
+
             HStack(alignment: .center, spacing: 0) {
                 zoneLabel(.life)
                     .frame(maxWidth: .infinity, alignment: .trailing)
@@ -219,20 +269,31 @@ struct FieldZoneShell: View {
                 zoneLabel(.us)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            // At the trailing edge rather than between the labels, so the
-            // LIFE / WE / US symmetry the handoff specifies is untouched.
-            //
-            // Beside the WE mark deliberately: CIRCLE.md §2 makes the whole
-            // product legible at a glance — one circle is yours, two apart is
-            // invited, two joined is WE — and that grammar only teaches itself
-            // if the two marks are visible in the same place at the same time.
-            .overlay(alignment: .trailing) { yoursMark }
 
             indicator
         }
         .padding(.top, 16)
         .padding(.horizontal, FieldMetrics.screenSide)
         .padding(.bottom, 30)
+        // The way into Yours. A gesture rather than a control, and attached
+        // here rather than to the zone: every zone body is a `ScrollView`
+        // (`FieldZoneScaffold`), and a drag on the zone would spend the whole
+        // product arbitrating between "scrolling Today" and "opening the
+        // private space". The bar is an overlay outside that scroll view, so
+        // there is nothing to arbitrate.
+        //
+        // `simultaneousGesture` so a drag that begins over LIFE or US is still
+        // a drag; those are `Button`s and would otherwise swallow it.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20)
+                .onEnded { value in
+                    let translation = value.translation
+                    guard translation.height < -40,
+                          abs(translation.height) > abs(translation.width)
+                    else { return }
+                    openYours()
+                }
+        )
         .background {
             LinearGradient(
                 stops: [
@@ -303,32 +364,70 @@ struct FieldZoneShell: View {
         .accessibilityIdentifier("field.nav.we")
         .accessibilityAction { store.returnHome() }
         .accessibilityAction(named: "Account") { showsAccount = true }
+        // The only route into Yours for VoiceOver, and therefore not
+        // optional: the way in is an upward drag, and a drag does not exist
+        // for these users. It ships with the gesture, never after it.
+        //
+        // Named with the word itself — the one place the label is sanctioned
+        // permanently (`YoursCopy.accessibilityName`), so that sighted and
+        // unsighted users hold the same mental model of the same room.
+        .accessibilityAction(named: Text(YoursCopy.accessibilityName)) {
+            openYours()
+        }
     }
 
-    /// The way in, and the mark that carries the whole state grammar.
+    /// Opening Yours, from wherever.
     ///
-    /// Not a fourth zone: `FieldZone.rawValue` is the indicator's offset
-    /// multiplier over a 48pt track and the enum is persisted, so a fourth
-    /// case fights both — and §7's surface is not zone-shaped anyway. Not a
-    /// long-press either, because the WE mark's long-press is the account.
+    /// Spends the gesture hint on the way through. Any route counts — the
+    /// swipe, the VoiceOver action, a deep link: once somebody is inside, the
+    /// hint has done its work and showing it again would be the app repeating
+    /// itself to someone who already knows.
+    private func openYours() {
+        hasHintedGesture = true
+        showsYours = true
+    }
+
+    /// Shown once, then never.
     ///
-    /// A cover, like the account and the crossing. Wordless: after the two
-    /// teaching moments the shape carries it alone, so there is no label here
-    /// and no settings row anywhere that names it.
-    private var yoursMark: some View {
-        Button {
-            showsYours = true
-        } label: {
+    /// With the mark gone from the bar there is nothing on screen to find, and
+    /// a gesture nobody knows about is a feature nobody has. So the mark makes
+    /// exactly one appearance — drifting upward, in the direction of the swipe
+    /// — and that is also the moment CIRCLE.md §2 wants: one circle is yours,
+    /// the joined mark below is WE, and the grammar teaches itself because the
+    /// two are visible together, once.
+    ///
+    /// Wordless. §2 rations the word to the Promise and to first entry, and
+    /// this is neither.
+    ///
+    /// A layout child of the bar rather than an overlay on it, so it stays
+    /// inside the bar's gradient. As an overlay it drifted up past where the
+    /// gradient has faded to clear and rode over the zone's own content. The
+    /// row it occupies collapses the first time somebody goes in — a one-time
+    /// reflow, and it happens underneath a full-screen cover that is already
+    /// presenting.
+    @ViewBuilder
+    private var gestureHint: some View {
+        if !hasHintedGesture {
             YoursMark(
                 style: .compact,
                 presence: .living,
                 hue: store.identity.personA.color
             )
-            .frame(width: 44, height: 44)
-            .contentShape(Circle())
+            .frame(width: 24, height: 24)
+            .opacity(0.45)
+            .offset(y: reduceMotion ? 0 : hintDrift)
+            .frame(height: 30)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(
+                    .easeInOut(duration: 2.4).repeatForever(autoreverses: true)
+                ) {
+                    hintDrift = -6
+                }
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("field.nav.yours")
     }
 
     /// A 48 × 1pt track containing a 16pt segment filled with the blend,

@@ -376,6 +376,10 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
         try await enqueue(.upsertHorizon(horizon))
     }
 
+    func upsert(_ evidence: FieldEvidence) async throws {
+        try await enqueue(.upsertEvidence(evidence))
+    }
+
     func upsert(_ cluster: FieldCluster) async throws {
         try await enqueue(.upsertCluster(cluster))
     }
@@ -398,6 +402,33 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
 
     func setDailyMoment(_ moment: FieldDailyMoment) async throws {
         try await enqueue(.setDailyMoment(moment))
+    }
+
+    // MARK: The circle
+    //
+    // Queued, unlike the crossing above. The two look similar — both are a
+    // person deciding something about their partner — but the crossing names a
+    // number on screen and must not take effect silently hours later against a
+    // set that has changed. A mark names nothing and changes nothing: it is
+    // "I'd welcome a moment today", it carries its own day, and it means the
+    // same thing whenever it lands.
+
+    func markReady(localDate: String) async throws {
+        try await enqueue(.markReady(localDate: localDate))
+    }
+
+    /// Flushed first, then asked.
+    ///
+    /// A mark sitting in the queue is not on the server, so the RPC cannot see
+    /// it and would answer `neither` to somebody who has already tapped. The
+    /// flush is what makes the state on screen and the rows behind it the same
+    /// set — the same reasoning as `soloHistoryCount`, and unlike it this one
+    /// is best effort: a queued mark that will not drain should still let the
+    /// screen show what the server currently knows rather than throwing away
+    /// the read.
+    func readiness(localDate: String) async throws -> FieldReadiness {
+        try? await flush()
+        return try await base.readiness(localDate: localDate)
     }
 
     // MARK: The queue itself

@@ -76,6 +76,9 @@ private final class FakeFieldServer: FieldBackend, @unchecked Sendable {
     func upsert(_ horizon: FieldHorizon) async throws {
         try receive(.upsertHorizon(horizon))
     }
+    func upsert(_ evidence: FieldEvidence) async throws {
+        try receive(.upsertEvidence(evidence))
+    }
     func upsert(_ cluster: FieldCluster) async throws {
         try receive(.upsertCluster(cluster))
     }
@@ -93,6 +96,38 @@ private final class FakeFieldServer: FieldBackend, @unchecked Sendable {
     }
     func setDailyMoment(_ moment: FieldDailyMoment) async throws {
         try receive(.setDailyMoment(moment))
+    }
+
+    // MARK: The circle
+    //
+    // Held beside `state` rather than in it, because readiness is not part of
+    // `FieldState` — `.markReady` deliberately has no `apply(to:)`, so the
+    // server has to record it somewhere of its own or an offline mark would
+    // "arrive" with nothing to show for it and the test would pass on nothing.
+
+    private(set) var markedDays: Set<String> = []
+    var partnerMarkedDays: Set<String> = []
+
+    func markReady(localDate: String) async throws {
+        // Through `receive` for the failure semantics, and inserted only
+        // afterwards — a rejected send must leave no mark, or "offline" and
+        // "marked" become the same thing.
+        try receive(.markReady(localDate: localDate))
+        markedDays.insert(localDate)
+    }
+
+    func readiness(localDate: String) async throws -> FieldReadiness {
+        guard markedDays.contains(localDate) else {
+            return .neither(on: localDate)
+        }
+        guard partnerMarkedDays.contains(localDate) else {
+            return FieldReadiness(
+                state: .you, prompt: nil, localDate: localDate
+            )
+        }
+        return FieldReadiness(
+            state: .both, prompt: "A question", localDate: localDate
+        )
     }
 }
 
@@ -567,6 +602,85 @@ struct FieldOutboxTests {
         }
 
         #expect(outbox.isEmpty, "it gave up rather than retrying forever")
+    }
+
+    // MARK: The circle, offline
+
+    /// A tap made in a tunnel is still a thing somebody meant.
+    ///
+    /// The circle is the one write here whose value is entirely in the day it
+    /// was made on, so the day travels with the mutation rather than being
+    /// read when the queue drains. Without that, a mark made on Tuesday
+    /// evening and flushed on Wednesday morning would quietly become
+    /// Wednesday's — the app moving somebody's invitation to a day they never
+    /// chose.
+    @Test
+    func aMarkMadeOfflineLandsOnTheDayItWasMade() async throws {
+        let store = store()
+        defer { store.removeAll() }
+
+        let tuesday = "2026-08-04"
+        let server = FakeFieldServer(state: emptyState())
+        server.failuresRemaining = 1
+
+        let outbox = FieldOutbox(
+            wrapping: server,
+            partition: partition(),
+            store: store,
+            now: { Self.now }
+        )
+
+        await #expect(throws: (any Error).self) {
+            try await outbox.markReady(localDate: tuesday)
+        }
+        #expect(
+            server.markedDays.isEmpty,
+            "a rejected send left a mark behind anyway"
+        )
+        #expect(outbox.pending.count == 1, "the tap was dropped rather than queued")
+
+        try await outbox.flush()
+
+        #expect(
+            server.markedDays == [tuesday],
+            "the mark arrived on the wrong day, or not at all"
+        )
+    }
+
+    /// Tapping twice while offline is one mark, not two.
+    ///
+    /// The server's own `on conflict do nothing` would absorb the second, so
+    /// this is not about correctness on the far side — it is that nothing
+    /// about a repeat should ever leave the device. Somebody re-tapping
+    /// because they are unsure whether it worked must not queue a second
+    /// request at their partner.
+    @Test
+    func tappingTwiceInOneDayIsOneQueuedMark() async throws {
+        let store = store()
+        defer { store.removeAll() }
+
+        let day = "2026-08-04"
+        let server = FakeFieldServer(state: emptyState())
+        server.failuresRemaining = .max
+
+        let outbox = FieldOutbox(
+            wrapping: server,
+            partition: partition(),
+            store: store,
+            now: { Self.now }
+        )
+
+        await #expect(throws: (any Error).self) {
+            try await outbox.markReady(localDate: day)
+        }
+        await #expect(throws: (any Error).self) {
+            try await outbox.markReady(localDate: day)
+        }
+
+        #expect(
+            outbox.pending.map(\.mutation).compacted().count == 1,
+            "a second tap on the same day queued a second request"
+        )
     }
 
     @Test
