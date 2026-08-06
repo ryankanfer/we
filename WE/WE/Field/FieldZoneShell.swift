@@ -10,7 +10,13 @@
 //
 //    · **No bottom tab bar.** Navigation is horizontal swipe plus a persistent
 //      WE mark. The mark is not a tab — it is the app's own avatar, and
-//      tapping it always returns to Today.
+//      tapping it returns to Today from anywhere.
+//
+//      One consequence, used deliberately: on Today the mark has nothing left
+//      to do. So a tap there opens Yours, and a tap on LIFE while Life is
+//      already showing opens the calendar. Tap to go, tap again to go deeper —
+//      the same sentence twice, and the only way this bar can hold two more
+//      destinations without gaining a control.
 //    · The Reminders takeover is the **only** surface permitted to cover the
 //      WE mark, and only while open.
 //
@@ -31,7 +37,7 @@ struct FieldZoneShell: View {
     @State private var showsAccount = false
     @State private var showsYours = false
 
-    /// Whether the gesture into Yours has been shown once on this device.
+    /// Whether the way into Yours has been shown once on this device.
     ///
     /// Deliberately `@AppStorage`, and deliberately *unlike* the two teaching
     /// moments in `YoursOwnerState`, which are server-side because §2 rations
@@ -43,16 +49,31 @@ struct FieldZoneShell: View {
     /// It also has to be readable here, before `YoursStore` exists: the store
     /// is built per presentation by `yoursStore()`, so anything it knows is
     /// known only *after* somebody has already found the way in.
+    ///
+    /// Named for a gesture it no longer describes. Kept anyway: renaming the
+    /// key would show the hint a second time to everyone who has already
+    /// learned this, which is the one thing it exists not to do.
     @AppStorage("yours.gesture.hinted") private var hasHintedGesture = false
 
-    /// Drives the hint's upward drift. Held here rather than in the hint so
-    /// the animation survives the bar's own re-layout on a zone change.
-    @State private var hintDrift: CGFloat = 2
+    /// Drives the hint's breath. Held here rather than in the hint so the
+    /// animation survives the bar's own re-layout on a zone change.
+    @State private var hintBreath: CGFloat = 1
+
+    /// Where the WE mark sits, so the room it opens can bloom out of it.
+    ///
+    /// Measured rather than assumed: the mark is centred in the bar, but the
+    /// bar's height depends on whether the hint row is present, and the safe
+    /// area differs across devices. A hardcoded point would be right on one
+    /// phone and visibly wrong on the next.
+    @State private var markCenter: CGPoint = .zero
 
     // Constructed in the body, not as a default argument. Default argument
     // expressions are evaluated in a nonisolated context, so `= FieldStore()`
     // cannot call a @MainActor initializer even though this type is
     // @MainActor. Inside the init body the isolation applies.
+    /// The shell's own coordinate space, so the mark can be located in it.
+    private static let shellSpace = "field.shell"
+
     init(store: FieldStore? = nil) {
         _store = State(initialValue: store ?? FieldStore())
     }
@@ -67,7 +88,7 @@ struct FieldZoneShell: View {
 
             pager
 
-            if !store.calendarOpen {
+            if !store.calendarOpen, !store.searchOpen {
                 navigationBar
                     .frame(maxHeight: .infinity, alignment: .bottom)
                     .transition(.opacity)
@@ -86,11 +107,23 @@ struct FieldZoneShell: View {
                     .transition(.opacity)
                     .zIndex(20)
             }
+
+            if store.searchOpen {
+                FieldLifeSearch(store: store)
+                    .transition(.opacity)
+                    .zIndex(20)
+            }
         }
+        // Named rather than `.global`: the cover the bloom plays inside is
+        // laid out against the window, and a mark measured in global space
+        // lands in the right place only until something above the shell
+        // changes height.
+        .coordinateSpace(name: Self.shellSpace)
         .preferredColorScheme(.dark)
         .environment(store)
         .animation(.fieldZone(reduceMotion), value: store.activeZone)
         .animation(.fieldZone(reduceMotion), value: store.calendarOpen)
+        .animation(.fieldZone(reduceMotion), value: store.searchOpen)
         .task { await store.load() }
         // The day turning, for as long as the app is on screen. Owned by the
         // store — it is the only thing that holds `now` — but driven from
@@ -127,8 +160,18 @@ struct FieldZoneShell: View {
             FieldAccountView()
                 .environment(store)
         }
+        // The room animates itself, in both directions. The cover's own slide
+        // is suppressed by the transaction that raises `showsYours` (see
+        // `openYours`) and by the one around `dismiss()` inside the room —
+        // not by a `.transaction` modifier here, which would apply to this
+        // whole view and silently kill the zone change, the calendar, and
+        // every other animation in the shell.
         .fullScreenCover(isPresented: $showsYours) {
-            YoursSurface(store: yoursStore())
+            YoursSurface(
+                store: yoursStore(),
+                bloomOrigin: markCenter,
+                hue: store.identity.color(for: store.speaker)
+            )
         }
         // The circle. Presented from the shell rather than from Today, because
         // the second person's tap can land while the first is reading Life —
@@ -275,25 +318,6 @@ struct FieldZoneShell: View {
         .padding(.top, 16)
         .padding(.horizontal, FieldMetrics.screenSide)
         .padding(.bottom, 30)
-        // The way into Yours. A gesture rather than a control, and attached
-        // here rather than to the zone: every zone body is a `ScrollView`
-        // (`FieldZoneScaffold`), and a drag on the zone would spend the whole
-        // product arbitrating between "scrolling Today" and "opening the
-        // private space". The bar is an overlay outside that scroll view, so
-        // there is nothing to arbitrate.
-        //
-        // `simultaneousGesture` so a drag that begins over LIFE or US is still
-        // a drag; those are `Button`s and would otherwise swallow it.
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 20)
-                .onEnded { value in
-                    let translation = value.translation
-                    guard translation.height < -40,
-                          abs(translation.height) > abs(translation.width)
-                    else { return }
-                    openYours()
-                }
-        )
         .background {
             LinearGradient(
                 stops: [
@@ -308,9 +332,25 @@ struct FieldZoneShell: View {
         }
     }
 
+    /// Tap to go there. Tap it again, once you are there, to open the room
+    /// behind it — the calendar, for Life.
+    ///
+    /// The same grammar the WE mark carries, and stated once here so the two
+    /// cannot drift: a nav word that is already selected has nothing left to
+    /// do, which makes it the only free surface in a bar the handoff allows no
+    /// chrome on. Deliberately not a double-tap, which would delay every
+    /// ordinary navigation tap by the interval SwiftUI has to wait to find out
+    /// whether a second one is coming.
     private func zoneLabel(_ zone: FieldZone) -> some View {
         Button {
-            store.go(to: zone)
+            // Life only. US has no room behind it, and inventing a general
+            // `zone.deeperRoom` for a single case would make the bar look like
+            // it holds three of these when it holds one.
+            if zone == .life, store.activeZone == .life {
+                store.openCalendar()
+            } else {
+                store.go(to: zone)
+            }
         } label: {
             Text(zone.navLabel)
                 .font(FieldType.zoneLabel)
@@ -325,18 +365,47 @@ struct FieldZoneShell: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(zone.navLabel.capitalized)
-        .accessibilityHint("Opens \(zone.navLabel.capitalized)")
+        .accessibilityHint(
+            zone == .life && store.activeZone == .life
+                ? "Opens the month, and everything with a date on it"
+                : "Opens \(zone.navLabel.capitalized)"
+        )
         .accessibilityAddTraits(store.activeZone == zone ? .isSelected : [])
         .accessibilityIdentifier("field.nav.\(zone.navLabel.lowercased())")
+        // Both rooms behind Life, from the word itself, whether or not Life is
+        // the active zone. The asymmetry with the sighted gestures is the
+        // point: a sighted person can see which word is selected and tap it
+        // twice, and can pull the screen down — where a VoiceOver user would
+        // have to move focus, activate, then find the same element again to
+        // reach an action that was never announced, and cannot perform a drag
+        // at all.
+        //
+        // Search in particular has no other route for these users. It ships
+        // here with the gesture, never after it.
+        .accessibilityActions {
+            if zone == .life {
+                Button("Calendar") { store.openCalendar() }
+                Button("Search") { store.openSearch() }
+            }
+        }
     }
 
     /// 40 × 40pt circle, 1px border at ink .5, fill ink .06, the wordmark in
     /// 11pt mono at .14em. Present on every zone.
     ///
-    /// Tap returns to Today; long-press opens the account. The handoff allows
-    /// no chrome for settings, so the mark carries it — but a long-press does
-    /// not exist for VoiceOver, so the accessibility action below is the only
-    /// route for those users and is not optional.
+    /// Tap returns to Today; tap it *from* Today and it opens Yours;
+    /// long-press opens the account. The handoff allows no chrome for
+    /// settings, so the mark carries it — but a long-press does not exist for
+    /// VoiceOver, so the accessibility actions below are the only route for
+    /// those users and are not optional.
+    ///
+    /// The way into Yours used to be an upward drag on this bar. It asked for
+    /// 40pt of travel in a direction nothing else moved, resolved only on
+    /// release, and gave no sign while it was being attempted — so a failed
+    /// attempt and no attempt looked identical, and the failure mode of a
+    /// private space nobody can open is that it does not exist. The mark was
+    /// already the way home and therefore already inert on Today, which makes
+    /// it the one control that could take this without giving anything up.
     private var weMark: some View {
         // Not a `Button`: a Button consumes the long press, so tap and
         // long-press have to be attached as peers to the same shape.
@@ -354,13 +423,14 @@ struct FieldZoneShell: View {
                 .foregroundStyle(.fieldInk(.headline))
         }
         .frame(width: 48, height: 48)
+        .background { markMeasure }
         .contentShape(Circle())
-        .onTapGesture { store.returnHome() }
+        .onTapGesture { markTapped() }
         .onLongPressGesture(minimumDuration: 0.5) { showsAccount = true }
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel("WE")
-        .accessibilityHint("Returns to Today")
+        .accessibilityHint(isHome ? "" : "Returns to Today")
         .accessibilityIdentifier("field.nav.we")
         .accessibilityAction { store.returnHome() }
         .accessibilityAction(named: "Account") { showsAccount = true }
@@ -376,46 +446,93 @@ struct FieldZoneShell: View {
         }
     }
 
+    /// Reports the mark's centre in the shell's space, so the room it opens
+    /// can bloom out of it.
+    ///
+    /// Its own property rather than an inline `.background { GeometryReader }`
+    /// because the mark's `ZStack` is already at the type-checker's limit —
+    /// inlining this one closure tipped the whole expression over.
+    private var markMeasure: some View {
+        GeometryReader { geometry in
+            let frame = geometry.frame(in: .named(Self.shellSpace))
+            Color.clear
+                .onChange(of: frame, initial: true) { _, new in
+                    markCenter = CGPoint(x: new.midX, y: new.midY)
+                }
+        }
+    }
+
+    /// Whether the mark has nothing left to do as a way home.
+    ///
+    /// Today, with nothing over it. The two overlays count as "not home"
+    /// deliberately: while one is up the mark has to mean *close this*, or
+    /// somebody dismissing the calendar would land in the private space
+    /// instead.
+    private var isHome: Bool {
+        store.activeZone == .we && !store.calendarOpen && !store.searchOpen
+    }
+
+    private func markTapped() {
+        if isHome {
+            openYours()
+        } else {
+            store.returnHome()
+        }
+    }
+
     /// Opening Yours, from wherever.
     ///
-    /// Spends the gesture hint on the way through. Any route counts — the
-    /// swipe, the VoiceOver action, a deep link: once somebody is inside, the
-    /// hint has done its work and showing it again would be the app repeating
-    /// itself to someone who already knows.
+    /// Spends the hint on the way through. Any route counts — the mark, the
+    /// VoiceOver action, a deep link: once somebody is inside, the hint has
+    /// done its work and showing it again would be the app repeating itself to
+    /// someone who already knows.
     private func openYours() {
         hasHintedGesture = true
-        showsYours = true
+
+        // Presented without the system's slide, because the room opens itself
+        // — see `YoursSurface`. Scoped to this one state change rather than
+        // applied to the view, so nothing else in the shell loses its motion.
+        var silent = Transaction()
+        silent.disablesAnimations = true
+        withTransaction(silent) { showsYours = true }
     }
 
     /// Shown once, then never.
     ///
     /// With the mark gone from the bar there is nothing on screen to find, and
-    /// a gesture nobody knows about is a feature nobody has. So the mark makes
-    /// exactly one appearance — drifting upward, in the direction of the swipe
-    /// — and that is also the moment CIRCLE.md §2 wants: one circle is yours,
-    /// the joined mark below is WE, and the grammar teaches itself because the
-    /// two are visible together, once.
+    /// a way in nobody knows about is a feature nobody has. So the circle makes
+    /// exactly one appearance — and that is also the moment CIRCLE.md §2 wants:
+    /// one circle is yours, the joined mark below is WE, and the grammar
+    /// teaches itself because the two are visible together, once.
+    ///
+    /// It used to drift upward, pointing along a swipe. There is no swipe now,
+    /// and a circle sliding toward the top of the screen would be aiming at
+    /// nothing. It breathes instead — the slowest motion in the app, saying
+    /// only *there is something here*, directly above the thing to press.
+    ///
+    /// Only on Today, because that is the only place the mark opens anything.
+    /// Elsewhere it is the way home, and a hint over a control that currently
+    /// does something else is a lie told quietly.
     ///
     /// Wordless. §2 rations the word to the Promise and to first entry, and
     /// this is neither.
     ///
     /// A layout child of the bar rather than an overlay on it, so it stays
-    /// inside the bar's gradient. As an overlay it drifted up past where the
-    /// gradient has faded to clear and rode over the zone's own content. The
-    /// row it occupies collapses the first time somebody goes in — a one-time
-    /// reflow, and it happens underneath a full-screen cover that is already
+    /// inside the bar's gradient. As an overlay it rode over the zone's own
+    /// content. The row it occupies collapses the first time somebody goes in
+    /// — a one-time reflow, underneath a full-screen cover that is already
     /// presenting.
     @ViewBuilder
     private var gestureHint: some View {
-        if !hasHintedGesture {
+        if !hasHintedGesture, store.activeZone == .we {
             YoursMark(
                 style: .compact,
                 presence: .living,
-                hue: store.identity.personA.color
+                hue: store.identity.color(for: store.speaker)
             )
             .frame(width: 24, height: 24)
             .opacity(0.45)
-            .offset(y: reduceMotion ? 0 : hintDrift)
+            .scaleEffect(reduceMotion ? 1 : hintBreath)
             .frame(height: 30)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
@@ -424,7 +541,7 @@ struct FieldZoneShell: View {
                 withAnimation(
                     .easeInOut(duration: 2.4).repeatForever(autoreverses: true)
                 ) {
-                    hintDrift = -6
+                    hintBreath = 1.06
                 }
             }
         }

@@ -27,6 +27,21 @@ import SwiftUI
 struct YoursSurface: View {
     @State private var store: YoursStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Where the circle comes from and goes back to — the WE mark's centre in
+    /// the shell's coordinate space, handed down because this view covers the
+    /// shell and cannot see it.
+    private let bloomOrigin: CGPoint
+
+    /// This person's own hue. §2: the space *is* a single circle in it, so the
+    /// arrival is that circle opening rather than a screen sliding up over
+    /// another screen.
+    ///
+    /// Taken from `store.speaker` at the call site, not from `personA` — the
+    /// rest of the app can be sloppy about which of the two it means because
+    /// most surfaces belong to both of them. This one belongs to exactly one.
+    private let hue: Color
 
     /// The entry whose "let go" is being confirmed, if any.
     @State private var releasing: YoursEntry?
@@ -39,11 +54,66 @@ struct YoursSurface: View {
     /// a time — opening every card at once is the archive again.
     @State private var openHeld: String?
 
-    init(store: YoursStore) {
+    /// 0 closed, 1 open. Drives both the hue disc and the mask, in and out.
+    @State private var bloom: CGFloat = 0
+
+    /// Set the moment a close begins, so a second tap on ✕ during the ~300ms
+    /// exit cannot start a second one — two overlapping `dismiss()` calls pop
+    /// whatever is underneath as well.
+    @State private var isClosing = false
+
+    init(
+        store: YoursStore,
+        bloomOrigin: CGPoint = .zero,
+        hue: Color = .white
+    ) {
         _store = State(initialValue: store)
+        self.bloomOrigin = bloomOrigin
+        self.hue = hue
     }
 
     var body: some View {
+        GeometryReader { geometry in
+            let reach = bloomReach(in: geometry.size)
+
+            ZStack {
+                // The circle itself, ahead of the room by a beat. It is the
+                // mark leaving the bar and becoming the screen — §2's grammar
+                // performed rather than described, and the reason this is not
+                // simply a cross-fade.
+                Circle()
+                    .fill(hue)
+                    .frame(width: reach * 2, height: reach * 2)
+                    .position(origin(in: geometry.size))
+                    .scaleEffect(discScale)
+                    .opacity(discOpacity)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+
+                room
+                    .mask {
+                        // A circle rather than a fade, and anchored to the
+                        // mark rather than to the centre: the room is
+                        // *revealed by* the circle, so the two motions are one
+                        // motion. `.zero` is the safe degenerate case — an
+                        // origin nobody supplied opens from the top-left
+                        // rather than not at all.
+                        Circle()
+                            .frame(width: reach * 2 * bloom, height: reach * 2 * bloom)
+                            .position(origin(in: geometry.size))
+                            .ignoresSafeArea()
+                    }
+            }
+            .ignoresSafeArea()
+            .onAppear { open() }
+        }
+        // Every exit is `close()`, so the room never simply vanishes: without
+        // this, the interactive dismissal would skip the animation and the
+        // one-way trip would look like a bug in the other direction.
+        .interactiveDismissDisabled()
+    }
+
+    private var room: some View {
         ZStack {
             FieldPalette.bg.ignoresSafeArea()
 
@@ -454,9 +524,106 @@ struct YoursSurface: View {
         }
     }
 
+    // MARK: - The bloom
+    //
+    // §2: the space is a single circle in the person's own hue. So arriving is
+    // that circle opening, and leaving is it closing again — not a screen
+    // sliding up over another screen, which is what a full-screen cover does
+    // by default and what every other app's private tab looks like.
+    //
+    // The cover's own animation is suppressed at the presentation site
+    // (`FieldZoneShell`), in both directions. This owns the whole motion.
+
+    /// Far enough that the circle has cleared every corner. Measured from the
+    /// mark, which is near the bottom of the screen, so the far corner is a
+    /// long way further than half the diagonal.
+    private func bloomReach(in size: CGSize) -> CGFloat {
+        let point = origin(in: size)
+        let corners = [
+            CGPoint(x: 0, y: 0),
+            CGPoint(x: size.width, y: 0),
+            CGPoint(x: 0, y: size.height),
+            CGPoint(x: size.width, y: size.height),
+        ]
+        return corners.map { corner in
+            hypot(corner.x - point.x, corner.y - point.y)
+        }.max() ?? hypot(size.width, size.height)
+    }
+
+    /// The mark's centre, or the bottom middle if nobody said.
+    ///
+    /// The fallback matters: `YoursSurface` is presented from previews and
+    /// tests without an origin, and a circle blooming from `.zero` opens out
+    /// of the top-left corner, which reads as a glitch rather than as a
+    /// default.
+    private func origin(in size: CGSize) -> CGPoint {
+        guard bloomOrigin != .zero else {
+            return CGPoint(x: size.width / 2, y: size.height - 90)
+        }
+        return bloomOrigin
+    }
+
+    /// The disc runs ahead of the mask and is gone by the time the room is
+    /// fully uncovered — it is the colour arriving, not a background.
+    private var discScale: CGFloat {
+        reduceMotion ? 1 : min(1, bloom * 1.9)
+    }
+
+    private var discOpacity: CGFloat {
+        guard !reduceMotion else { return 0 }
+        // Full while the mask is behind it, fading out over the second half.
+        return bloom < 0.45 ? 1 : max(0, 1 - (bloom - 0.45) / 0.4)
+    }
+
+    private func open() {
+        guard !reduceMotion else {
+            bloom = 1
+            return
+        }
+        withAnimation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.42)) {
+            bloom = 1
+        }
+    }
+
+    /// Closes the circle, then dismisses.
+    ///
+    /// Shorter than the entrance on purpose: arriving somewhere private should
+    /// feel like an opening, and leaving should feel decided.
+    ///
+    /// The dismissal is deferred rather than run alongside, because a
+    /// `fullScreenCover` tears its content down the instant `dismiss()` lands
+    /// — the animation would be running on a view that no longer exists, and
+    /// the room would simply blink out.
+    private func close() {
+        guard !isClosing else { return }
+        isClosing = true
+
+        guard !reduceMotion else {
+            leave()
+            return
+        }
+
+        let duration = 0.3
+        withAnimation(.timingCurve(0.4, 0, 0.2, 1, duration: duration)) {
+            bloom = 0
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(duration))
+            leave()
+        }
+    }
+
+    /// Dismisses without the cover's slide, which would otherwise play *after*
+    /// the circle has already closed — the room disappearing twice.
+    private func leave() {
+        var silent = Transaction()
+        silent.disablesAnimations = true
+        withTransaction(silent) { dismiss() }
+    }
+
     private var closeButton: some View {
         Button {
-            dismiss()
+            close()
         } label: {
             Image(systemName: "xmark")
                 .font(.system(size: 15, weight: .medium))

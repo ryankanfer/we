@@ -1675,21 +1675,51 @@ struct FieldVerbTests {
         )
     }
 
-    /// Silence rather than a guess. Wording that gives nothing away falls back
-    /// to the category, and a grown category falls back to the honest general
-    /// one — the app does not decide that Pets are booked and Taxes are sent.
+    /// Silence rather than a guess. Wording that gives nothing away gets the
+    /// honest general verb, whatever it was filed under — the app does not
+    /// decide that Groceries are sent, Buys are ordered, or Pets are booked.
     @Test
     func wordingThatSaysNothingFallsBack() {
         #expect(FieldTodaySelector.verbFromWording("Recital") == nil)
         #expect(
             FieldTodaySelector.primaryVerb(for: item("Batteries", .buys))
-                == "Order it"
+                == "Mark it done"
+        )
+        #expect(
+            FieldTodaySelector.primaryVerb(for: item("Groceries", .food))
+                == "Mark it done"
         )
         #expect(
             FieldTodaySelector.primaryVerb(
                 for: item("Recital", LifeCategory(rawValue: "notes"))
             ) == "Mark it done"
         )
+    }
+
+    /// The reason the category tier is gone, stated as a property rather than
+    /// a list of examples.
+    ///
+    /// A button may only promise what the tap will actually do. `.none` is
+    /// marked done and nothing else, so a `.none` item may not be offered a
+    /// verb that describes anything else happening. This holds across every
+    /// category, including ones grown later that nobody thought about here —
+    /// which is the whole point of asserting it this way.
+    @Test
+    func aVerbNeverPromisesMoreThanTheTapDoes() {
+        let categories: [LifeCategory] =
+            LifeCategory.builtIn + [LifeCategory(rawValue: "pets")]
+
+        for category in categories {
+            let quiet = item("Recital", category)
+            #expect(
+                FieldTodaySelector.primaryAct(for: quiet) == .none,
+                "\(category.rawValue) invented an act from nothing"
+            )
+            #expect(
+                FieldTodaySelector.primaryVerb(for: quiet) == "Mark it done",
+                "\(category.rawValue) put a verb on a button that does nothing"
+            )
+        }
     }
 }
 

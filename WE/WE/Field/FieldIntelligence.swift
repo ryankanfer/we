@@ -486,22 +486,26 @@ enum FieldTodaySelector {
 
     /// The verb on the button under a moment.
     ///
-    /// The thing itself first, its category second. A category is a rough
-    /// guess at what you do with something — Care held both "book the vet" and
-    /// "call your mother", and offering to Book the second one was the app
-    /// pretending to know more than it does. The item says what it is; when it
-    /// doesn't, the category's verb is a fair default; when that isn't known
-    /// either, the honest general one.
+    /// The wording, or nothing. There used to be a second tier here: when the
+    /// sentence gave no verb away, the *category* supplied one — Food said
+    /// "Send it", Care said "Book it", Buys said "Order it".
+    ///
+    /// Those were lies, and provably so. The category tier was reachable only
+    /// when `match(_:)` returned nil, which is exactly the condition under
+    /// which `primaryAct(for:)` returns `.none` — and `.none` is marked done
+    /// and nothing else (`FieldTodayZone.begin(_:)`). So the button under a bag
+    /// of groceries said SEND IT, sent nothing, and ticked the item off. The
+    /// word was chosen by the one part of the app that had been told it must
+    /// not choose: the comment on `primaryAct` below says a category "knows the
+    /// difference no better than it ever did", and then the verb was taken from
+    /// it anyway.
+    ///
+    /// Removing the tier costs Today its variety — a screen of MARK IT DONE
+    /// reads flatter than a screen of verbs. That flatness is the true picture
+    /// of what those items are, and a button that overstates what it will do
+    /// spends trust the app cannot re-earn by looking livelier.
     static func primaryVerb(for item: LifeItem) -> String {
-        if let verb = verbFromWording(item.title) { return verb }
-
-        switch item.category {
-        case .food: return "Send it"
-        case .care: return "Book it"
-        case .money: return "Move it"
-        case .buys: return "Order it"
-        default: return "Mark it done"
-        }
+        verbFromWording(item.title) ?? "Mark it done"
     }
 
     /// What the sentence itself asks for. Ordered most specific first, because

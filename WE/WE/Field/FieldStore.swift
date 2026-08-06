@@ -248,9 +248,24 @@ final class FieldStore {
     // it is not stored here: the paging TabView keeps all three zones mounted,
     // so each ScrollView keeps its own position for free. Mirroring it would
     // add a second source of truth that can only ever disagree.
-    /// The calendar surface, reached by pulling down on Life. It replaced the
-    /// Reminders takeover, whose occasions now sit at the top of Life itself.
+    /// The calendar surface, reached by tapping LIFE while already on Life.
+    /// It replaced the Reminders takeover, whose occasions now sit at the top
+    /// of Life itself.
     var calendarOpen = false
+
+    /// The search surface, reached by pulling down on Life — the gesture the
+    /// calendar used to hold.
+    ///
+    /// Life carries single large words and nothing that enumerates a category,
+    /// which is the whole reason it stays calm; the cost is that a thing
+    /// written down six weeks ago can only be found by remembering where it
+    /// was filed. Search is the one route that does not require remembering.
+    ///
+    /// A separate flag rather than an enum with `calendarOpen`: they are
+    /// mutually exclusive in practice, but a single `overlay: Overlay?` would
+    /// make every existing `if store.calendarOpen` a pattern match, and the
+    /// two surfaces have nothing else in common.
+    var searchOpen = false
     var activeClusterIndex = 0
     var captureDraft = ""
     var lastReceipt: FieldReceipt?
@@ -809,17 +824,35 @@ final class FieldStore {
     }
 
     /// Tapping the WE mark always returns to Today. A hard requirement.
+    ///
+    /// Closes whatever is over Life on the way, so the mark means the same
+    /// thing from every state: there is one home and this is how you get back
+    /// to it, never "first dismiss this, then press it again".
     func returnHome() {
         calendarOpen = false
+        searchOpen = false
         activeZone = .we
     }
 
+    /// One overlay at a time over Life. Opening either closes the other rather
+    /// than stacking, because both are full-bleed and the one underneath would
+    /// only be discovered by dismissing the one on top.
     func openCalendar() {
+        searchOpen = false
         calendarOpen = true
     }
 
     func closeCalendar() {
         calendarOpen = false
+    }
+
+    func openSearch() {
+        calendarOpen = false
+        searchOpen = true
+    }
+
+    func closeSearch() {
+        searchOpen = false
     }
 
     func advanceCluster() {

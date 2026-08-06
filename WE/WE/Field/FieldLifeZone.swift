@@ -12,8 +12,14 @@
 //  dated things grouped by occasion, and **the categories**, which are single
 //  large words.
 //
-//  Pulling down opens the calendar — every dated thing at once, whatever list
-//  it came from. A calendar is not a category and never was one.
+//  Two rooms sit behind it, and neither is a category. The calendar is every
+//  dated thing at once, whatever list it came from. Search is everything
+//  written down at all, which is the only way to find a thing without first
+//  remembering where it went.
+//
+//  Both have a word in the corner. The calendar also answers to a second tap
+//  on LIFE in the bar; search also answers to pulling this screen down, the
+//  way every other list on the phone does.
 //
 
 import SwiftUI
@@ -52,6 +58,11 @@ struct FieldLifeZone: View {
         //
         // It does not fight the category buttons either: a drag of 24pt or
         // more is not a tap, so the two cannot both fire.
+        //
+        // This used to open the calendar. The calendar is now behind a second
+        // tap on the LIFE word in the bar, where it is visible and reachable
+        // without a gesture at all, and the pull that everyone already knows
+        // from Mail and the Home Screen means here what it means there.
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)
                 .onEnded { value in
@@ -59,7 +70,7 @@ struct FieldLifeZone: View {
                           value.translation.height > 90,
                           abs(value.translation.width) < 60
                     else { return }
-                    store.openCalendar()
+                    openSearch()
                 }
         )
         .sheet(item: $openCategory) { category in
@@ -148,6 +159,12 @@ struct FieldLifeZone: View {
             [nudge.occasion, nudge.ask].compactMap { $0 }
                 .joined(separator: ". ")
         )
+    }
+
+    /// One name for the two routes in — the control above and the pull — so
+    /// that anything either of them ever has to do is written once.
+    private func openSearch() {
+        store.openSearch()
     }
 
     /// "TODAY", "TOMORROW", then the weekday, then the date. Nothing in this
@@ -246,13 +263,47 @@ struct FieldLifeZone: View {
         .accessibilityIdentifier("field.life.\(category.rawValue)")
     }
 
-    // MARK: The entry affordance
+    // MARK: The entry affordances
+    //
+    // Two rooms behind this screen, and both say so in words.
+    //
+    // An earlier version put the calendar here and left search to the pull
+    // alone, mentioned once by a line that then went away forever. That is the
+    // failure the way into Yours already taught: a room reachable only by a
+    // gesture, with nothing on screen to find, is a room most people will
+    // never open — and unlike Yours, search has no reason to be discreet.
+    //
+    // So the pull is an accelerator for the hand that knows it, and neither
+    // room depends on anybody having learned one.
 
     private var pullAffordance: some View {
-        Button {
-            store.openCalendar()
-        } label: {
-            Text("↓ PULL FOR CALENDAR")
+        HStack(spacing: 18) {
+            affordance(
+                "SEARCH",
+                hint: "Finds anything either of you has written down",
+                id: "field.life.search"
+            ) {
+                openSearch()
+            }
+
+            affordance(
+                "CALENDAR",
+                hint: "Opens the month, and everything with a date on it",
+                id: "field.life.calendar"
+            ) {
+                store.openCalendar()
+            }
+        }
+    }
+
+    private func affordance(
+        _ word: String,
+        hint: String,
+        id: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(word)
                 .font(FieldType.subLabel)
                 .tracking(FieldTracking.dateCount)
                 .foregroundStyle(.fieldInk(.recessive))
@@ -260,9 +311,9 @@ struct FieldLifeZone: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Calendar")
-        .accessibilityHint("Opens the month, and everything with a date on it")
-        .accessibilityIdentifier("field.life.calendar")
+        .accessibilityLabel(word.capitalized)
+        .accessibilityHint(hint)
+        .accessibilityIdentifier(id)
     }
 }
 
