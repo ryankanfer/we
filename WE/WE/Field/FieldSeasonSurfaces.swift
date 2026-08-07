@@ -221,9 +221,6 @@ struct FieldOnboardingView: View {
 
     @State private var savingFor = ""
     @State private var looksAfter = ""
-    @State private var calendarOutcome: FieldCalendarAccess.Outcome?
-    @State private var isConnectingCalendar = false
-
     var onFinish: () -> Void = {}
 
     var body: some View {
@@ -455,47 +452,9 @@ struct FieldOnboardingView: View {
                 .fieldLineHeight(1.6, size: 15.5)
                 .fixedSize(horizontal: false, vertical: true)
 
-            calendarStep
-
             Button("That's us") { finish() }
                 .buttonStyle(FieldFilledButtonStyle())
-                .disabled(isConnectingCalendar)
                 .accessibilityIdentifier("field.onboarding.finish")
-        }
-    }
-
-    /// The calendar is offered, never required. Declining is an outcome the
-    /// app acknowledges out loud rather than a dead end it re-asks about.
-    @ViewBuilder
-    private var calendarStep: some View {
-        switch calendarOutcome {
-        case .granted:
-            Text("Connected. I'll watch, and stay out of the way.")
-                .font(FieldType.reasoning)
-                .foregroundStyle(.fieldInk(.reasoning))
-                .fieldLineHeight(1.6, size: 13)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("field.onboarding.calendar.granted")
-
-        case .declined:
-            Text("No calendar, then. I'll learn from what you tell me.")
-                .font(FieldType.reasoning)
-                .foregroundStyle(.fieldInk(.reasoning))
-                .fieldLineHeight(1.6, size: 13)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("field.onboarding.calendar.declined")
-
-        case nil:
-            Button("Connect a calendar") {
-                isConnectingCalendar = true
-                Task {
-                    calendarOutcome = await FieldCalendarAccess.request()
-                    isConnectingCalendar = false
-                }
-            }
-            .buttonStyle(FieldOutlinedButtonStyle())
-            .disabled(isConnectingCalendar)
-            .accessibilityIdentifier("field.onboarding.calendar.connect")
         }
     }
 

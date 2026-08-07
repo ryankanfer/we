@@ -137,10 +137,10 @@ nonisolated struct WEDiagnosticsStore: Sendable {
 
     // MARK: Removing
 
-    /// Part of the Phase 1d purge contract: signing out, deleting the
-    /// account, and unpairing all land here. A crash report outliving the
-    /// account it belongs to is the same category of mistake as a cached
-    /// relationship outliving it.
+    /// Part of the Phase 1d purge contract: signing out and deleting the
+    /// account land here, as would unpairing if it existed — it does not yet.
+    /// A crash report outliving the account it belongs to is the same category
+    /// of mistake as a cached relationship outliving it.
     func purge() {
         for url in stored() {
             try? FileManager.default.removeItem(at: url)

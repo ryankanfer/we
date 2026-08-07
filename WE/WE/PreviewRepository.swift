@@ -114,6 +114,35 @@ actor PreviewRepository: Repository {
         snapshot = choosingHueSnapshot
     }
 
+    /// A fresh window on the existing preview code. The preview fixture has
+    /// no invitation table behind it, so this moves the only thing the
+    /// screens actually read.
+    func createInvitation() async throws {
+        snapshot = replacing(
+            couple: snapshot.couple.map {
+                Couple(
+                    id: $0.id,
+                    joinCode: $0.joinCode,
+                    invitationExpiresAt: Date().addingTimeInterval(7 * 86_400)
+                )
+            }
+        )
+    }
+
+    func revokeInvitation() async throws {
+        snapshot = replacing(
+            couple: snapshot.couple.map {
+                Couple(
+                    id: $0.id,
+                    joinCode: $0.joinCode,
+                    invitationExpiresAt: nil
+                )
+            }
+        )
+    }
+
+    func acknowledgeDeparture() async throws {}
+
     func updateProfile(name: String, userID: String) async throws {
         snapshot = replacing(profile: Profile(id: userID, name: name))
     }
@@ -751,6 +780,7 @@ actor PreviewRepository: Repository {
     private func replacing(
         profile: Profile? = nil,
         membership: Membership? = nil,
+        couple: Couple? = nil,
         insights: [InsightRecord]? = nil,
         reflections: [Reflection]? = nil,
         plans: [PlanItem]? = nil,
@@ -760,7 +790,7 @@ actor PreviewRepository: Repository {
         RelationshipSnapshot(
             profile: profile ?? snapshot.profile,
             membership: membership ?? snapshot.membership,
-            couple: snapshot.couple,
+            couple: couple ?? snapshot.couple,
             members: snapshot.members,
             insights: insights ?? snapshot.insights,
             reflections: reflections ?? snapshot.reflections,

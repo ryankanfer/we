@@ -183,7 +183,7 @@ enum FieldDemoData {
             dueOn: date(2025, 8, 17),
             closesAt: nil,
             clusterID: "wedding",
-            source: .imported,
+            source: .captured,
             detail: "4 days",
             isTimeCritical: true,
             isDone: false
@@ -237,7 +237,7 @@ enum FieldDemoData {
             dueOn: date(2025, 9, 1),
             closesAt: nil,
             clusterID: "upkeep",
-            source: .imported,
+            source: .captured,
             detail: "Sep 1",
             isTimeCritical: false,
             isDone: false

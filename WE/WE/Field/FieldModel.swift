@@ -273,7 +273,8 @@ enum FieldItemSource: String, Codable, Sendable {
     case captured
     /// The intelligence derived it from something else the user said.
     case inferred
-    /// It came from a connected calendar.
+    /// Kept only to decode rows written by calendar builds that predate the
+    /// private-intake release. New clients never create this source.
     case imported
 }
 
@@ -295,6 +296,18 @@ struct LifeItem: Identifiable, Codable, Hashable, Sendable {
     /// Renders the detail warm when the timing is what makes it matter.
     var isTimeCritical: Bool
     var isDone: Bool
+    /// The link this item arrived as, when it arrived from somewhere else.
+    ///
+    /// Not a column. `field_life_resources` has stored the approved URLs of
+    /// every published share since private intake shipped, keyed to the item —
+    /// the app simply never read them back. This is that row, attached on
+    /// fetch, so the lookup policy can tell a thing somebody bought on Amazon
+    /// from a thing somebody wrote down.
+    ///
+    /// Last in the list and optional on purpose: the memberwise initialiser
+    /// keeps its default for every existing call site, and a cached item
+    /// written before this field existed decodes to `nil` rather than failing.
+    var sourceURL: URL?
 
     /// How much this item is pressing, 0…1. Feeds both the category ordering
     /// on Life and the Today selection. It is never shown to the user as a

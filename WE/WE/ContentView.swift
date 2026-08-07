@@ -387,12 +387,13 @@ private struct PairingView: View {
                 autocapitalization: .characters,
                 identifier: "pairing.joinCode"
             )
+            // Through `PendingInvitation.normalized` rather than inline. This
+            // was the second definition of a join code's shape that
+            // `InvitationTests.normalisingStripsCaseAndPunctuationAndCaps`
+            // exists to stop growing back — a typed code and a tapped link
+            // have to agree, and they cannot if two places decide separately.
             .onChange(of: joinCode) { _, value in
-                joinCode = String(
-                    value.uppercased()
-                        .filter { $0.isLetter || $0.isNumber }
-                        .prefix(16)
-                )
+                joinCode = PendingInvitation.normalized(value) ?? ""
             }
 
             Button("Join") { Task { await joinSharedSpace() } }
@@ -454,13 +455,25 @@ private struct PartnerWaitingView: View {
 
     private var code: String { session.snapshot?.couple?.joinCode ?? "" }
 
+    private var couple: Couple? { session.snapshot?.couple }
+
+    /// `joinCode` is never nil — the column behind it is `not null` — so the
+    /// code alone cannot say whether there is anything live to send. The
+    /// expiry is the field that can.
+    private var isLive: Bool { couple?.hasLiveInvitation() ?? false }
+
     var body: some View {
         FieldGateScaffold(label: "Invitation ready") {
             VStack(alignment: .leading, spacing: FieldMetrics.sectionGap) {
                 FieldGateHeadline(
-                    title: "The invitation is at\nthe threshold.",
-                    subtitle: "Send the code when you are ready. It contains "
-                        + "no note, proposal, answer, or private context."
+                    title: isLive
+                        ? "The invitation is at\nthe threshold."
+                        : "The invitation has\nbeen withdrawn.",
+                    subtitle: isLive
+                        ? "Send the code when you are ready. It contains "
+                            + "no note, proposal, answer, or private context."
+                        : "This code no longer opens anything. Make a new one "
+                            + "when you are ready."
                 )
 
                 // The code itself, in the app's mono at a size you can read
@@ -469,14 +482,25 @@ private struct PartnerWaitingView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     FieldRuleLine()
 
+                    // Struck through rather than hidden when it is not live.
+                    // Somebody who sent this code to their partner an hour
+                    // ago needs to recognise the string they are looking at
+                    // before they can understand that it stopped working.
                     Text(code)
                         .font(FieldType.metric)
                         .tracking(4)
-                        .foregroundStyle(.fieldInk(.headline))
+                        .foregroundStyle(
+                            .fieldInk(isLive ? .headline : .recessive)
+                        )
+                        .strikethrough(!isLive)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, 6)
                         .textSelection(.enabled)
-                        .accessibilityLabel("Join code \(code)")
+                        .accessibilityLabel(
+                            isLive
+                                ? "Join code \(code)"
+                                : "Join code \(code), no longer valid"
+                        )
 
                     FieldRuleLine()
                 }
@@ -487,6 +511,8 @@ private struct PartnerWaitingView: View {
                     accent: FieldIdentity.seed.personB.color
                 )
 
+                window
+
                 invitationActions
                     .sensoryFeedback(.success, trigger: copied)
 
@@ -494,6 +520,8 @@ private struct PartnerWaitingView: View {
                     .font(FieldType.body)
                     .foregroundStyle(.fieldInk(.metadataProse))
                     .fixedSize(horizontal: false, vertical: true)
+
+                withdrawal
 
                 SessionMessageView()
 
@@ -503,17 +531,74 @@ private struct PartnerWaitingView: View {
         }
     }
 
+    /// How long the offer stands.
+    ///
+    /// Stated as a date rather than a countdown. A ticking clock on a screen
+    /// about inviting your partner is pressure, and the seven days are there
+    /// to stop a code living forever — not to hurry anybody.
+    @ViewBuilder
+    private var window: some View {
+        if let expires = couple?.invitationExpiresAt, isLive {
+            Text("This code works until \(expires.formatted(.dateTime.month(.wide).day())).")
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.metadataProse))
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("waiting.window")
+        }
+    }
+
     @ViewBuilder
     private var invitationActions: some View {
-        if dynamicTypeSize.isAccessibilitySize {
-            VStack(alignment: .leading, spacing: 12) {
-                sendInvitationButton
-                copyInvitationButton
+        if isLive {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 12) {
+                    sendInvitationButton
+                    copyInvitationButton
+                }
+            } else {
+                HStack(spacing: 12) {
+                    sendInvitationButton
+                    copyInvitationButton
+                }
             }
         } else {
-            HStack(spacing: 12) {
-                sendInvitationButton
-                copyInvitationButton
+            Button {
+                Task { await session.createInvitation() }
+            } label: {
+                if session.isWorking {
+                    ProgressView().tint(FieldPalette.bg)
+                } else {
+                    Text("Make a new invitation")
+                }
+            }
+            .buttonStyle(FieldFilledButtonStyle())
+            .disabled(session.isWorking)
+            .accessibilityLabel("Make a new invitation")
+            .accessibilityIdentifier("waiting.regenerate")
+        }
+    }
+
+    /// Withdrawing is the answer to "I sent that to the wrong person", and it
+    /// has to be reachable at the moment somebody realises it — so it sits on
+    /// this screen rather than behind Account.
+    @ViewBuilder
+    private var withdrawal: some View {
+        if isLive {
+            VStack(alignment: .leading, spacing: 10) {
+                FieldRuleLine()
+
+                Button("Withdraw this invitation") {
+                    Task { await session.revokeInvitation() }
+                }
+                .buttonStyle(FieldQuietButtonStyle())
+                .disabled(session.isWorking)
+                .accessibilityIdentifier("waiting.revoke")
+                .padding(.top, 4)
+
+                Text("The code stops working straight away, for everyone.")
+                    .font(FieldType.body)
+                    .foregroundStyle(.fieldInk(.metadataProse))
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

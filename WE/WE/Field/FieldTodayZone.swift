@@ -17,10 +17,6 @@
 //  reason.
 //
 
-// The event store is passed to Apple's editor and never written to here.
-// See `FieldEventEditor`.
-import EventKit
-import EventKitUI
 import SwiftUI
 
 struct FieldTodayZone: View {
@@ -339,11 +335,6 @@ struct FieldMomentView: View {
     @Environment(FieldStore.self) private var store
     let moment: FieldMoment
 
-    /// The event about to be offered to Apple's editor. Held here rather than
-    /// in the store because nothing has been decided until the person taps
-    /// Add in a sheet the app does not own.
-    @State private var calendarDraft: FieldEventDraft?
-
     private var accentColor: Color {
         moment.accent == .shared
             ? store.identity.personB.color
@@ -412,16 +403,6 @@ struct FieldMomentView: View {
             FieldOutreachConfirmation(request: request)
                 .environment(store)
         }
-        .sheet(item: calendarDraftBinding) { draft in
-            FieldEventEditor(draft: draft, store: EKEventStore()) { action in
-                calendarDraft = nil
-                // The only outcome the app may treat as fact: EventKit is
-                // telling it an event exists, rather than the app assuming
-                // one does because it opened a sheet.
-                if action == .saved { store.complete(moment.id) }
-            }
-            .ignoresSafeArea()
-        }
     }
 
     private var outreachBinding: Binding<FieldOutreachRequest?> {
@@ -429,10 +410,6 @@ struct FieldMomentView: View {
             get: { store.pendingOutreach },
             set: { if $0 == nil { store.dismissOutreach() } }
         )
-    }
-
-    private var calendarDraftBinding: Binding<FieldEventDraft?> {
-        Binding(get: { calendarDraft }, set: { calendarDraft = $0 })
     }
 
     /// "You called the vet. Is that one done?"
@@ -549,13 +526,11 @@ struct FieldMomentView: View {
 
     /// The verb, doing what it says.
     ///
-    /// A calendar draft is decided here and now — it needs nothing from the
-    /// world, so there is nothing to look up and nothing to confirm beyond
-    /// Apple's own sheet. Anything that needs a number goes through the
-    /// store, which finds what it can and then stops, because the last
-    /// decision before something leaves the phone is never the app's.
+    /// Anything that needs a number goes through the store, which finds what
+    /// it can and then stops, because the last decision before something
+    /// leaves the phone is never the app's.
     private func begin(_ act: FieldAct) {
-        guard let item = store.state.lifeItems.first(where: {
+        guard store.state.lifeItems.contains(where: {
             $0.id == moment.id
         }) else {
             store.complete(moment.id)
@@ -570,14 +545,9 @@ struct FieldMomentView: View {
             Task { await store.begin(act, for: moment.id) }
 
         case .schedule:
-            guard FieldCalendarAccess.isAuthorized else {
-                // There is a calendar to fill in and the couple never
-                // connected one. The app does not go asking for access at the
-                // moment somebody wanted something else entirely.
-                store.complete(moment.id)
-                return
-            }
-            calendarDraft = FieldOutreach.draft(for: item, now: store.now)
+            // LIFE's own calendar already holds the date. External calendar
+            // accounts are deliberately outside this release.
+            store.complete(moment.id)
 
         case .pay, .order, .none:
             // Real acts with no honest destination on this phone. Paying a

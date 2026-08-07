@@ -378,9 +378,32 @@ nonisolated struct CoupleDTO: Decodable, Sendable {
     let id: String
     let joinCode: String
 
+    /// Decoded as a string and parsed at the edge, matching `yoursDate` in
+    /// `YoursSupabaseBackend.swift:69`: Postgres emits `timestamptz` with
+    /// fractional seconds sometimes and without them others, and guessing one
+    /// gives you a silent nil rather than an error.
+    let joinCodeExpiresAt: String?
+    let departedAt: String?
+    let departureSeenAt: String?
+
     enum CodingKeys: String, CodingKey {
         case id
         case joinCode = "join_code"
+        case joinCodeExpiresAt = "join_code_expires_at"
+        case departedAt = "departed_at"
+        case departureSeenAt = "departure_seen_at"
+    }
+
+    /// Absent rather than null when an older client's `select` list did not
+    /// ask for the column — decoding must not start failing for that.
+    var invitationExpiry: Date? { Self.parse(joinCodeExpiresAt) }
+    var departed: Date? { Self.parse(departedAt) }
+    var departureSeen: Date? { Self.parse(departureSeenAt) }
+
+    private static func parse(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        return ISO8601DateFormatter.weFlexible.date(from: value)
+            ?? ISO8601DateFormatter.we.date(from: value)
     }
 }
 

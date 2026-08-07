@@ -56,26 +56,17 @@ struct FieldItemSheet: View {
                         header(item)
                             .padding(.bottom, FieldMetrics.sectionGap)
 
-                        if isImported {
-                            imported(item)
-                        } else {
-                            whereItLives(item)
+                        whereItLives(item)
+                            .padding(.bottom, FieldMetrics.sectionGap)
+
+                        if item.category.carriesDates {
+                            when(item)
                                 .padding(.bottom, FieldMetrics.sectionGap)
-
-                            if item.category.carriesDates {
-                                when(item)
-                                    .padding(.bottom, FieldMetrics.sectionGap)
-                            }
-
-                            // Draws nothing for most items, and that is the
-                            // designed state — see `FieldItemSteps.actions`.
-                            // Deliberately inside the `else`: an imported
-                            // event is somebody else's record and this offers
-                            // nothing on one.
-                            FieldItemHelp(item: item)
-
-                            removeIt
                         }
+
+                        FieldItemHelp(item: item)
+
+                        removeIt
                     }
                     .padding(.top, 48)
                     .padding(.horizontal, FieldMetrics.screenSide)
@@ -111,8 +102,6 @@ struct FieldItemSheet: View {
         }
         .accessibilityIdentifier("field.item")
     }
-
-    private var isImported: Bool { itemID.hasPrefix("cal:") }
 
     private var doneButton: some View {
         Button {
@@ -285,23 +274,6 @@ struct FieldItemSheet: View {
         }
     }
 
-    // MARK: Somebody else's calendar
-
-    /// An imported event is a date the app is *reading*, not something it
-    /// holds. The calendar permission string promises "I never add, change, or
-    /// delete anything", so this screen offers none of the three and says why.
-    private func imported(_ item: LifeItem) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            FieldRuleLine()
-
-            FieldReasoning(
-                text: "This came from the calendar on your phone. Only that "
-                    + "calendar can move it or take it off.",
-                accent: store.identity.personB.color
-            )
-            .padding(.top, 18)
-        }
-    }
 }
 
 #Preview {

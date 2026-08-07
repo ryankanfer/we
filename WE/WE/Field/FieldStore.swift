@@ -1179,18 +1179,17 @@ final class FieldStore {
     // plan permanent. These are the same three acts the capture flow already
     // offers, made available to something already on a page.
 
-    /// An item that came from the phone's own calendar, which this app does
-    /// not own. The permission string promises, in these words: "I never add,
-    /// change, or delete anything."
-    private func isImported(_ itemID: String) -> Bool {
+    /// Older builds wrote external calendar rows with this prefix. The current
+    /// app has no calendar connection, but preserving the read-only boundary
+    /// keeps an upgrade from silently turning a legacy external row editable.
+    private func isLegacyExternalRow(_ itemID: String) -> Bool {
         itemID.hasPrefix("cal:")
     }
 
     /// Gone, for both of them.
     ///
-    /// Refused for an imported event at this seam rather than only in the UI —
-    /// a promise the app made about somebody else's calendar should not depend
-    /// on which screen the call came from.
+    /// Legacy external rows remain immutable at the store seam, not just in a
+    /// particular screen, while they age out of existing accounts.
     ///
     /// The chip under the capture field goes with it. A capture and the item it
     /// filed share one id, and "it goes from every screen, and there is no
@@ -1198,7 +1197,7 @@ final class FieldStore {
     /// pill for a thing that no longer exists is the app contradicting itself
     /// on the screen a couple looks at most.
     func remove(_ itemID: String) {
-        guard !isImported(itemID),
+        guard !isLegacyExternalRow(itemID),
               let index = state.lifeItems.firstIndex(where: { $0.id == itemID })
         else { return }
 
@@ -1215,7 +1214,7 @@ final class FieldStore {
     /// records a `FieldCorrection` exactly as `correct(to:)` does for a
     /// receipt.
     func refile(_ itemID: String, to category: LifeCategory) {
-        guard !isImported(itemID),
+        guard !isLegacyExternalRow(itemID),
               let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
               state.lifeItems[index].category != category
         else { return }
@@ -1302,7 +1301,7 @@ final class FieldStore {
     /// Appended rather than assigned. A detail somebody typed themselves is
     /// not scratch space for the model to write over.
     func keepPlan(on itemID: String) {
-        guard !isImported(itemID),
+        guard !isLegacyExternalRow(itemID),
               let plan = itemPlan,
               plan.itemID == itemID,
               !plan.steps.isEmpty,
@@ -1400,7 +1399,7 @@ final class FieldStore {
         _ item: LifeItem,
         in category: LifeCategory
     ) -> Bool {
-        item.category == category && !isImported(item.id)
+        item.category == category && !isLegacyExternalRow(item.id)
     }
 
     /// The same act by a name the couple supplies — renaming a group they
@@ -1475,7 +1474,7 @@ final class FieldStore {
     /// no particular day is not a thing, and leaving `closesAt` behind would
     /// keep the item ranking at the top of Today with nothing to show for it.
     func redate(_ itemID: String, to day: Date?) {
-        guard !isImported(itemID),
+        guard !isLegacyExternalRow(itemID),
               let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
               state.lifeItems[index].category.carriesDates
         else { return }

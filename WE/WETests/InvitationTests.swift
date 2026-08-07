@@ -115,6 +115,115 @@ struct InvitationTests {
         )
     }
 
+    // MARK: The window
+    //
+    // `joinCode` is never nil — the column behind it is `not null` — so the
+    // code alone cannot say whether there is anything live to send. These
+    // pin the field that can.
+
+    @Test
+    func aCodeWithNoExpiryIsNotAnInvitation() {
+        let couple = Couple(id: "c", joinCode: "WEDEMO")
+        #expect(couple.hasLiveInvitation() == false)
+    }
+
+    @Test
+    func theWindowIsJudgedAgainstTheClockNotTheCode() {
+        let now = Date()
+        let live = Couple(
+            id: "c",
+            joinCode: "WEDEMO",
+            invitationExpiresAt: now.addingTimeInterval(60)
+        )
+        let lapsed = Couple(
+            id: "c",
+            joinCode: "WEDEMO",
+            invitationExpiresAt: now.addingTimeInterval(-1)
+        )
+
+        #expect(live.hasLiveInvitation(asOf: now))
+        #expect(lapsed.hasLiveInvitation(asOf: now) == false)
+
+        // A screen left open across the boundary must stop offering a code
+        // that no longer works, so the same value flips on time alone.
+        #expect(live.hasLiveInvitation(asOf: now.addingTimeInterval(120)) == false)
+    }
+
+    // MARK: Departure
+
+    @Test
+    func departureIsOwedOnlyWhenSomebodyLeftAndNobodyWasTold() {
+        let neverPaired = Couple(id: "c", joinCode: "WEDEMO")
+        #expect(neverPaired.owesDepartureNotice == false)
+
+        let untold = Couple(
+            id: "c",
+            joinCode: "WEDEMO",
+            departedAt: Date()
+        )
+        #expect(untold.owesDepartureNotice)
+
+        // Both halves are required. `departedAt` alone would raise the
+        // surface on every launch for the rest of the account's life.
+        let told = Couple(
+            id: "c",
+            joinCode: "WEDEMO",
+            departedAt: Date(),
+            departureSeenAt: Date()
+        )
+        #expect(told.owesDepartureNotice == false)
+    }
+
+    // MARK: Decoding
+    //
+    // Postgres emits `timestamptz` with fractional seconds sometimes and
+    // without them others. Guessing one gives a silent nil — which here would
+    // read as "there is no invitation" and hide a live code, or as "nobody
+    // left" and swallow the one quiet moment.
+
+    @Test
+    func coupleTimestampsDecodeWithAndWithoutFractionalSeconds() throws {
+        func decode(_ json: String) throws -> CoupleDTO {
+            try JSONDecoder().decode(CoupleDTO.self, from: Data(json.utf8))
+        }
+
+        let withFraction = try decode(
+            """
+            {"id":"c","join_code":"WEDEMO",
+             "join_code_expires_at":"2026-08-15T10:23:45.123456+00:00",
+             "departed_at":null,"departure_seen_at":null}
+            """
+        )
+        #expect(withFraction.invitationExpiry != nil)
+        #expect(withFraction.departed == nil)
+
+        let withoutFraction = try decode(
+            """
+            {"id":"c","join_code":"WEDEMO",
+             "join_code_expires_at":"2026-08-15T10:23:45+00:00",
+             "departed_at":"2026-08-14T09:00:00+00:00",
+             "departure_seen_at":null}
+            """
+        )
+        #expect(withoutFraction.invitationExpiry != nil)
+        #expect(withoutFraction.departed != nil)
+        #expect(withoutFraction.departureSeen == nil)
+    }
+
+    @Test
+    func aCoupleStillDecodesWhenTheNewColumnsAreAbsent() throws {
+        // An older `select` list, or a cached row written before these
+        // columns existed. Decoding must not start failing for that.
+        let dto = try JSONDecoder().decode(
+            CoupleDTO.self,
+            from: Data(#"{"id":"c","join_code":"WEDEMO"}"#.utf8)
+        )
+
+        #expect(dto.joinCode == "WEDEMO")
+        #expect(dto.invitationExpiry == nil)
+        #expect(dto.departed == nil)
+    }
+
     @Test
     func handleDoesNotClaimJoinLinks() {
         // `.join` mutates main-actor state the app owns, so `WEApp.open`

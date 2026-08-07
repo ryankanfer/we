@@ -28,15 +28,10 @@ struct YoursSurface: View {
     @State private var store: YoursStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
-    /// Where the circle comes from and goes back to — the WE mark's centre in
-    /// the shell's coordinate space, handed down because this view covers the
-    /// shell and cannot see it.
-    private let bloomOrigin: CGPoint
-
-    /// This person's own hue. §2: the space *is* a single circle in it, so the
-    /// arrival is that circle opening rather than a screen sliding up over
-    /// another screen.
+    /// This person's own hue. It is the only color in the arrival field:
+    /// nothing partner-colored appears in a room that belongs to one person.
     ///
     /// Taken from `store.speaker` at the call site, not from `personA` — the
     /// rest of the app can be sloppy about which of the two it means because
@@ -49,75 +44,39 @@ struct YoursSurface: View {
     @State private var editing: YoursEntry?
     @State private var showsSnoozeConfirmation = false
     @State private var showsTeaching = false
+    @State private var handledTeachingThisPresentation = false
 
     /// The one held entry whose writing is currently on screen, if any. One at
     /// a time — opening every card at once is the archive again.
     @State private var openHeld: String?
 
-    /// 0 closed, 1 open. Drives both the hue disc and the mask, in and out.
-    @State private var bloom: CGFloat = 0
-
     /// Set the moment a close begins, so a second tap on ✕ during the ~300ms
     /// exit cannot start a second one — two overlapping `dismiss()` calls pop
     /// whatever is underneath as well.
     @State private var isClosing = false
+    @State private var markIsVisible = false
+    @State private var contentIsVisible = false
 
     init(
         store: YoursStore,
-        bloomOrigin: CGPoint = .zero,
         hue: Color = .white
     ) {
         _store = State(initialValue: store)
-        self.bloomOrigin = bloomOrigin
         self.hue = hue
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            let reach = bloomReach(in: geometry.size)
-
-            ZStack {
-                // The circle itself, ahead of the room by a beat. It is the
-                // mark leaving the bar and becoming the screen — §2's grammar
-                // performed rather than described, and the reason this is not
-                // simply a cross-fade.
-                Circle()
-                    .fill(hue)
-                    .frame(width: reach * 2, height: reach * 2)
-                    .position(origin(in: geometry.size))
-                    .scaleEffect(discScale)
-                    .opacity(discOpacity)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-
-                room
-                    .mask {
-                        // A circle rather than a fade, and anchored to the
-                        // mark rather than to the centre: the room is
-                        // *revealed by* the circle, so the two motions are one
-                        // motion. `.zero` is the safe degenerate case — an
-                        // origin nobody supplied opens from the top-left
-                        // rather than not at all.
-                        Circle()
-                            .frame(width: reach * 2 * bloom, height: reach * 2 * bloom)
-                            .position(origin(in: geometry.size))
-                            .ignoresSafeArea()
-                    }
-            }
-            .ignoresSafeArea()
+        room
             .onAppear { open() }
-        }
-        // Every exit is `close()`, so the room never simply vanishes: without
-        // this, the interactive dismissal would skip the animation and the
-        // one-way trip would look like a bug in the other direction.
+        // Every explicit exit is `close()`, so the room never simply vanishes.
         .interactiveDismissDisabled()
     }
 
     private var room: some View {
         ZStack {
-            FieldPalette.bg.ignoresSafeArea()
+            personalField
 
-            ScrollView {
+            ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 34) {
                     compose
 
@@ -131,14 +90,35 @@ struct YoursSurface: View {
                     heldDrawer
                 }
                 .padding(.horizontal, FieldMetrics.screenSide)
-                // Clearance for the close control, which is 44pt tall and
-                // overlays this scroll view at the top trailing corner. At 30
-                // the compose headline ran under it.
-                .padding(.top, 56)
+                .padding(.top, 18)
                 .padding(.bottom, 80)
             }
+            .scrollDismissesKeyboard(.interactively)
+            .opacity(contentIsVisible ? 1 : 0)
+            .offset(y: reduceMotion || contentIsVisible ? 0 : 10)
         }
-        .overlay(alignment: .topTrailing) { closeButton }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HStack {
+                YoursMark(
+                    style: .micro,
+                    presence: .living,
+                    hue: hue
+                )
+                .opacity(markIsVisible ? 0.78 : 0)
+                .offset(y: reduceMotion || markIsVisible ? 0 : 8)
+                .accessibilityHidden(!markIsVisible)
+
+                Spacer(minLength: 0)
+                closeButton
+            }
+            .frame(minHeight: 52)
+            .padding(.horizontal, 12)
+            .background(
+                reduceTransparency
+                    ? FieldPalette.bg
+                    : FieldPalette.bg.opacity(0.96)
+            )
+        }
         // The receipt goes when the next thing is being written.
         //
         // It used to dismiss on tap, which cannot survive an Undo sitting
@@ -151,8 +131,10 @@ struct YoursSurface: View {
             store.dismissSaveConfirmation()
         }
         .preferredColorScheme(.dark)
+        .accessibilityAction(.escape) { close() }
         .task {
             await store.open()
+            guard !handledTeachingThisPresentation else { return }
             // The second and last time the word is ever shown. §2: a symbol
             // can become wordless after it is learned, not before.
             showsTeaching = store.shouldTeachOnFirstEntry
@@ -160,6 +142,7 @@ struct YoursSurface: View {
         .task { await store.drainDestroyQueue() }
         .sheet(isPresented: $showsTeaching) {
             YoursTeachingSheet {
+                handledTeachingThisPresentation = true
                 showsTeaching = false
                 Task { await store.markTaught(.firstEntry) }
             }
@@ -200,6 +183,28 @@ struct YoursSurface: View {
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var personalField: some View {
+        if reduceTransparency {
+            FieldPalette.bg.ignoresSafeArea()
+        } else {
+            ZStack {
+                FieldPalette.bg
+                RadialGradient(
+                    colors: [
+                        hue.opacity(0.18),
+                        hue.opacity(0.055),
+                        .clear,
+                    ],
+                    center: .topLeading,
+                    startRadius: 10,
+                    endRadius: 520
+                )
+            }
+            .ignoresSafeArea()
         }
     }
 
@@ -524,88 +529,40 @@ struct YoursSurface: View {
         }
     }
 
-    // MARK: - The bloom
+    // MARK: - Arrival and departure
     //
-    // §2: the space is a single circle in the person's own hue. So arriving is
-    // that circle opening, and leaving is it closing again — not a screen
-    // sliding up over another screen, which is what a full-screen cover does
-    // by default and what every other app's private tab looks like.
-    //
-    // The cover's own animation is suppressed at the presentation site
-    // (`FieldZoneShell`), in both directions. This owns the whole motion.
-
-    /// Far enough that the circle has cleared every corner. Measured from the
-    /// mark, which is near the bottom of the screen, so the far corner is a
-    /// long way further than half the diagonal.
-    private func bloomReach(in size: CGSize) -> CGFloat {
-        let point = origin(in: size)
-        let corners = [
-            CGPoint(x: 0, y: 0),
-            CGPoint(x: size.width, y: 0),
-            CGPoint(x: 0, y: size.height),
-            CGPoint(x: size.width, y: size.height),
-        ]
-        return corners.map { corner in
-            hypot(corner.x - point.x, corner.y - point.y)
-        }.max() ?? hypot(size.width, size.height)
-    }
-
-    /// The mark's centre, or the bottom middle if nobody said.
-    ///
-    /// The fallback matters: `YoursSurface` is presented from previews and
-    /// tests without an origin, and a circle blooming from `.zero` opens out
-    /// of the top-left corner, which reads as a glitch rather than as a
-    /// default.
-    private func origin(in size: CGSize) -> CGPoint {
-        guard bloomOrigin != .zero else {
-            return CGPoint(x: size.width / 2, y: size.height - 90)
-        }
-        return bloomOrigin
-    }
-
-    /// The disc runs ahead of the mask and is gone by the time the room is
-    /// fully uncovered — it is the colour arriving, not a background.
-    private var discScale: CGFloat {
-        reduceMotion ? 1 : min(1, bloom * 1.9)
-    }
-
-    private var discOpacity: CGFloat {
-        guard !reduceMotion else { return 0 }
-        // Full while the mask is behind it, fading out over the second half.
-        return bloom < 0.45 ? 1 : max(0, 1 - (bloom - 0.45) / 0.4)
-    }
+    // The personal field exists on the first frame. The mark and the room then
+    // resolve with only a short translation and opacity change. This preserves
+    // the personal-circle grammar without turning entry into a large wipe.
 
     private func open() {
-        guard !reduceMotion else {
-            bloom = 1
-            return
-        }
-        withAnimation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.42)) {
-            bloom = 1
+        if reduceMotion {
+            withAnimation(.linear(duration: 0.16)) {
+                markIsVisible = true
+                contentIsVisible = true
+            }
+        } else {
+            withAnimation(.weSettle(duration: 0.52)) {
+                markIsVisible = true
+                contentIsVisible = true
+            }
         }
     }
 
-    /// Closes the circle, then dismisses.
-    ///
-    /// Shorter than the entrance on purpose: arriving somewhere private should
-    /// feel like an opening, and leaving should feel decided.
-    ///
-    /// The dismissal is deferred rather than run alongside, because a
-    /// `fullScreenCover` tears its content down the instant `dismiss()` lands
-    /// — the animation would be running on a view that no longer exists, and
-    /// the room would simply blink out.
+    /// Shorter than the entrance on purpose: arriving somewhere private feels
+    /// like an opening, and leaving feels decided.
     private func close() {
         guard !isClosing else { return }
         isClosing = true
 
-        guard !reduceMotion else {
-            leave()
-            return
-        }
-
-        let duration = 0.3
-        withAnimation(.timingCurve(0.4, 0, 0.2, 1, duration: duration)) {
-            bloom = 0
+        let duration = reduceMotion ? 0.14 : 0.3
+        withAnimation(
+            reduceMotion
+                ? .linear(duration: duration)
+                : .weSettle(duration: duration)
+        ) {
+            markIsVisible = false
+            contentIsVisible = false
         }
         Task {
             try? await Task.sleep(for: .seconds(duration))
@@ -613,8 +570,7 @@ struct YoursSurface: View {
         }
     }
 
-    /// Dismisses without the cover's slide, which would otherwise play *after*
-    /// the circle has already closed — the room disappearing twice.
+    /// Dismisses without adding the cover's own transition after ours.
     private func leave() {
         var silent = Transaction()
         silent.disablesAnimations = true
@@ -629,7 +585,6 @@ struct YoursSurface: View {
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(.fieldInk(.monoLabel))
                 .frame(width: 44, height: 44)
-                .padding(.trailing, 12)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -697,6 +652,7 @@ private struct YoursReleaseSheet: View {
 /// a copy edit.
 private struct YoursTeachingSheet: View {
     let onSeen: () -> Void
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -714,8 +670,12 @@ private struct YoursTeachingSheet: View {
                 .font(FieldType.reasoning)
                 .foregroundStyle(.fieldInk(.legend))
 
-            Button("Begin", action: onSeen)
-                .buttonStyle(FieldOutlinedButtonStyle())
+            Button("Begin") {
+                dismiss()
+                onSeen()
+            }
+            .buttonStyle(FieldOutlinedButtonStyle())
+            .accessibilityIdentifier("yours.teaching.begin")
         }
         .padding(FieldMetrics.screenSide)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

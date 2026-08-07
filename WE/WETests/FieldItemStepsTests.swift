@@ -2,11 +2,15 @@
 //  FieldItemStepsTests.swift
 //  WETests
 //
-//  Stage 4 is a feature whose main promise is *not* doing something, so most
-//  of what follows asserts an empty array. The single most valuable test in
-//  this file is `aPlainItemIsOfferedNothing`: if that ever goes green while
-//  returning a suggestion, the app has started having opinions about a
-//  couple's shopping list.
+//  This is a feature whose main promise is *not* doing something, so a good
+//  deal of what follows asserts an empty array.
+//
+//  The single most valuable test here is
+//  `aProperNounDestinationStillOffersMaps`. Suppressing a map for a pair of
+//  headphones is easy; the trap is doing it with a rule that demands a title
+//  prove it names a place, which silently removes the map from Carbone,
+//  MoMA and every other real destination anybody writes down. That test is
+//  the one standing between a fix and a regression dressed as one.
 //
 //  The other load-bearing group is the URL rules. Exactly one query item per
 //  outbound URL is what makes "I don't take a cut from any of these" a fact
@@ -21,14 +25,15 @@ import Testing
 // MARK: - What gets offered
 
 @MainActor
-struct FieldItemStepsTests {
+struct FieldLookupPolicyTests {
     private func item(
         _ title: String,
         _ category: LifeCategory,
         id: String? = nil,
         dueOn: Date? = nil,
         closesAt: Date? = nil,
-        isDone: Bool = false
+        isDone: Bool = false,
+        sourceURL: String? = nil
     ) -> LifeItem {
         LifeItem(
             id: id ?? title,
@@ -41,73 +46,72 @@ struct FieldItemStepsTests {
             source: .captured,
             detail: nil,
             isTimeCritical: false,
-            isDone: isDone
+            isDone: isDone,
+            sourceURL: sourceURL.flatMap(URL.init(string:))
         )
     }
 
-    private func actions(
+    private func labels(
         _ title: String,
         _ category: LifeCategory,
-        modelAvailable: Bool = true,
         id: String? = nil,
-        dueOn: Date? = nil,
-        closesAt: Date? = nil,
-        isDone: Bool = false
-    ) -> [FieldItemAction] {
-        FieldItemSteps.actions(
+        isDone: Bool = false,
+        sourceURL: String? = nil
+    ) -> [String] {
+        FieldLookupPolicy.choices(
             for: item(
                 title,
                 category,
                 id: id,
-                dueOn: dueOn,
-                closesAt: closesAt,
-                isDone: isDone
-            ),
-            isModelAvailable: modelAvailable
-        )
+                isDone: isDone,
+                sourceURL: sourceURL
+            )
+        ).map(\.label)
     }
 
-    /// The one that matters. A sentence about a meal is a sentence about a
-    /// meal, and the app has nothing to add to it.
-    @Test
-    func aPlainItemIsOfferedNothing() {
-        #expect(actions("Dinner with the Harrisons", .food).isEmpty)
-        #expect(actions("Miso seems off", .care).isEmpty)
-        #expect(actions("Sort out the spare keys", .notes).isEmpty)
+    private func destinations(
+        _ title: String,
+        _ category: LifeCategory,
+        sourceURL: String? = nil
+    ) -> [FieldLookupDestination] {
+        FieldLookupPolicy.choices(
+            for: item(title, category, sourceURL: sourceURL)
+        ).map(\.destination)
     }
 
-    /// An imported event is somebody else's record. The calendar permission
-    /// string promises the app never adds, changes, or deletes anything, and
-    /// this must not become the one control that forgets.
+    // MARK: Nothing at all
+
+    /// Rows left by calendar builds that predate private intake stay inert
+    /// after an upgrade even though the current app has no import path.
     @Test
-    func anImportedEventIsOfferedNothing() {
-        #expect(actions("Standup", .home, id: "cal:1234").isEmpty)
-        // Even a watchlist row, which would otherwise always offer something.
-        #expect(actions("Past Lives", .watchlist, id: "cal:9").isEmpty)
+    func aLegacyExternalRowIsOfferedNothing() {
+        #expect(labels("Standup", .home, id: "cal:1234").isEmpty)
+        #expect(labels("Past Lives", .watchlist, id: "cal:9").isEmpty)
     }
 
     @Test
-    func afinishedThingIsOfferedNothing() {
-        #expect(actions("Past Lives", .watchlist, isDone: true).isEmpty)
-        #expect(actions("Air filter", .buys, isDone: true).isEmpty)
+    func aFinishedThingIsOfferedNothing() {
+        #expect(labels("Past Lives", .watchlist, isDone: true).isEmpty)
+        #expect(labels("Air filter", .buys, isDone: true).isEmpty)
     }
 
     /// `FieldOutreach` owns anything with somewhere outward to go. Two systems
-    /// offering to handle the same vet appointment is worse than either.
+    /// offering to handle the same vet appointment is worse than either — and
+    /// the section disappears entirely rather than going quiet.
     @Test
     func outreachKeepsWhatItCanAlreadyReach() {
-        #expect(actions("Call the vet", .care).isEmpty)
-        #expect(actions("Book the dentist", .care).isEmpty)
-        #expect(actions("Email the landlord", .home).isEmpty)
-        #expect(actions("Text Sam about Saturday", .notes).isEmpty)
+        #expect(labels("Call the vet", .care).isEmpty)
+        #expect(labels("Book the dentist", .care).isEmpty)
+        #expect(labels("Email the landlord", .home).isEmpty)
+        #expect(labels("Text Sam about Saturday", .notes).isEmpty)
+        #expect(labels("Call your sister back", .notes).isEmpty)
     }
 
     /// The mirror of `FieldOutreach.destination(act:item:target:now:)` with no
     /// target. `.pay` and `.order` fall to `.complete` there — the app has no
-    /// idea which banking app, and no shop it is aligned with — which is
-    /// exactly the gap this file fills for `.order`. If the two ever disagree,
-    /// either a vet gets two competing buttons or the products half silently
-    /// disappears.
+    /// idea which banking app, and no shop it is aligned with. If the two ever
+    /// disagree, either a vet gets two competing buttons or the lookup section
+    /// silently disappears from half the app.
     @Test
     func theSuppressionRuleAgreesWithOutreachForEveryAct() {
         let subject = item("anything at all", .notes)
@@ -126,164 +130,216 @@ struct FieldItemStepsTests {
                 return false
             }()
             #expect(
-                FieldItemSteps.leavesItToUs(act) == outreachIsDone,
+                FieldLookupPolicy.leavesItToUs(act) == outreachIsDone,
                 "\(act) disagrees with FieldOutreach"
             )
         }
     }
 
+    // MARK: The place rule
+
+    /// **The regression that matters most in this file.**
+    ///
+    /// The obvious way to stop offering a map for a pair of headphones is to
+    /// keep Maps only when the title names a place. It is also the way to
+    /// break every restaurant, museum and bar a couple will ever write down,
+    /// because none of them contain a word a list would recognise. If this
+    /// goes red, the fix for Amazon has made the app worse at places.
     @Test
-    func aWatchlistItemOffersOneWebSearch() {
-        let offered = actions("Past Lives", .watchlist)
-        #expect(offered.count == 1)
-        guard case .webSearch(let label, let query) = offered.first else {
-            Issue.record("expected a web search, got \(offered)")
-            return
+    func aProperNounDestinationStillOffersMaps() {
+        for name in ["Carbone", "Via Carota", "MoMA", "The Standard", "Bemelmans"] {
+            #expect(
+                destinations(name, .notes).contains(.maps),
+                "\(name) lost its map"
+            )
         }
-        #expect(label == "WHERE TO WATCH")
-        #expect(query == "Past Lives where to watch")
     }
 
-    /// No provider, so no claim. The query is the couple's own words plus the
-    /// three the app added, and those three are visible in the button.
+    /// The actual complaint. A product is not somewhere you go.
     @Test
-    func theWatchlistSearchSendsNoProviderName() {
-        guard case .webSearch(_, let query) = actions(
-            "Watch Past Lives this weekend",
-            .watchlist
-        ).first else {
-            Issue.record("expected a web search")
-            return
-        }
-        #expect(query == "Past Lives where to watch")
-        #expect(!query.lowercased().contains("netflix"))
-        #expect(!query.lowercased().contains("justwatch"))
-    }
-
-    /// A filter has a size, and searching without one returns a page of things
-    /// that do not fit. The ask comes first and the search still follows it —
-    /// it is a sentence, not a gate.
-    @Test
-    func somethingWithNoSizeIsAskedForOneFirst() {
-        let offered = actions("Air filter", .buys)
-        #expect(offered.count == 2)
-        #expect(offered.first == .askFor("size or model"))
-        guard case .retailerSearch(let label, _) = offered.last else {
-            Issue.record("expected a shop search, got \(offered)")
-            return
-        }
-        #expect(label == "FIND AN AIR FILTER")
-    }
-
-    /// Asking somebody for something they already told you is its own insult.
-    @Test
-    func aSizeAlreadyGivenIsNotAskedForAgain() {
-        let offered = actions("20x25x1 air filter", .buys)
-        #expect(offered.count == 1)
-        #expect(!offered.contains(.askFor("size or model")))
-    }
-
-    /// Named after the thing, not after the act: "replace" is a verb and
-    /// nobody goes shopping for one.
-    @Test
-    func theShopButtonIsNamedAfterTheThing() {
-        #expect(FieldItemSteps.subject(of: "replace the air filter") == "air filter")
-        #expect(FieldItemSteps.subject(of: "buy batteries") == "batteries")
-        #expect(FieldItemSteps.subject(of: "order more coffee filters") == "coffee filters")
-        // Nothing substantial left. "FIND OPTIONS" rather than a wrong noun.
-        #expect(FieldItemSteps.subject(of: "get some stuff") == nil)
-    }
-
-    @Test
-    func anErrandWithSomewhereToGoOpensMaps() {
-        guard case .maps(let label, let query) = actions(
-            "Drop the boxes at the storage unit",
-            .home
-        ).first else {
-            Issue.record("expected Maps")
-            return
-        }
-        #expect(label == "OPEN IN MAPS")
-        #expect(!query.isEmpty)
-    }
-
-    /// The model's whole remit: a household task, and only when there is a
-    /// model to ask. On a phone without one, nothing at all — never a disabled
-    /// button explaining what it would have done.
-    @Test
-    func aPlanIsOfferedOnlyWhenThereIsAModel() {
+    func somethingBoughtIsNotOfferedAMap() {
+        #expect(!destinations("Sony WH-1000XM5 headphones", .buys).contains(.maps))
+        #expect(!destinations("Order more batteries", .notes).contains(.maps))
         #expect(
-            actions("Clean the guest room", .home, modelAvailable: true)
-                == [.plan(minutes: 15)]
-        )
-        #expect(
-            actions("Clean the guest room", .home, modelAvailable: false)
-                .isEmpty
+            !destinations(
+                "Sony WH-1000XM5 Wireless Headphones",
+                .notes,
+                sourceURL: "https://www.amazon.com/dp/B09XS7JWHH"
+            ).contains(.maps),
+            "a link from a shop should settle it even when the words do not"
         )
     }
 
-    /// A hard cut-off, and only that. A draft, in Apple's own sheet — the app
-    /// writes to nobody's calendar.
+    /// Naming a place promotes the map rather than gating it, so a hardware
+    /// store gets both and the map goes first.
     @Test
-    func aClosingTimeGetsACalendarDraft() {
-        #expect(actions("Recital", .notes, closesAt: Date()) == [.calendarDraft])
+    func namingAPlaceLeadsWithTheMap() {
+        let offered = destinations("Drop the boxes at the storage unit", .home)
+        #expect(offered.first == .maps)
     }
 
-    /// The rule that keeps this feature rare. Almost everything a couple files
-    /// carries a day, so offering the calendar on a date alone would put the
-    /// block under nearly every item in the app — and FIELD is already where a
-    /// dated thing lives.
+    /// A shop chip needs a reason. A hardware store is somewhere to drive to,
+    /// not something to add to a basket.
+    ///
+    /// Not "Hudson vet", which looks like the obvious case and is not: `vet`
+    /// is a booking noun in `wordedActs`, so `FieldOutreach` owns it and the
+    /// hand-off empties the list before the place rule is ever consulted.
     @Test
-    func aDayAloneIsNotAReasonToOfferAnything() {
-        #expect(actions("Recital", .notes, dueOn: Date()).isEmpty)
-        #expect(actions("Miso's teeth", .care, dueOn: Date()).isEmpty)
+    func aPlaceIsNotOfferedAShop() {
+        let offered = destinations("Hardware store on Warren", .notes)
+        #expect(offered.contains(.maps))
+        #expect(!offered.contains(.shops))
     }
 
-    /// The same rule, stated over the seed a couple actually sees. If this
-    /// starts failing, the block has become the common case.
+    /// Filed under Home rather than Buys, and reaching the shop branch through
+    /// `homeWords` — a different clause from the one the Buys tests cover, and
+    /// the item the UI test drives.
     @Test
-    func mostOfTheSampleCoupleSLifeIsOfferedNothing() {
-        let offered = FieldSampleData.lifeItems.filter {
-            !FieldItemSteps.actions(for: $0, isModelAvailable: false).isEmpty
-        }
-        #expect(
-            offered.count * 2 < FieldSampleData.lifeItems.count,
-            "the help block reached \(offered.map(\.title))"
-        )
-    }
-
-    /// Against the real seeded row rather than a hand-built one, because the
-    /// UI test drives this exact item: "Air filter" is filed under Home, not
-    /// Buys, and it reaches the shop branch through `homeWords` — which is a
-    /// different clause from the one the Buys tests cover.
-    @Test
-    func theSeededAirFilterReachesTheShopBranch() throws {
+    func theSeededAirFilterStillReachesAShop() throws {
         let filter = try #require(
             FieldSampleData.lifeItems.first { $0.id == "filter" }
         )
         #expect(filter.category == .home)
-        let offered = FieldItemSteps.actions(
-            for: filter,
-            isModelAvailable: false
-        )
-        #expect(offered.contains(.askFor("size or model")))
-        #expect(offered.contains { $0.identifier == "field.item.help.shop" })
+        let offered = FieldLookupPolicy.choices(for: filter)
+        #expect(offered.contains { $0.destination == .shops })
+        #expect(!offered.contains { $0.destination == .maps })
     }
 
-    /// A third button is a menu, and a menu is the app having opinions.
+    // MARK: The saved link
+
     @Test
-    func neverMoreThanTwoThingsToTap() {
-        for sample in FieldSampleData.lifeItems {
-            for available in [true, false] {
-                let tappable = FieldItemSteps
-                    .actions(for: sample, isModelAvailable: available)
-                    .filter(\.isTappable)
-                #expect(
-                    tappable.count <= FieldItemSteps.maximumTappable,
-                    "\(sample.title) offered \(tappable.count)"
-                )
-            }
+    func aSavedShopLinkLeadsAndNamesTheShop() {
+        let offered = FieldLookupPolicy.choices(
+            for: item(
+                "Sony WH-1000XM5 Wireless Headphones",
+                .buys,
+                sourceURL: "https://www.amazon.com/dp/B09XS7JWHH"
+            )
+        )
+        #expect(offered.first?.destination == .source)
+        #expect(offered.first?.label == "OPEN ON AMAZON")
+        #expect(offered.first?.id == "source.open")
+    }
+
+    /// A link that is not a shop is still the page they saved.
+    @Test
+    func aSavedLinkThatIsNotAShopIsStillOffered() {
+        let offered = FieldLookupPolicy.choices(
+            for: item(
+                "A long read about sourdough",
+                .notes,
+                sourceURL: "https://example.com/sourdough"
+            )
+        )
+        #expect(offered.first?.label == "OPEN THE LINK")
+    }
+
+    /// A row in `field_life_resources` is not on its own a reason to hand a
+    /// URL to the system opener.
+    @Test
+    func onlyAnHTTPSLinkIsEverOffered() {
+        for unsafe in [
+            "http://www.amazon.com/dp/B09XS7JWHH",
+            "javascript:alert(1)",
+            "file:///etc/passwd",
+        ] {
+            let offered = FieldLookupPolicy.choices(
+                for: item("Something", .buys, sourceURL: unsafe)
+            )
+            #expect(
+                !offered.contains { $0.destination == .source },
+                "\(unsafe) was offered"
+            )
         }
+    }
+
+    /// Nothing from the item goes anywhere, and the sheet says which site it
+    /// is rather than a generic phrase.
+    @Test
+    func theSavedLinkDisclosesTheSiteAndSendsNoneOfTheItem() throws {
+        let choice = try #require(
+            FieldLookupPolicy.sourceChoice(
+                for: item(
+                    "Sony WH-1000XM5",
+                    .buys,
+                    sourceURL: "https://www.amazon.com/dp/B09XS7JWHH"
+                ),
+                shop: .amazon
+            )
+        )
+        let disclosure = FieldLookupPolicy.disclosure(
+            for: FieldLookupRequest(
+                choice: choice,
+                title: "Sony WH-1000XM5",
+                sourceURL: URL(string: "https://www.amazon.com/dp/B09XS7JWHH")
+            ),
+            clarification: "ignored"
+        )
+        #expect(disclosure.destination == "Amazon")
+        #expect(disclosure.fields == ["Nothing from this item"])
+        #expect(disclosure.query == "https://www.amazon.com/dp/B09XS7JWHH")
+        // The clarification cannot reach a destination that builds no query.
+        #expect(!disclosure.query.contains("ignored"))
+    }
+
+    // MARK: Restraint
+
+    /// Three is the cap, and it holds across the whole seeded life rather than
+    /// on a hand-picked example.
+    @Test
+    func neverMoreThanThreeChoices() {
+        for sample in FieldSampleData.lifeItems {
+            let offered = FieldLookupPolicy.choices(for: sample)
+            #expect(
+                offered.count <= FieldLookupPolicy.maximumChoices,
+                "\(sample.title) offered \(offered.count)"
+            )
+            #expect(
+                Set(offered.map(\.id)).count == offered.count,
+                "\(sample.title) offered a duplicate"
+            )
+        }
+    }
+}
+
+// MARK: - Recognising a shop
+
+@MainActor
+struct FieldRetailerHostTests {
+    /// A shop name inside a hostname is not a claim anybody should be able to
+    /// make by registering a domain that contains it.
+    @Test
+    func onlyTheRealDomainOrItsSubdomainsMatch() {
+        #expect(FieldRetailer.from(host: "amazon.com") == .amazon)
+        #expect(FieldRetailer.from(host: "www.amazon.com") == .amazon)
+        #expect(FieldRetailer.from(host: "smile.amazon.com") == .amazon)
+        #expect(FieldRetailer.from(host: "WWW.AMAZON.COM") == .amazon)
+        #expect(FieldRetailer.from(host: "www.homedepot.com") == .homeDepot)
+
+        #expect(FieldRetailer.from(host: "fakeamazon.com") == nil)
+        #expect(FieldRetailer.from(host: "amazon.com.evil.example") == nil)
+        #expect(FieldRetailer.from(host: "notamazon.com") == nil)
+        #expect(FieldRetailer.from(host: nil) == nil)
+        #expect(FieldRetailer.from(host: "") == nil)
+    }
+
+    /// Out of scope on purpose: a shortener cannot be recognised without
+    /// resolving it, and resolving it is a network call.
+    @Test
+    func internationalStorefrontsAndShortenersAreNotGuessedAt() {
+        #expect(FieldRetailer.from(host: "www.amazon.co.uk") == nil)
+        #expect(FieldRetailer.from(host: "amzn.to") == nil)
+    }
+
+    /// The shop a link came from leads; everything else stays alphabetical.
+    @Test
+    func aSavedShopLeadsTheList() {
+        let ordered = FieldRetailer.ordered(
+            preferred: [FieldRetailer.from(host: "www.amazon.com")].compactMap { $0 }
+        )
+        #expect(ordered.first == .amazon)
+        #expect(ordered.count == FieldRetailer.allCases.count)
+        #expect(Set(ordered).count == ordered.count)
     }
 }
 

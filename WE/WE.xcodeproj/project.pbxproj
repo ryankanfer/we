@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		C0DE00013013C00D00BACE01 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE00033013C00D00BACE01 /* Supabase */; };
 		C0DE10013013C00D00BACE01 /* WEWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = C0DE10023013C00D00BACE01 /* WEWidgets.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		C0DE30013013C00D00BACE01 /* WEShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = C0DE30023013C00D00BACE01 /* WEShareExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -33,6 +34,13 @@
 			remoteGlobalIDString = C0DE10093013C00D00BACE01;
 			remoteInfo = WEWidgets;
 		};
+		C0DE30093013C00D00BACE01 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 79C3EB2D3013C00A00394313 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C0DE30083013C00D00BACE01;
+			remoteInfo = WEShareExtension;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -43,6 +51,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				C0DE10013013C00D00BACE01 /* WEWidgets.appex in Embed App Extensions */,
+				C0DE30013013C00D00BACE01 /* WEShareExtension.appex in Embed App Extensions */,
 			);
 			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -54,6 +63,7 @@
 		79C3EB423013C00D00394313 /* WETests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WETests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		79C3EB4C3013C00D00394313 /* WEUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WEUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C0DE10023013C00D00BACE01 /* WEWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WEWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		C0DE30023013C00D00BACE01 /* WEShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WEShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -118,6 +128,16 @@
 			path = WEWidgets;
 			sourceTree = "<group>";
 		};
+		C0DE30033013C00D00BACE01 /* WEShareCore */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = WEShareCore;
+			sourceTree = "<group>";
+		};
+		C0DE30043013C00D00BACE01 /* WEShareExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = WEShareExtension;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -150,6 +170,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C0DE30053013C00D00BACE01 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -159,6 +186,8 @@
 				79C3EB373013C00A00394313 /* WE */,
 				C0DE10033013C00D00BACE01 /* WEShared */,
 				C0DE10043013C00D00BACE01 /* WEWidgets */,
+				C0DE30033013C00D00BACE01 /* WEShareCore */,
+				C0DE30043013C00D00BACE01 /* WEShareExtension */,
 				79C3EB453013C00D00394313 /* WETests */,
 				79C3EB4F3013C00D00394313 /* WEUITests */,
 				79C3EB363013C00A00394313 /* Products */,
@@ -172,6 +201,7 @@
 				79C3EB423013C00D00394313 /* WETests.xctest */,
 				79C3EB4C3013C00D00394313 /* WEUITests.xctest */,
 				C0DE10023013C00D00BACE01 /* WEWidgets.appex */,
+				C0DE30023013C00D00BACE01 /* WEShareExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -192,10 +222,12 @@
 			);
 			dependencies = (
 				C0DE100B3013C00D00BACE01 /* PBXTargetDependency */,
+				C0DE300A3013C00D00BACE01 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				79C3EB373013C00A00394313 /* WE */,
 				C0DE10033013C00D00BACE01 /* WEShared */,
+				C0DE30033013C00D00BACE01 /* WEShareCore */,
 			);
 			name = WE;
 			packageProductDependencies = (
@@ -274,6 +306,29 @@
 			productReference = C0DE10023013C00D00BACE01 /* WEWidgets.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		C0DE30083013C00D00BACE01 /* WEShareExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C0DE300D3013C00D00BACE01 /* Build configuration list for PBXNativeTarget "WEShareExtension" */;
+			buildPhases = (
+				C0DE30073013C00D00BACE01 /* Sources */,
+				C0DE30053013C00D00BACE01 /* Frameworks */,
+				C0DE30063013C00D00BACE01 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				C0DE30033013C00D00BACE01 /* WEShareCore */,
+				C0DE30043013C00D00BACE01 /* WEShareExtension */,
+			);
+			name = WEShareExtension;
+			packageProductDependencies = (
+			);
+			productName = WEShareExtension;
+			productReference = C0DE30023013C00D00BACE01 /* WEShareExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -308,6 +363,17 @@
 							};
 						};
 					};
+					C0DE30083013C00D00BACE01 = {
+						CreatedOnToolsVersion = 26.3;
+						SystemCapabilities = {
+							com.apple.ApplicationGroups.iOS = {
+								enabled = 1;
+							};
+							com.apple.Keychain = {
+								enabled = 1;
+							};
+						};
+					};
 				};
 			};
 			buildConfigurationList = 79C3EB303013C00A00394313 /* Build configuration list for PBXProject "WE" */;
@@ -331,6 +397,7 @@
 				79C3EB413013C00D00394313 /* WETests */,
 				79C3EB4B3013C00D00394313 /* WEUITests */,
 				C0DE10093013C00D00BACE01 /* WEWidgets */,
+				C0DE30083013C00D00BACE01 /* WEShareExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -358,6 +425,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		C0DE10063013C00D00BACE01 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C0DE30063013C00D00BACE01 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -395,6 +469,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C0DE30073013C00D00BACE01 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -412,6 +493,11 @@
 			isa = PBXTargetDependency;
 			target = C0DE10093013C00D00BACE01 /* WEWidgets */;
 			targetProxy = C0DE100A3013C00D00BACE01 /* PBXContainerItemProxy */;
+		};
+		C0DE300A3013C00D00BACE01 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C0DE30083013C00D00BACE01 /* WEShareExtension */;
+			targetProxy = C0DE30093013C00D00BACE01 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -563,6 +649,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				WE_SHARE_INBOX_ENABLED = YES;
 			};
 			name = Debug;
 		};
@@ -592,6 +679,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				WE_SHARE_INBOX_ENABLED = NO;
 			};
 			name = Release;
 		};
@@ -737,6 +825,66 @@
 			};
 			name = Release;
 		};
+		C0DE300B3013C00D00BACE01 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Config/WEShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2F28BDAM56;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Config/WEShareExtension-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ryankanfer.WE.ShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		C0DE300C3013C00D00BACE01 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Config/WEShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2F28BDAM56;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Config/WEShareExtension-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ryankanfer.WE.ShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -781,6 +929,15 @@
 			buildConfigurations = (
 				C0DE100C3013C00D00BACE01 /* Debug */,
 				C0DE100D3013C00D00BACE01 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C0DE300D3013C00D00BACE01 /* Build configuration list for PBXNativeTarget "WEShareExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C0DE300B3013C00D00BACE01 /* Debug */,
+				C0DE300C3013C00D00BACE01 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

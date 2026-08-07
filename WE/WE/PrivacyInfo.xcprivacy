@@ -121,6 +121,19 @@
 				<string>CA92.1</string>
 			</array>
 		</dict>
+		<!--
+		  Private intake expires app-owned staging and ready directories by
+		  their timestamps. C617.1 covers files inside WE's own container and
+		  private app group only.
+		-->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
+			</array>
+		</dict>
 	</array>
 </dict>
 </plist>

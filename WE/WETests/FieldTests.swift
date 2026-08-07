@@ -3663,16 +3663,14 @@ struct FieldItemEditingTests {
         #expect(!store.state.lifeItems.contains { $0.id == dated })
     }
 
-    /// The permission string promises "I never add, change, or delete
-    /// anything" about the phone's own calendar. That promise is kept at the
-    /// store, not only in the UI, so no future caller can break it.
+    /// An upgrade preserves the read-only boundary for rows left by calendar
+    /// builds that predate private intake.
     @Test
-    func importedCalendarEventsAreRefused() {
+    func legacyExternalRowsAreRefused() {
         let imported = LifeItem(
             id: "cal:ABC-123",
             title: "Dentist",
-            // Never a category of its own: "an imported event belongs to no
-            // list" — see FieldCalendarAccess.
+            // Legacy rows were never a category of their own.
             category: .notes,
             owner: .shared,
             dueOn: FieldSampleData.today,
@@ -4003,7 +4001,7 @@ struct FieldGroupTests {
         #expect(
             store.state.lifeItems.first { $0.id == "cal:standing-desk" }?
                 .category == self.filters,
-            "an imported event was moved out of somebody else's calendar"
+            "a legacy external row moved categories"
         )
     }
 

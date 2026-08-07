@@ -314,18 +314,41 @@ final class FieldZoneUITests: XCTestCase {
         XCTAssertTrue(row.waitForNonExistence(timeout: 4))
     }
 
-    /// The single most valuable test in Stage 4.
+    /// The single most valuable test in this feature.
     ///
-    /// "Miso's teeth" is a sentence about a cat, filed under Care with a day
-    /// on it. The app has nothing to open for it, nothing to search, and no
-    /// business breaking it into steps — so the item sheet must show no help
-    /// block at all. Not an empty one, not a disabled one: none.
+    /// "Call the vet" is something `FieldOutreach` already owns. Two systems
+    /// offering to handle one appointment is worse than either doing it, so
+    /// the item sheet must show no "Where to look" block at all. Not an empty
+    /// one, not a disabled one, not a header over nothing: none.
+    ///
+    /// This is captured rather than opened from the seed on purpose. Every
+    /// open item in the sample life has somewhere honest to look, so there is
+    /// no seeded row that exercises the silent path — and a test that asserts
+    /// an absence needs a subject that could actually have grown one.
     ///
     /// If this ever fails, the app has started having opinions about a
     /// couple's list, and every other test in this feature stops mattering.
     @MainActor
-    func testAPlainItemOffersNothingUnsolicited() throws {
-        let app = launchZones()
+    func testAnItemOutreachOwnsOffersNoLookupBlock() throws {
+        let app = launchEmpty()
+        let input = app.textFields["field.capture.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 12))
+
+        input.tap()
+        input.typeText("call the vet friday")
+
+        let dismissKeyboard = app.buttons["field.capture.dismiss"]
+        XCTAssertTrue(waitForHittable(dismissKeyboard))
+        dismissKeyboard.tap()
+
+        let submit = app.buttons["field.capture.submit"]
+        XCTAssertTrue(waitForHittable(submit))
+        submit.tap()
+
+        let send = app.buttons["field.receipt.send"]
+        XCTAssertTrue(waitForHittable(send))
+        send.tap()
+
         XCTAssertTrue(
             app.buttons["field.nav.life"].waitForExistence(timeout: 8)
         )
@@ -336,33 +359,23 @@ final class FieldZoneUITests: XCTestCase {
         XCTAssertTrue(waitForHittable(care))
         care.tap()
 
-        openRow(app, titled: "Miso's teeth")
+        openRow(app, titled: "Call the vet")
 
         // The sheet is up — asserted on a control that is always there.
         XCTAssertTrue(
             app.buttons["field.item.remove"].waitForExistence(timeout: 4)
         )
-        for identifier in Self.helpIdentifiers {
-            XCTAssertFalse(
-                app.descendants(matching: .any)
-                    .matching(identifier: identifier)
-                    .firstMatch
-                    .exists,
-                "a plain item grew \(identifier)"
-            )
-        }
-    }
 
-    /// Every affordance the help block can put on screen. Named here so the
-    /// absence test above cannot quietly stop covering a new one.
-    private static let helpIdentifiers = [
-        "field.item.help.web",
-        "field.item.help.shop",
-        "field.item.help.maps",
-        "field.item.help.plan",
-        "field.item.help.calendar",
-        "field.item.help.ask",
-    ]
+        // The whole section, not just its chips. A header and a rule line over
+        // an empty row is the thing this test exists to prevent.
+        XCTAssertFalse(
+            app.descendants(matching: .any)
+                .matching(identifier: "field.item.help")
+                .firstMatch
+                .exists,
+            "an item Outreach owns grew a lookup block"
+        )
+    }
 
     /// A row carries `field.room.row` as an identifier and wraps an inner
     /// button with the same label, so asking for the title alone is ambiguous
@@ -406,32 +419,37 @@ final class FieldZoneUITests: XCTestCase {
             "the item sheet did not open"
         )
 
-        let shop = app.buttons["field.item.help.shop"]
+        let shop = app.buttons["field.item.lookup.home.part"]
         XCTAssertTrue(
             shop.waitForExistence(timeout: 6),
-            "no shop button. Tree:\n\(app.debugDescription)"
+            "no shop chip. Tree:\n\(app.debugDescription)"
         )
 
         // The sheet must still be up. Two `.sheet` modifiers on one view used
         // to close it the instant this block appeared, and the only visible
         // symptom was the item sheet vanishing.
         XCTAssertTrue(app.buttons["field.item.remove"].exists)
-        XCTAssertEqual(shop.label, "FIND AN AIR FILTER")
 
-        // No size on the item, so the app says so rather than searching badly.
-        XCTAssertTrue(
-            app.descendants(matching: .any)
-                .matching(identifier: "field.item.help.ask")
-                .firstMatch
-                .exists
+        // An air filter is a thing you buy, so the map is not offered for it.
+        // This is the Amazon complaint, asserted on the screen it shows up on.
+        XCTAssertFalse(
+            app.buttons["field.item.lookup.home.nearby"].exists,
+            "a thing to buy was offered a map"
         )
+
+        // Nothing is searched until the exact words are reviewed.
+        shop.tap()
+        XCTAssertTrue(
+            app.otherElements["field.item.lookup.review"]
+                .waitForExistence(timeout: 6)
+        )
+        XCTAssertTrue(app.staticTexts["field.item.lookup.query"].exists)
 
         // Picking the shop is the actual question, so it is asked. Nothing is
         // preselected and nothing is recommended.
-        shop.tap()
-        let aShop = app.buttons["field.item.shop.target"]
+        let aShop = app.buttons["field.item.lookup.shop.target"]
         XCTAssertTrue(aShop.waitForExistence(timeout: 6))
-        XCTAssertTrue(app.buttons["field.item.shop.amazon"].exists)
+        XCTAssertTrue(app.buttons["field.item.lookup.shop.amazon"].exists)
     }
 
     /// The pull-to-search gesture lives on the same screen as the category
@@ -701,7 +719,7 @@ final class FieldZoneUITests: XCTestCase {
 
         // From home it opens the room.
         we.tap()
-        let begin = app.buttons["Begin"]
+        let begin = app.buttons["yours.teaching.begin"]
         if begin.waitForExistence(timeout: 3) { begin.tap() }
         XCTAssertTrue(
             app.textViews["yours.compose"].waitForExistence(timeout: 5),
@@ -1210,11 +1228,26 @@ final class FieldZoneUITests: XCTestCase {
         let app = launchZones()
         openYours(app)
 
+        let compose = app.textViews["yours.compose"]
         XCTAssertTrue(
-            app.textViews["yours.compose"].waitForExistence(timeout: 5),
+            compose.waitForExistence(timeout: 5),
             "the tap did not open the space"
         )
         XCTAssertTrue(app.staticTexts["Nothing is waiting for you."].exists)
+        let roomIsInteractive = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "hittable == true"),
+            object: app.descendants(matching: .any)["yours.close"]
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [roomIsInteractive], timeout: 3),
+            .completed,
+            "the first-entry cover did not finish leaving"
+        )
+
+        let appearance = XCTAttachment(screenshot: app.screenshot())
+        appearance.name = "YOURS — personal field and reachable close"
+        appearance.lifetime = .keepAlways
+        add(appearance)
     }
 
     /// The close control used to have the whole screen as its hit region — the
@@ -1274,9 +1307,13 @@ final class FieldZoneUITests: XCTestCase {
 
         we.tap()
 
-        let begin = app.buttons["Begin"]
+        let begin = app.buttons["yours.teaching.begin"]
         if begin.waitForExistence(timeout: 3) {
             begin.tap()
+            XCTAssertTrue(
+                begin.waitForNonExistence(timeout: 3),
+                "the first-entry teaching sheet did not close"
+            )
         }
     }
 

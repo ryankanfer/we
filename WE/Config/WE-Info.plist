@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>WEShareInboxEnabled</key>
+	<string>$(WE_SHARE_INBOX_ENABLED)</string>
+	<key>AppIdentifierPrefix</key>
+	<string>$(AppIdentifierPrefix)</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleExecutable</key>
@@ -58,8 +62,6 @@
 	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
-	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>If you connect a calendar, I will read what is already on it so I can work the rest out by watching, instead of asking you to enter it. I never add, change, or delete anything.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>When you ask me to call or text someone, I look them up in your contacts to find the number. I look for the one name you asked about, I do not read the rest of your address book, and I do not keep a copy.</string>
 	<key>UIAppFonts</key>

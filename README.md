@@ -40,6 +40,26 @@ Privacy is enforced in Supabase as well as Swift:
 Protected database writes use server functions. Active-couple row-level security prevents
 outsiders and former members from reading or mutating live relationship data.
 
+### Private intake
+
+The Share Sheet follows one release boundary:
+
+> Private input → private artifact → explicit proposal → exact review → deliberate release
+
+The extension accepts text, HTTPS links, and up to five normalized images. It has no networking
+or model dependency. Drafts are encrypted inside the private-intake app group, isolated by a
+random account vault, and remain visible only on that person’s side until the containing app
+freezes and publishes an exact reviewed revision. Links and images begin excluded.
+
+`From elsewhere` is controlled by `WEShareInboxEnabled`. The Xcode project enables it for Debug
+verification and leaves it disabled for Release until the migration, cleanup worker,
+accessibility checks, and end-to-end publication tests have passed against the release backend.
+The widget is intentionally not a member of the private-intake app group.
+
+LIFE’s “Where to look” is deterministic and purpose-specific. It never runs automatically, and
+shows the exact title-based query and destination before anything leaves WE. No private detail,
+partner identity, ownership, dates, or history is added to the query.
+
 ## Native milestone status
 
 - [x] Build Ahead, Life, Profile, complete Auth, Promise, Pairing, WE, and Insight Detail.
@@ -84,6 +104,6 @@ It is not the source of truth for native navigation, presentation, or maintenanc
 
 ## Deliberate exclusions
 
-AI chat, advertisements, A/B infrastructure, calendars, finance integrations, relationship
-scores, push notifications, recurrence, priorities, reminders, and Mac adaptation are outside
-this milestone.
+AI chat, advertisements, A/B infrastructure, external calendar accounts, finance integrations,
+relationship scores, push notifications, recurrence, priorities, reminders, and Mac adaptation
+are outside this milestone.

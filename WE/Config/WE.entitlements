@@ -5,6 +5,11 @@
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.com.ryankanfer.WE.shared</string>
+		<string>group.com.ryankanfer.WE.private-intake</string>
+	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)com.ryankanfer.WE.share-vault</string>
 	</array>
 </dict>
 </plist>

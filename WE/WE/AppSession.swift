@@ -38,6 +38,9 @@ final class AppSession: ObservableObject {
     /// so a test can point it at a temporary container and assert that
     /// signing out leaves nothing behind.
     private let localData: WELocalData
+    /// Separate from `WELocalData`: sign-out seals this account's private
+    /// intake instead of destroying it, while account deletion purges it.
+    private let shareVault: ShareVaultController
     private let connectivity: ConnectivityMonitor
     private var didRestore = false
     private var authRoutingGeneration = 0
@@ -49,12 +52,14 @@ final class AppSession: ObservableObject {
         repository: any Repository,
         cache: (any RelationshipCache)? = nil,
         localData: WELocalData? = nil,
+        shareVault: ShareVaultController? = nil,
         connectivity: ConnectivityMonitor? = nil
     ) {
         let resolvedConnectivity = connectivity ?? ConnectivityMonitor()
         self.repository = repository
         self.cache = cache ?? FileRelationshipCache()
         self.localData = localData ?? WELocalData()
+        self.shareVault = shareVault ?? .shared
         self.connectivity = resolvedConnectivity
         connectionState = resolvedConnectivity.isOnline ? .online : .offline
 
@@ -132,6 +137,14 @@ final class AppSession: ObservableObject {
         guard !UserDefaults.standard.bool(forKey: marker) else { return }
         UserDefaults.standard.set(true, forKey: marker)
 
+        // The same gesture, applied to the other thing that outlives the app.
+        // The sealed drafts themselves went with the app group container; what
+        // survives is the key and vault id that opened them, which without
+        // this sit in the keychain for every account that ever signed in here.
+        // Ordered before the sign-out because it depends on nothing and must
+        // happen even if the network call below does not.
+        shareVault.purgeEveryAccount()
+
         // Best effort. If it fails there is nothing useful to say — the
         // person is about to be asked to sign in either way.
         try? await repository.signOut()
@@ -191,6 +204,7 @@ final class AppSession: ObservableObject {
     }
 
     func returnToSignIn(message: String? = nil) {
+        shareVault.deactivate()
         noticeMessage = message
         errorMessage = nil
         state = .signedOut
@@ -251,6 +265,7 @@ final class AppSession: ObservableObject {
         noticeMessage = nil
         defer { isWorking = false }
         stopObservingRelationship()
+        shareVault.deactivate()
 
         do {
             if let signingOutUser {
@@ -285,11 +300,15 @@ final class AppSession: ObservableObject {
         await working {
             self.stopObservingRelationship()
             try await self.cache.remove(userID: deletingUser.id)
-            self.localData.purge()
             try await self.repository.deleteAccount(
                 email: deletingUser.email,
                 password: password
             )
+            // Do not destroy a private vault on a failed password or failed
+            // server deletion. Once deletion is confirmed, purge it before
+            // rendering the signed-out state.
+            self.shareVault.purge(accountID: deletingUser.id)
+            self.localData.purge()
             self.user = nil
             self.snapshot = nil
             self.privateProposals = []
@@ -319,6 +338,22 @@ final class AppSession: ObservableObject {
 
     func joinCouple(code: String) async {
         await perform { try await self.repository.joinCouple(code: code) }
+    }
+
+    func createInvitation() async {
+        await perform { try await self.repository.createInvitation() }
+    }
+
+    func revokeInvitation() async {
+        await perform { try await self.repository.revokeInvitation() }
+    }
+
+    /// Told once, then never again. The write is what makes the "once" true,
+    /// so a failure here must not be swallowed into a silent second telling —
+    /// `perform` reloads the snapshot, which is what moves
+    /// `couple.departureSeenAt` and takes the surface off screen.
+    func acknowledgeDeparture() async {
+        await perform { try await self.repository.acknowledgeDeparture() }
     }
 
     func updateProfile(name: String) async {
@@ -693,6 +728,10 @@ final class AppSession: ObservableObject {
             cachedAt = nil
             connectionState = connectivity.isOnline ? .online : .offline
             try? await cache.save(loaded, userID: user.id)
+            _ = try? shareVault.activate(
+                accountID: user.id,
+                hueToken: loaded.membership?.hue.rawValue ?? "burgundy"
+            )
             route(loaded)
             observeRelationshipIfNeeded()
         } catch {
@@ -708,6 +747,11 @@ final class AppSession: ObservableObject {
                 privateProposals = []
                 cachedAt = cached.savedAt
                 connectionState = .offline
+                _ = try? shareVault.activate(
+                    accountID: user.id,
+                    hueToken: cached.snapshot.membership?.hue.rawValue
+                        ?? "burgundy"
+                )
                 route(cached.snapshot)
                 return
             }
@@ -721,7 +765,17 @@ final class AppSession: ObservableObject {
             stopObservingRelationship()
             return
         }
-        if snapshot.members.count < 2 {
+        // A one-member couple has two entirely different shapes, and only the
+        // couple row can tell them apart. Somebody who has never paired is
+        // waiting for a partner, and the invitation screen is the whole
+        // product for them. Somebody whose partner deleted their account is
+        // not waiting for anything — they have a field two people built, and
+        // `20260808000000` deliberately left it standing. Routing them to
+        // `.waitingForPartner` on member count alone would hide all of it
+        // behind a screen offering them a join code.
+        let hasDeparted = snapshot.couple?.departedAt != nil
+
+        if snapshot.members.count < 2 && !hasDeparted {
             state = .waitingForPartner
         } else if !membership.hasChosenHue {
             state = .choosingHue
@@ -745,6 +799,7 @@ final class AppSession: ObservableObject {
         }
 
         stopObservingRelationship()
+        shareVault.deactivate()
         do {
             try await cache.remove(userID: storedUser.id)
         } catch {

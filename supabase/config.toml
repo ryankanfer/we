@@ -46,3 +46,6 @@ secure_password_change = true
 max_frequency = "1s"
 otp_length = 6
 otp_expiry = 3600
+
+[functions.cleanup-life-resources]
+verify_jwt = true

@@ -2,12 +2,19 @@
 //  FieldItemSteps.swift
 //  WE
 //
-//  What the app can honestly offer to do with one filed thing.
+//  The plumbing for leaving the app: where a search can go, which shops it can
+//  go to, and the exact phrase that goes with it.
 //
 //  Everything here is a *destination*, not a fact. The app does not know what
 //  a film is streaming on, what a filter costs, or whether a shop has one in.
 //  It knows how to open the place where that is written down, and it names the
 //  place on the button before anybody taps it.
+//
+//  *Which* destination to offer for a given item is not decided here — that is
+//  `FieldLookupPolicy`, which owns the one live answer. This file used to hold
+//  a second, parallel answer (`FieldItemSteps.actions`) that nothing but its
+//  own tests ever called; its heuristics moved into the policy rather than
+//  being deleted, so the two can no longer drift apart by existing at all.
 //
 //  Nothing in this file touches the network. A query is built, and it sits
 //  there until somebody taps — at which point `openURL` hands it to Safari or
@@ -104,241 +111,49 @@ enum FieldRetailer: String, CaseIterable, Hashable, Sendable, Identifiable {
         FieldSearchLink.url(base: base, name: searchParameter, value: query)
     }
 
+    /// The registrable domain, for recognising a link somebody shared in.
+    var domain: String {
+        switch self {
+        case .amazon: "amazon.com"
+        case .bestBuy: "bestbuy.com"
+        case .homeDepot: "homedepot.com"
+        case .target: "target.com"
+        case .walmart: "walmart.com"
+        }
+    }
+
+    /// The shop a shared link came from, if it came from one of these.
+    ///
+    /// Anchored at a label boundary rather than matched as a substring, which
+    /// is the whole difference between recognising `www.amazon.com` and
+    /// trusting `fakeamazon.com` or `amazon.com.someone-elses-domain.example`.
+    /// A shop name in a hostname is not a claim anybody should be able to make
+    /// by registering a domain that contains it.
+    ///
+    /// International storefronts (`amazon.co.uk`) and shorteners (`amzn.to`)
+    /// are deliberately absent. A shortener cannot be recognised without
+    /// resolving it, resolving it is a network call, and nothing in this file
+    /// makes one.
+    static func from(host: String?) -> FieldRetailer? {
+        guard let host = host?.lowercased(), !host.isEmpty else { return nil }
+        return allCases.first {
+            host == $0.domain || host.hasSuffix(".\($0.domain)")
+        }
+    }
+
     /// The couple's own shops first, then alphabetically. Never randomised,
     /// never weighted, never sold.
     ///
-    /// `preferred` is empty everywhere today — a stored preference list is a
-    /// migration, a mutation, and three backends, and nobody has asked for one
-    /// yet. It is a parameter rather than a future rewrite so that when
-    /// somebody does ask, this is the only line that has to know.
+    /// `preferred` is fed by the shop a shared link came from, so an item that
+    /// arrived from Amazon offers Amazon first. That is the couple's own
+    /// choice reflected back at them, not a placement — every other shop is
+    /// still on the list, in the same order, one row down.
     static func ordered(preferred: [FieldRetailer] = []) -> [FieldRetailer] {
         let seen = Set(preferred)
         let rest = allCases
             .filter { !seen.contains($0) }
             .sorted { $0.name < $1.name }
         return preferred + rest
-    }
-}
-
-// MARK: - What is on offer
-
-/// One thing the block can put on screen.
-///
-/// A value rather than a view, so every rule below is testable without
-/// rendering anything, and so the destination can be asserted rather than
-/// eyeballed.
-enum FieldItemAction: Hashable, Sendable, Identifiable {
-    /// A plain web search. Today this is the whole of "where to watch" — the
-    /// app has no streaming provider and does not pretend to.
-    case webSearch(label: String, query: String)
-    /// Opens the shop sheet. The choice of shop is the actual question, so it
-    /// is asked rather than answered.
-    case retailerSearch(label: String, query: String)
-    case maps(label: String, query: String)
-    /// The on-device model, and only for a task somebody could actually do in
-    /// the time named.
-    case plan(minutes: Int)
-    /// Apple's own new-event sheet, prefilled. The app writes to nobody's
-    /// calendar.
-    case calendarDraft
-    /// Not a button. The one thing the app would need in order to search
-    /// usefully, said out loud instead of guessed at.
-    case askFor(String)
-
-    var id: String { label }
-
-    /// Upper case in the source, like every other button in FIELD.
-    var label: String {
-        switch self {
-        case .webSearch(let label, _): label
-        case .retailerSearch(let label, _): label
-        case .maps(let label, _): label
-        case .plan(let minutes): "MAKE A \(minutes)-MINUTE PLAN"
-        case .calendarDraft: "ADD TO CALENDAR"
-        case .askFor(let what): "What \(what)?"
-        }
-    }
-
-    /// Where the tap actually goes, named before it is taken. Nothing here is
-    /// a surprise once it opens.
-    var destination: String? {
-        switch self {
-        case .webSearch: "Opens a web search"
-        case .retailerSearch: "Opens a shop's own search"
-        case .maps: "Opens Maps"
-        case .plan: "Stays on this phone"
-        case .calendarDraft: "Opens your calendar"
-        case .askFor: nil
-        }
-    }
-
-    var isTappable: Bool {
-        if case .askFor = self { return false }
-        return true
-    }
-
-    /// Stable across wording changes, so a UI test asserting a plain item
-    /// offers nothing does not start passing because a label was reworded.
-    var identifier: String {
-        switch self {
-        case .webSearch: "field.item.help.web"
-        case .retailerSearch: "field.item.help.shop"
-        case .maps: "field.item.help.maps"
-        case .plan: "field.item.help.plan"
-        case .calendarDraft: "field.item.help.calendar"
-        case .askFor: "field.item.help.ask"
-        }
-    }
-}
-
-// MARK: - The rules
-
-enum FieldItemSteps {
-    /// At most two things to tap. A third is a menu, and a menu is the app
-    /// having opinions about an item somebody has already filed.
-    static let maximumTappable = 2
-
-    /// What to offer for one item, or nothing at all.
-    ///
-    /// Pure, and deliberately so: no store, no clock, no network, no model —
-    /// `isModelAvailable` is injected rather than read, so every rule below can
-    /// be asserted on a device that has no model and on one that does.
-    ///
-    /// **Nothing is the common answer.** Most items in a couple's Life are a
-    /// sentence about a thing that needs doing, and the honest response to
-    /// "call your sister back" is an empty array.
-    static func actions(
-        for item: LifeItem,
-        isModelAvailable: Bool
-    ) -> [FieldItemAction] {
-        // A calendar item is somebody else's record. The sheet already shows
-        // it read-only, and this must not be the one control that forgets.
-        guard !item.id.hasPrefix("cal:") else { return [] }
-        guard !item.isDone else { return [] }
-
-        // Where FieldOutreach already has somewhere to go, it goes there
-        // alone. Two systems offering to handle the same vet appointment is
-        // worse than either of them doing it.
-        guard leavesItToUs(FieldTodaySelector.primaryAct(for: item)) else {
-            return []
-        }
-
-        let lowered = item.title.lowercased()
-        let query = FieldLookupQuery.normalise(item.title)
-
-        if item.category == .watchlist {
-            return [.webSearch(
-                label: "WHERE TO WATCH",
-                query: "\(query) where to watch"
-            )]
-        }
-
-        if item.category == .buys
-            || FieldClassifier.buyWords.contains(where: { lowered.contains($0) })
-            || (item.category == .home
-                && FieldClassifier.homeWords.contains(where: { lowered.contains($0) })) {
-            return shopping(for: item, query: query)
-        }
-
-        if namesAPlace(lowered) {
-            return [.maps(label: "OPEN IN MAPS", query: query)]
-        }
-
-        if isModelAvailable,
-           item.category == .home || item.category == .care,
-           FieldClassifier.taskVerbs.contains(where: { lowered.contains($0) }) {
-            return [.plan(minutes: 15)]
-        }
-
-        // A hard cut-off, and only that. `dueOn` was the obvious rule and it
-        // is the wrong one: almost everything in a couple's Life carries a
-        // day, so offering the calendar on a date alone would put this block
-        // under nearly every item in the app — which is the exact failure the
-        // gate above exists to prevent. FIELD is already the place a dated
-        // thing lives, and it has its own calendar over them.
-        //
-        // A time something *closes* is different. That is the one shape of
-        // date a system alert genuinely serves, and it is rare.
-        if item.closesAt != nil {
-            return [.calendarDraft]
-        }
-
-        return []
-    }
-
-    /// True when `FieldOutreach` would mark the thing done and do nothing
-    /// outward — which is exactly when there is room for a destination here.
-    ///
-    /// Mirrors `FieldOutreach.destination(act:item:target:now:)` with no
-    /// target: `.pay` and `.order` fall to `.complete` there because paying a
-    /// bill means somebody's banking app and the app has no idea which. That
-    /// is the gap this file fills for `.order`, and filling it is the entire
-    /// products half of this feature — so the two must not drift, and
-    /// `FieldItemStepsTests` asserts they agree for every `FieldAct`.
-    static func leavesItToUs(_ act: FieldAct) -> Bool {
-        switch act {
-        case .none, .pay, .order: true
-        case .call, .message, .email, .book, .schedule: false
-        }
-    }
-
-    private static func shopping(
-        for item: LifeItem,
-        query: String
-    ) -> [FieldItemAction] {
-        let search = FieldItemAction.retailerSearch(
-            label: findLabel(for: item),
-            query: query
-        )
-        // A filter has a size and a bulb has a fitting, and searching without
-        // one returns a page of things that do not fit. Asking is not a gate —
-        // the search is right there underneath it — it is the app naming the
-        // one thing it would need in order to be useful.
-        guard !carriesASize(item.title) else { return [search] }
-        return [.askFor("size or model"), search]
-    }
-
-    /// "FIND AN AIR FILTER" — named after the thing, not after the act.
-    private static func findLabel(for item: LifeItem) -> String {
-        guard let subject = subject(of: item.title) else { return "FIND OPTIONS" }
-        let article = "aeiou".contains(subject.lowercased().first ?? "x")
-            ? "AN"
-            : "A"
-        return "FIND \(article) \(subject.uppercased())"
-    }
-
-    /// The last two substantial words, because English puts the head noun at
-    /// the end: "replace the air filter" is about an air filter, and the first
-    /// word left standing is "replace".
-    static func subject(of title: String) -> String? {
-        let words = FieldClassifier.subjectWords(from: title.lowercased())
-            .filter { $0.count >= 3 }
-        guard !words.isEmpty else { return nil }
-        return words.suffix(2).joined(separator: " ")
-    }
-
-    /// A digit anywhere. Crude on purpose — "20x25x1 filter", "60w bulb" and
-    /// "size 9 boots" are all somebody having already answered the question,
-    /// and asking a person something they just told you is its own insult.
-    static func carriesASize(_ title: String) -> Bool {
-        title.contains(where: \.isNumber)
-    }
-
-    /// Somewhere with an address. Reuses the trades `FieldTargetPhrasing`
-    /// already looks up in Maps, plus the everyday errand destinations that
-    /// are not a trade.
-    private static let errands: Set<String> = [
-        "store", "market", "supermarket", "grocery", "groceries", "bakery",
-        "butcher", "deli", "hardware", "nursery", "post", "bank", "library",
-        "dmv", "cleaners", "laundromat", "storage", "dump", "recycling",
-    ]
-
-    private static func namesAPlace(_ lowered: String) -> Bool {
-        let words = Set(
-            lowered.split(whereSeparator: { !$0.isLetter }).map(String.init)
-        )
-        return !words.isDisjoint(with: errands)
-            || !words.isDisjoint(with: FieldTargetPhrasing.trades)
     }
 }
 

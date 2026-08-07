@@ -18,6 +18,57 @@ nonisolated struct Profile: Identifiable, Codable, Hashable, Sendable {
 nonisolated struct Couple: Identifiable, Codable, Hashable, Sendable {
     let id: String
     let joinCode: String
+
+    /// When the current invitation stops working, or nil when there is no
+    /// live invitation to send.
+    ///
+    /// `joinCode` is never nil — the column behind it is `not null` — so the
+    /// code alone cannot tell you whether there is anything to share. This is
+    /// the field that can: nil means withdrawn, spent, or never issued, and
+    /// the code sitting beside it would be refused.
+    var invitationExpiresAt: Date?
+
+    /// When a partner deleted their account, or nil if nobody ever has.
+    ///
+    /// This is what distinguishes the two shapes of a one-member couple:
+    /// somebody who has never paired, and somebody whose partner left. They
+    /// are the same member count and completely different situations.
+    var departedAt: Date?
+
+    /// When the survivor was told. Set once, by `acknowledgeDeparture`.
+    var departureSeenAt: Date?
+
+    init(
+        id: String,
+        joinCode: String,
+        invitationExpiresAt: Date? = nil,
+        departedAt: Date? = nil,
+        departureSeenAt: Date? = nil
+    ) {
+        self.id = id
+        self.joinCode = joinCode
+        self.invitationExpiresAt = invitationExpiresAt
+        self.departedAt = departedAt
+        self.departureSeenAt = departureSeenAt
+    }
+
+    /// The one quiet moment: somebody left and this person has not been told.
+    ///
+    /// Both halves are required. `departedAt` alone would raise it again on
+    /// every launch for the rest of the account's life, which is the opposite
+    /// of the rule in CIRCLE.md:52 — a thing is told once, and then the
+    /// interface is silent about it.
+    var owesDepartureNotice: Bool {
+        departedAt != nil && departureSeenAt == nil
+    }
+
+    /// Whether the code is worth putting on screen. Evaluated against the
+    /// clock at the moment it is asked, because a screen left open across the
+    /// boundary should stop offering a code that no longer works.
+    func hasLiveInvitation(asOf now: Date = Date()) -> Bool {
+        guard let invitationExpiresAt else { return false }
+        return invitationExpiresAt > now
+    }
 }
 
 nonisolated enum MemberHue: String, CaseIterable, Codable, Sendable {

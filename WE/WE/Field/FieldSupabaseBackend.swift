@@ -69,6 +69,22 @@ private struct LifeItemRow: Codable {
     let is_done: Bool
 }
 
+/// The links a published share brought with it.
+///
+/// Written by `share_finalize_publication` since private intake shipped and
+/// never once read back until now. Fetched whole rather than filtered by the
+/// life-item ids that came back: the table is couple-scoped by the same RLS as
+/// everything else here, so `select()` already returns exactly this couple's
+/// rows, and asking for it that way keeps it in the concurrent batch instead of
+/// making it wait on the items query.
+private struct LifeResourceRow: Codable {
+    let id: UUID
+    let life_item_id: UUID
+    let kind: String
+    let url: String?
+    let created_at: Date
+}
+
 private struct HorizonRow: Codable {
     let id: UUID
     let title: String
@@ -252,6 +268,9 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         async let windows = fetch([AwayWindowRow].self, from: "field_away_windows")
         async let clusters = fetch([ClusterRow].self, from: "field_clusters")
         async let lifeItems = fetch([LifeItemRow].self, from: "field_life_items")
+        async let lifeResources = fetch(
+            [LifeResourceRow].self, from: "field_life_resources"
+        )
         async let horizons = fetch([HorizonRow].self, from: "field_horizons")
         async let questions = fetch([QuestionRow].self, from: "field_questions")
         async let rhythms = fetch([RhythmRow].self, from: "field_rhythms")
@@ -267,11 +286,14 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
 
         let resolvedIdentity = try await identity
         let resolvedQuestions = try await questions
+        let sourceURLs = sourceURLs(from: try await lifeResources)
 
         return FieldState(
             identity: resolvedIdentity,
             partners: try await partners(windows: windows),
-            lifeItems: try await lifeItems.map(map),
+            lifeItems: try await lifeItems.map {
+                map($0, sourceURL: sourceURLs[$0.id])
+            },
             clusters: try await clusters.map(map),
             horizons: try await horizons.map { map($0, questions: resolvedQuestions) },
             rhythms: try await rhythms.map(map),
@@ -411,7 +433,38 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         )
     }
 
-    private func map(_ row: LifeItemRow) -> LifeItem {
+    /// One link per item, chosen the same way every launch.
+    ///
+    /// A share can be published with several approved links, and the chip that
+    /// results names a destination — so "whichever row the database happened to
+    /// return first" is not good enough. Oldest first, ties broken by id, which
+    /// is the one the couple was looking at when they shared.
+    ///
+    /// Non-`https` is dropped here as well as at the point of use. The parser
+    /// refuses anything else at intake, so a row that fails this never came
+    /// from a route that is still running — which is the reason to drop it
+    /// rather than the reason to assume it cannot happen.
+    private func sourceURLs(
+        from rows: [LifeResourceRow]
+    ) -> [UUID: URL] {
+        rows
+            .filter { $0.kind == "url" }
+            .sorted {
+                $0.created_at == $1.created_at
+                    ? $0.id.uuidString < $1.id.uuidString
+                    : $0.created_at < $1.created_at
+            }
+            .reduce(into: [UUID: URL]()) { result, row in
+                guard result[row.life_item_id] == nil,
+                      let string = row.url,
+                      let url = URL(string: string),
+                      url.scheme?.lowercased() == "https"
+                else { return }
+                result[row.life_item_id] = url
+            }
+    }
+
+    private func map(_ row: LifeItemRow, sourceURL: URL?) -> LifeItem {
         LifeItem(
             id: row.id.uuidString,
             title: row.title,
@@ -423,7 +476,8 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             source: FieldItemSource(rawValue: row.source) ?? .captured,
             detail: row.detail,
             isTimeCritical: row.is_time_critical,
-            isDone: row.is_done
+            isDone: row.is_done,
+            sourceURL: sourceURL
         )
     }
 
@@ -640,9 +694,9 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
     /// `for all` scoped to the caller's couple, so DELETE is already covered —
     /// see `20260730120000_field_zones.sql`.
     func delete(itemID: String) async throws {
-        // Only a real row. Imported calendar items carry a `cal:` id and are
-        // refused in `FieldStore` before they reach here; this guard means a
-        // future caller cannot send one either.
+        // Only current server rows have UUID ids. Calendar builds that
+        // predated private intake used a `cal:` prefix; FieldStore keeps those
+        // legacy external rows immutable and this guard keeps them off the API.
         guard let id = UUID(uuidString: itemID) else { return }
 
         _ = try await client

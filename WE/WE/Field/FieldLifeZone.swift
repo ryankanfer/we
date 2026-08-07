@@ -33,12 +33,17 @@ struct FieldLifeZone: View {
     @State private var openCategory: LifeCategory?
     /// Whether the list of groups the couple has set down is open.
     @State private var putAwayIsOpen = false
+    /// Private Share Sheet drafts. Feature-gated until the full local and
+    /// server release path has passed together.
+    @State private var shareInboxIsOpen = false
 
     var body: some View {
         FieldZoneScaffold(zone: .life) {
             VStack(alignment: .leading, spacing: 0) {
                 thisWeek
                     .padding(.bottom, FieldMetrics.sectionGapLoose)
+
+                fromElsewhere
 
                 categories
 
@@ -83,6 +88,10 @@ struct FieldLifeZone: View {
         }
         .sheet(isPresented: $putAwayIsOpen) {
             FieldPutAwaySheet()
+                .environment(store)
+        }
+        .fullScreenCover(isPresented: $shareInboxIsOpen) {
+            ShareInboxView()
                 .environment(store)
         }
         // Keyed on the items, not on appearance: revisiting Life should not
@@ -205,6 +214,39 @@ struct FieldLifeZone: View {
             ForEach(store.categoryOrder) { category in
                 categoryRow(category)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var fromElsewhere: some View {
+        if WEFeatureFlags.shareInboxEnabled {
+            Button {
+                shareInboxIsOpen = true
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text("From elsewhere")
+                        .font(FieldType.listItemLarge)
+                        .foregroundStyle(.fieldInk(.headline))
+
+                    Text("PRIVATE")
+                        .font(FieldType.dateCount)
+                        .tracking(FieldTracking.dateCount)
+                        .foregroundStyle(.fieldInk(.dateCount))
+
+                    Spacer(minLength: 0)
+                }
+                .frame(minHeight: 56)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .overlay(alignment: .top) {
+                FieldRuleLine(color: FieldRule.row)
+            }
+            .padding(.bottom, FieldMetrics.sectionGap)
+            .accessibilityHint(
+                "Opens private drafts kept from the Share Sheet"
+            )
+            .accessibilityIdentifier("field.life.fromElsewhere")
         }
     }
 

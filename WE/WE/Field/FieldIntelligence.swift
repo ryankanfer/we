@@ -984,6 +984,19 @@ enum FieldClassifier {
         _ lowered: String,
         context: Context
     ) -> LifeCategory {
+        lifeCategory(lowered, categories: context.lifeCategories)
+    }
+
+    /// The same routing, given only the categories it actually reads.
+    ///
+    /// Share intake needs to classify an incoming link and has no `Context` to
+    /// hand — no identity, no clock, no items, no corrections. Building one
+    /// there would couple the share reviewer to `FieldStore` for the sake of a
+    /// single field this function reads, so the field is the parameter.
+    static func lifeCategory(
+        _ lowered: String,
+        categories: [LifeCategory]
+    ) -> LifeCategory {
         if careWords.contains(where: { lowered.contains($0) }) { return .care }
         if moneyWords.contains(where: { lowered.contains($0) }) { return .money }
         if homeWords.contains(where: { lowered.contains($0) }) { return .home }
@@ -993,7 +1006,7 @@ enum FieldClassifier {
         // and "order" are generic verbs attached to half of what anybody says,
         // and a couple who grew Pets means Pets when they say "order more pets
         // food" — not a shopping list.
-        if let existing = context.lifeCategories.first(where: {
+        if let existing = categories.first(where: {
             !$0.isBuiltIn && lowered.contains($0.rawValue)
         }) {
             return existing

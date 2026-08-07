@@ -1156,6 +1156,9 @@ actor SimulationRepository: Repository {
 
     func createCouple() async throws {}
     func joinCouple(code: String) async throws {}
+    func createInvitation() async throws {}
+    func revokeInvitation() async throws {}
+    func acknowledgeDeparture() async throws {}
 
     func updateProfile(name: String, userID: String) async throws {
         await store.updateProfile(viewer: viewer, name: name)

@@ -144,7 +144,11 @@ struct FieldStateCache: Sendable {
 
     // MARK: Forgetting
 
-    /// Phase 1d. Sign-out, account deletion, and unpairing all land here.
+    /// Phase 1d. Sign-out and account deletion land here, as would unpairing
+    /// if it existed — it does not yet, and `WELocalData` is the one place
+    /// that says so. Stated the same way here so that reading this file does
+    /// not leave somebody believing a transition is covered when nothing in
+    /// the app can perform it.
     func remove(_ partition: FieldOutboxPartition) {
         try? FileManager.default.removeItem(at: url(for: partition))
     }

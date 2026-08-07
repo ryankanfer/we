@@ -51,6 +51,18 @@ protocol Repository {
 
     func createCouple() async throws
     func joinCouple(code: String) async throws
+
+    /// Issues a fresh invitation, revoking any live one in the same
+    /// transaction. "I sent it to the wrong person" has to mean the old code
+    /// stops working at the instant the new one starts.
+    func createInvitation() async throws
+
+    /// Withdraws the live invitation without waiting for it to expire.
+    func revokeInvitation() async throws
+
+    /// Records that the survivor has been told their partner left, so the
+    /// interface never raises it again.
+    func acknowledgeDeparture() async throws
     func updateProfile(name: String, userID: String) async throws
     func updateHue(_ hue: MemberHue, membership: Membership) async throws
     func loadPrivateProposals(

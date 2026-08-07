@@ -110,6 +110,18 @@ final class SupabaseRepository: Repository {
             .execute()
     }
 
+    func createInvitation() async throws {
+        _ = try await configuredClient().rpc("create_invitation").execute()
+    }
+
+    func revokeInvitation() async throws {
+        _ = try await configuredClient().rpc("revoke_invitation").execute()
+    }
+
+    func acknowledgeDeparture() async throws {
+        _ = try await configuredClient().rpc("acknowledge_departure").execute()
+    }
+
     func updateProfile(name: String, userID: String) async throws {
         _ = try await configuredClient()
             .from("profiles")
@@ -645,7 +657,10 @@ final class SupabaseRepository: Repository {
 
         async let couplesRequest: [CoupleDTO] = client
             .from("couples")
-            .select("id,join_code")
+            .select(
+                "id,join_code,join_code_expires_at,departed_at,"
+                    + "departure_seen_at"
+            )
             .eq("id", value: membership.coupleID)
             .limit(1)
             .execute()
@@ -696,7 +711,13 @@ final class SupabaseRepository: Repository {
             profile: profile,
             membership: membership,
             couple: coupleDTOs.first.map {
-                Couple(id: $0.id, joinCode: $0.joinCode)
+                Couple(
+                    id: $0.id,
+                    joinCode: $0.joinCode,
+                    invitationExpiresAt: $0.invitationExpiry,
+                    departedAt: $0.departed,
+                    departureSeenAt: $0.departureSeen
+                )
             },
             members: members,
             insights: [],

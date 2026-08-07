@@ -59,21 +59,10 @@ struct FieldZoneShell: View {
     /// animation survives the bar's own re-layout on a zone change.
     @State private var hintBreath: CGFloat = 1
 
-    /// Where the WE mark sits, so the room it opens can bloom out of it.
-    ///
-    /// Measured rather than assumed: the mark is centred in the bar, but the
-    /// bar's height depends on whether the hint row is present, and the safe
-    /// area differs across devices. A hardcoded point would be right on one
-    /// phone and visibly wrong on the next.
-    @State private var markCenter: CGPoint = .zero
-
     // Constructed in the body, not as a default argument. Default argument
     // expressions are evaluated in a nonisolated context, so `= FieldStore()`
     // cannot call a @MainActor initializer even though this type is
     // @MainActor. Inside the init body the isolation applies.
-    /// The shell's own coordinate space, so the mark can be located in it.
-    private static let shellSpace = "field.shell"
-
     init(store: FieldStore? = nil) {
         _store = State(initialValue: store ?? FieldStore())
     }
@@ -114,11 +103,6 @@ struct FieldZoneShell: View {
                     .zIndex(20)
             }
         }
-        // Named rather than `.global`: the cover the bloom plays inside is
-        // laid out against the window, and a mark measured in global space
-        // lands in the right place only until something above the shell
-        // changes height.
-        .coordinateSpace(name: Self.shellSpace)
         .preferredColorScheme(.dark)
         .environment(store)
         .animation(.fieldZone(reduceMotion), value: store.activeZone)
@@ -169,14 +153,12 @@ struct FieldZoneShell: View {
         .fullScreenCover(isPresented: $showsYours) {
             YoursSurface(
                 store: yoursStore(),
-                bloomOrigin: markCenter,
                 hue: store.identity.color(for: store.speaker)
             )
         }
         // The circle. Presented from the shell rather than from Today, because
         // the second person's tap can land while the first is reading Life —
-        // and the bloom is about both of them, not about a zone. The mark that
-        // starts it lives in Today; the room it opens does not.
+        // it belongs to both of them, not to one navigation zone.
         .fullScreenCover(isPresented: roomBinding) {
             FieldCircleRoom(
                 identity: store.identity,
@@ -201,6 +183,13 @@ struct FieldZoneShell: View {
                 FieldCrossingView(decision: decision)
                     .environment(store)
             }
+        }
+        // Told once, on the next open after a partner deleted their account.
+        // The setter is ignored, like the crossing above: this is not a thing
+        // to be swiped away unread, and `FieldDepartureView` dismisses itself
+        // only after `acknowledge_departure()` has recorded the telling.
+        .fullScreenCover(isPresented: departureBinding) {
+            FieldDepartureView()
         }
         .task(id: session.snapshot?.membership?.coupleID) {
             guard let decision = crossingDecision else { return }
@@ -229,6 +218,18 @@ struct FieldZoneShell: View {
     private var crossingBinding: Binding<Bool> {
         Binding(
             get: { store.owesCrossingDecision && crossingDecision != nil },
+            set: { _ in }
+        )
+    }
+
+    /// Both halves come from the couple row: somebody left, and this person
+    /// has not been told. `Couple.owesDepartureNotice` holds them together so
+    /// that no caller can check one and forget the other — `departedAt` alone
+    /// would raise this screen on every launch for the rest of the account's
+    /// life.
+    private var departureBinding: Binding<Bool> {
+        Binding(
+            get: { session.snapshot?.couple?.owesDepartureNotice ?? false },
             set: { _ in }
         )
     }
@@ -423,7 +424,6 @@ struct FieldZoneShell: View {
                 .foregroundStyle(.fieldInk(.headline))
         }
         .frame(width: 48, height: 48)
-        .background { markMeasure }
         .contentShape(Circle())
         .onTapGesture { markTapped() }
         .onLongPressGesture(minimumDuration: 0.5) { showsAccount = true }
@@ -443,22 +443,6 @@ struct FieldZoneShell: View {
         // unsighted users hold the same mental model of the same room.
         .accessibilityAction(named: Text(YoursCopy.accessibilityName)) {
             openYours()
-        }
-    }
-
-    /// Reports the mark's centre in the shell's space, so the room it opens
-    /// can bloom out of it.
-    ///
-    /// Its own property rather than an inline `.background { GeometryReader }`
-    /// because the mark's `ZStack` is already at the type-checker's limit —
-    /// inlining this one closure tipped the whole expression over.
-    private var markMeasure: some View {
-        GeometryReader { geometry in
-            let frame = geometry.frame(in: .named(Self.shellSpace))
-            Color.clear
-                .onChange(of: frame, initial: true) { _, new in
-                    markCenter = CGPoint(x: new.midX, y: new.midY)
-                }
         }
     }
 
@@ -489,8 +473,9 @@ struct FieldZoneShell: View {
     private func openYours() {
         hasHintedGesture = true
 
-        // Presented without the system's slide, because the room opens itself
-        // — see `YoursSurface`. Scoped to this one state change rather than
+        // Presented without the system's slide because the personal field and
+        // mark own the transition — see `YoursSurface`. Scoped to this one
+        // state change rather than
         // applied to the view, so nothing else in the shell loses its motion.
         var silent = Transaction()
         silent.disablesAnimations = true

@@ -2,302 +2,338 @@
 //  FieldItemHelp.swift
 //  WE
 //
-//  The block under an item, on the occasions there is one.
+//  Purpose-specific lookup for every LIFE category.
 //
-//  The gate is the feature. `FieldItemSteps.actions` returns an empty array for
-//  most things a couple files, and an empty array draws nothing at all — no
-//  heading, no rule line, no "no suggestions". A sheet that grows a helpful
-//  section under every single item is an app with an opinion about a shopping
-//  list, and the whole discipline here is that it usually has none.
-//
-//  Nothing on this screen has already happened. Every button opens something
-//  at the moment it is tapped, to a place named underneath it, and the app is
-//  not involved after that. There is no lookup on appear.
+//  Selecting a purpose does not search. It opens an exact disclosure first,
+//  and only the final destination button allows the reviewed query to leave.
 //
 
-import EventKit
 import SwiftUI
 
 struct FieldItemHelp: View {
     @Environment(FieldStore.self) private var store
-    @Environment(\.openURL) private var openURL
 
     let item: LifeItem
 
-    /// One piece of state for both sheets, and one `.sheet` modifier below.
-    ///
-    /// Two `.sheet` modifiers on the same view is not a thing SwiftUI
-    /// supports: the second silently displaces the first, and the *presenting*
-    /// sheet — the item sheet this block lives inside — closes the moment the
-    /// block appears. Which is exactly what happened, and it took a UI test
-    /// dumping the accessibility tree to see it, because the symptom was the
-    /// item sheet vanishing rather than anything here looking wrong.
-    private enum Presenting: Identifiable {
-        case calendar(FieldEventDraft)
-        case shops(ShopSearch)
+    @State private var request: FieldLookupRequest?
 
-        var id: String {
-            switch self {
-            case .calendar(let draft): "calendar-\(draft.id)"
-            case .shops(let search): "shops-\(search.id)"
-            }
-        }
+    private var choices: [FieldLookupChoice] {
+        FieldLookupPolicy.choices(for: item)
     }
 
-    @State private var presenting: Presenting?
-    @State private var couldNotOpen: String?
-
-    /// Recomputed from the item rather than held: refiling a thing from Buys
-    /// to Watchlist in the picker above should change what this offers, in the
-    /// same gesture.
-    private var actions: [FieldItemAction] {
-        FieldItemSteps.actions(
-            for: item,
-            isModelAvailable: FieldItemVoice.isAvailable
-        )
-    }
-
-    private var plan: FieldItemPlan? {
-        guard let plan = store.itemPlan, plan.itemID == item.id else {
-            return nil
-        }
-        return plan
-    }
-
+    /// Nothing on screen when there is nothing to offer — no header, no rule
+    /// line, no reassuring footer over an empty row of chips. A section that
+    /// appears for every item and is useful for some of them teaches people to
+    /// stop reading it.
     var body: some View {
-        // The anti-Clippy gate. Absence is the default and the common case.
-        if !actions.isEmpty {
+        if !choices.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
                 FieldRuleLine()
 
                 FieldLabel(
-                    plan == nil ? "What I can open" : "Fifteen minutes of it",
+                    "Where to look",
                     color: .fieldInk(.monoLabelQuiet)
                 )
                 .padding(.top, 18)
                 .padding(.bottom, 13)
 
-                if let plan {
-                    planned(plan)
-                } else {
-                    offered
+                FieldFlowLayout(spacing: 8, lineSpacing: 8) {
+                    ForEach(choices) { choice in
+                        FieldChip(choice.label) {
+                            request = FieldLookupRequest(
+                                choice: choice,
+                                title: item.title,
+                                sourceURL: item.sourceURL
+                            )
+                        }
+                        .accessibilityIdentifier(
+                            "field.item.lookup.\(choice.id)"
+                        )
+                    }
                 }
 
-                if let couldNotOpen {
-                    FieldReasoning(
-                        text: couldNotOpen,
-                        accent: store.identity.color(for: item.owner)
-                    )
+                // "Searched" was true when every chip built a query. One of
+                // them now opens a link instead, and the promise has to cover
+                // both without overstating either.
+                Text("Nothing opens until you review exactly what it sends.")
+                    .font(FieldType.reasoning)
+                    .foregroundStyle(.fieldInk(.reasoning))
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 13)
-                }
             }
             .padding(.bottom, FieldMetrics.sectionGap)
             .accessibilityIdentifier("field.item.help")
-            .sheet(item: $presenting) { what in
-                switch what {
-                case .calendar(let draft):
-                    FieldEventEditor(draft: draft, store: EKEventStore()) { _ in
-                        // Nothing is marked done here. This sheet put a draft
-                        // in front of somebody; whether the errand happened is
-                        // not something the app watched.
-                        presenting = nil
-                    }
-                    .ignoresSafeArea()
-                case .shops(let search):
-                    FieldShopSheet(search: search)
-                }
-            }
-            // Cancels when the sheet closes. `FieldItemVoice` returns nil on
-            // the resulting `CancellationError`, and the guard below means a
-            // generation that outran the dismissal writes nothing.
-            .task(id: thinkingID) {
-                guard let id = thinkingID, id == item.id else { return }
-                let steps = await FieldItemVoice.plan(for: item, minutes: 15)
-                guard !Task.isCancelled else { return }
-                store.planFinished(steps, for: id)
-            }
-            .onDisappear { store.clearPlan() }
-        }
-    }
-
-    private var thinkingID: String? {
-        guard let plan = store.itemPlan, plan.isThinking else { return nil }
-        return plan.itemID
-    }
-
-    // MARK: What is on offer
-
-    private var offered: some View {
-        VStack(alignment: .leading, spacing: 13) {
-            ForEach(actions) { action in
-                if case .askFor(let what) = action {
-                    // Not a button. The app naming the one thing it would need
-                    // in order to be useful, with the search still right there
-                    // underneath it.
-                    FieldReasoning(
-                        text: "I don't know the \(what), so the search will be "
-                            + "a broad one. Adding it to the title sharpens it.",
-                        accent: store.identity.color(for: item.owner)
-                    )
-                    .accessibilityIdentifier(action.identifier)
-                } else {
-                    button(action)
-                }
-            }
-        }
-    }
-
-    private func button(_ action: FieldItemAction) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Button(action.label) { perform(action) }
-                .buttonStyle(FieldOutlinedButtonStyle())
-                // On the button rather than the stack: a UI test asserting
-                // this feature is absent has to be able to ask for a button by
-                // identifier, and a wrapping container does not answer.
-                .accessibilityIdentifier(action.identifier)
-                .accessibilityHint(action.destination ?? "")
-
-            if let destination = action.destination {
-                Text(destination)
-                    .font(FieldType.dateCount)
-                    .tracking(FieldTracking.dateCount)
-                    .foregroundStyle(.fieldInk(.legend))
-                    .accessibilityHidden(true)
-            }
-        }
-    }
-
-    private func perform(_ action: FieldItemAction) {
-        couldNotOpen = nil
-        switch action {
-        case .webSearch(_, let query):
-            open(FieldSearchLink.web(query))
-        case .maps(_, let query):
-            open(FieldSearchLink.maps(query))
-        case .retailerSearch(let label, let query):
-            presenting = .shops(ShopSearch(label: label, query: query))
-        case .calendarDraft:
-            presenting = .calendar(
-                FieldOutreach.draft(for: item, now: store.now)
-            )
-        case .plan:
-            store.planStarted(for: item.id)
-        case .askFor:
-            break
-        }
-    }
-
-    /// `openURL`'s completion rather than `canOpenURL`, for the same reason
-    /// `FieldOutreachConfirmation` uses it: asking permission to ask is a
-    /// query about what else is installed on somebody's phone.
-    private func open(_ url: URL?) {
-        guard let url else { return }
-        openURL(url) { accepted in
-            if !accepted {
-                couldNotOpen = "This phone can't open that."
-            }
-        }
-    }
-
-    // MARK: The plan
-
-    private func planned(_ plan: FieldItemPlan) -> some View {
-        VStack(alignment: .leading, spacing: 13) {
-            if plan.isThinking {
-                Text("Working it out.")
-                    .font(FieldType.body)
-                    .foregroundStyle(.fieldInk(.legend))
-            } else {
-                ForEach(Array(plan.steps.enumerated()), id: \.offset) { _, step in
-                    Text(step)
-                        .font(FieldType.body)
-                        .foregroundStyle(.fieldInk(.headline))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                FieldReasoning(
-                    text: "I wrote this on your phone, from the words on this "
-                        + "thing. Nobody else has it yet.",
+            .sheet(item: $request) { request in
+                FieldLookupReview(
+                    request: request,
                     accent: store.identity.color(for: item.owner)
                 )
-
-                HStack(spacing: 11) {
-                    Button("Keep it on this") { store.keepPlan(on: item.id) }
-                        .buttonStyle(FieldFilledButtonStyle())
-                        // `field_life_items` is couple-scoped and realtime-
-                        // published, so this is a share and the hint says so.
-                        .accessibilityHint(
-                            "Saves it onto this thing, where you can both "
-                                + "see it."
-                        )
-                        .accessibilityIdentifier("field.item.help.keep")
-
-                    Button("Let it go") { store.clearPlan() }
-                        .buttonStyle(FieldQuietButtonStyle())
-                }
             }
         }
     }
 }
 
-// MARK: - Which shop
-
-/// What is being looked for, as something `.sheet(item:)` will accept.
-struct ShopSearch: Identifiable, Hashable {
-    var id: String { "\(label)-\(query)" }
-    let label: String
-    let query: String
-}
-
-/// The one screen in this feature that asks a question, because picking a shop
-/// is the actual question. Nothing is preselected and nothing is recommended —
-/// the app has no prices, no stock, and no opinion, and it says so once, here,
-/// where the shops actually are.
-struct FieldShopSheet: View {
+private struct FieldLookupReview: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
-    let search: ShopSearch
+    let request: FieldLookupRequest
+    let accent: Color
+
+    @State private var clarification = ""
+    @State private var couldNotOpen: String?
+
+    private var disclosure: WEOutboundDisclosure {
+        FieldLookupPolicy.disclosure(
+            for: request,
+            clarification: clarification
+        )
+    }
 
     var body: some View {
         ZStack {
             FieldPalette.bgElevated.ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 0) {
-                FieldLabel("Where to look")
-                    .padding(.bottom, 13)
+            VStack(spacing: 0) {
+                fixedHeader
 
-                Text(search.query)
-                    .font(FieldType.body)
-                    .foregroundStyle(.fieldInk(.headline))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.bottom, 18)
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 22) {
+                        introduction
 
-                ForEach(FieldRetailer.ordered()) { retailer in
-                    Button(retailer.name) {
-                        if let url = retailer.url(searching: search.query) {
-                            openURL(url)
+                        // No query is built for a saved link, so a
+                        // clarification would have nowhere to go. A text field
+                        // that changes nothing is worse than no text field.
+                        if request.choice.destination != .source {
+                            clarificationField
                         }
-                        dismiss()
+
+                        exactDisclosure
+
+                        if request.choice.destination == .shops {
+                            shopDestinations
+                        } else {
+                            openButton
+                        }
+
+                        if request.choice.id.hasPrefix("money.") {
+                            neutralMoneyNote
+                        }
+
+                        if let couldNotOpen {
+                            FieldReasoning(text: couldNotOpen, accent: accent)
+                        }
                     }
-                    .buttonStyle(FieldQuietButtonStyle())
-                    .accessibilityIdentifier("field.item.shop.\(retailer.rawValue)")
+                    .padding(.horizontal, FieldMetrics.screenSide)
+                    .padding(.top, 22)
+                    .padding(.bottom, 50)
                 }
-
-                Text("I don't take a cut from any of these, and I don't know "
-                    + "what they have. Each one opens its own search.")
-                    .font(FieldType.reasoning)
-                    .foregroundStyle(.fieldInk(.reasoning))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 18)
-
-                Spacer(minLength: 0)
+                .scrollDismissesKeyboard(.interactively)
             }
-            .padding(.top, 48)
-            .padding(.horizontal, FieldMetrics.screenSide)
-            .padding(.bottom, 40)
         }
         .preferredColorScheme(.dark)
-        .accessibilityIdentifier("field.item.shop")
+        .presentationDragIndicator(.visible)
+        .accessibilityIdentifier("field.item.lookup.review")
+    }
+
+    private var fixedHeader: some View {
+        HStack {
+            FieldLabel("Exact review")
+            Spacer(minLength: 12)
+            Button("DONE ✕") { dismiss() }
+                .font(FieldType.button)
+                .tracking(FieldTracking.button)
+                .foregroundStyle(.fieldInk(.legend))
+                .frame(minWidth: 44, minHeight: 44)
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close")
+        }
+        .padding(.horizontal, FieldMetrics.screenSide)
+        .frame(minHeight: 56)
+        .background(
+            reduceTransparency
+                ? FieldPalette.bgElevated
+                : FieldPalette.bgElevated.opacity(0.97)
+        )
+    }
+
+    private var introduction: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(request.choice.label.capitalized)
+                .font(FieldType.cardTitle)
+                .foregroundStyle(.fieldInk(.headline))
+
+            // Opening a saved link still sends a request to that site. The
+            // honest claim is not "nothing leaves" — it is that WE composed
+            // nothing to send.
+            Text(
+                request.choice.destination == .source
+                    ? "WE will open the original link you saved. No new "
+                        + "search query is created or sent by WE."
+                    : "Only the words shown below leave WE."
+            )
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.sectionSubtitle))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var clarificationField: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Optional clarification")
+                .font(FieldType.sectionLabel)
+                .foregroundStyle(.fieldInk(.monoLabel))
+
+            TextField(
+                "Add only what this lookup needs",
+                text: $clarification,
+                axis: .vertical
+            )
+            .font(FieldType.body)
+            .foregroundStyle(.fieldInk(.headline))
+            .lineLimit(1...4)
+            .textInputAutocapitalization(.sentences)
+            .padding(12)
+            .background(
+                FieldPalette.ink.opacity(0.05),
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
+            .onChange(of: clarification) { _, value in
+                if value.count > 80 {
+                    clarification = String(value.prefix(80))
+                }
+            }
+            .accessibilityIdentifier("field.item.lookup.clarification")
+        }
+    }
+
+    private var exactDisclosure: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            FieldRuleLine()
+
+            FieldLabel("Leaves this phone")
+
+            disclosureRow("Destination", disclosure.destination)
+            disclosureRow("Fields", disclosure.fields.joined(separator: ", "))
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(
+                    request.choice.destination == .source
+                        ? "EXACT LINK"
+                        : "EXACT QUERY"
+                )
+                    .font(FieldType.dateCount)
+                    .tracking(FieldTracking.dateCount)
+                    .foregroundStyle(.fieldInk(.headerMeta))
+
+                Text(disclosure.query)
+                    .font(FieldType.body)
+                    .foregroundStyle(.fieldInk(.headline))
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("field.item.lookup.query")
+            }
+        }
+    }
+
+    private func disclosureRow(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label.uppercased())
+                .font(FieldType.dateCount)
+                .tracking(FieldTracking.dateCount)
+                .foregroundStyle(.fieldInk(.headerMeta))
+            Text(value)
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.quietListItem))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var openButton: some View {
+        Button("OPEN \(disclosure.destination.uppercased())") {
+            let url: URL? = switch request.choice.destination {
+            case .web:
+                FieldSearchLink.web(disclosure.query)
+            case .maps:
+                FieldSearchLink.maps(disclosure.query)
+            case .shops:
+                nil
+            case .source:
+                // Checked again at the point of use rather than trusted from
+                // the policy that offered the chip. The guard is cheap and the
+                // thing being guarded is handing a stored string to the system
+                // opener.
+                request.sourceURL?.scheme?.lowercased() == "https"
+                    ? request.sourceURL
+                    : nil
+            }
+            open(url)
+        }
+        .buttonStyle(FieldFilledButtonStyle())
+        .accessibilityHint(
+            request.choice.destination == .source
+                ? "Opens the saved link shown above at \(disclosure.destination)."
+                : "Sends the exact query shown above to \(disclosure.destination)."
+        )
+        .accessibilityIdentifier("field.item.lookup.open")
+    }
+
+    private var shopDestinations: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            FieldLabel("Choose the destination")
+
+            ForEach(
+                FieldRetailer.ordered(
+                    preferred: [FieldRetailer.from(host: request.sourceURL?.host)]
+                        .compactMap { $0 }
+                )
+            ) { retailer in
+                Button(retailer.name) {
+                    open(retailer.url(searching: disclosure.query))
+                }
+                .buttonStyle(FieldOutlinedButtonStyle())
+                .accessibilityHint(
+                    "Sends the exact query shown above to \(retailer.name)."
+                )
+                .accessibilityIdentifier(
+                    "field.item.lookup.shop.\(retailer.rawValue)"
+                )
+            }
+
+            Text(
+                "WE takes no cut and makes no claim about price, stock, "
+                    + "quality, or ranking."
+            )
+            .font(FieldType.reasoning)
+            .foregroundStyle(.fieldInk(.reasoning))
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 6)
+        }
+    }
+
+    private var neutralMoneyNote: some View {
+        Text(
+            "This opens a neutral search, not financial advice or a "
+                + "recommendation. Check the provider and terms yourself."
+        )
+        .font(FieldType.reasoning)
+        .foregroundStyle(.fieldInk(.reasoning))
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func open(_ url: URL?) {
+        guard let url else {
+            couldNotOpen = "WE could not make a safe destination for this."
+            return
+        }
+        couldNotOpen = nil
+        openURL(url) { accepted in
+            if accepted {
+                dismiss()
+            } else {
+                couldNotOpen = "This phone couldn't open that destination."
+            }
+        }
     }
 }
