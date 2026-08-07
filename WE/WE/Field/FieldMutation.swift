@@ -53,6 +53,21 @@ enum FieldMutation: Codable, Sendable {
     /// tap made on Tuesday evening that drains on Wednesday morning is still
     /// Tuesday's.
     case markReady(localDate: String)
+    /// Setting a built-in LIFE group down, or picking it back up.
+    ///
+    /// The category is a raw `String` and not a `LifeCategory` because this is
+    /// the one write in the app whose subject is a stored row rather than a
+    /// derived word — see `FieldState.hiddenCategories`. A queued mutation has
+    /// to survive being decoded by a build whose `LifeCategory` refuses a
+    /// value this one allowed, and `LifeCategory.init(rawValue:)` is
+    /// deliberately non-failable: it would silently turn an unreadable value
+    /// into Notes, and the queue would drain a hide of the wrong group.
+    ///
+    /// Both directions in one case rather than a hide and an unhide, so the
+    /// two collapse under compaction. Putting Watchlist away and bringing it
+    /// back while offline is one write that leaves nothing behind, not two
+    /// that briefly did something.
+    case setCategoryHidden(category: String, hidden: Bool)
 }
 
 // MARK: - Replay
@@ -131,6 +146,17 @@ extension FieldMutation {
             // Replaying an optimistic `.both` here would be the app inventing
             // a partner's consent.
             break
+
+        case .setCategoryHidden(let category, let hidden):
+            // Kept sorted, and inserted rather than appended, so two devices
+            // that hid the same groups in a different order hold an identical
+            // `FieldState` — which is what lets the cache and a fresh load be
+            // compared at all.
+            state.hiddenCategories.removeAll { $0 == category }
+            if hidden {
+                state.hiddenCategories.append(category)
+                state.hiddenCategories.sort()
+            }
         }
     }
 
@@ -194,6 +220,8 @@ extension FieldMutation {
             try await backend.setDailyMoment(moment)
         case .markReady(let localDate):
             try await backend.markReady(localDate: localDate)
+        case .setCategoryHidden(let category, let hidden):
+            try await backend.setCategoryHidden(category, hidden: hidden)
         }
     }
 }
@@ -234,6 +262,10 @@ extension FieldMutation {
         /// never leaves a second queued entry that could drain as a second
         /// request. Nothing about the repeat is recorded anywhere.
         case readiness(String)
+        /// The group, not the direction. Hiding Watchlist and bringing it back
+        /// before the queue drains is a couple who changed their mind, and
+        /// what should reach the server is where they landed.
+        case hiddenCategory(String)
     }
 
     var subject: Subject {
@@ -253,6 +285,7 @@ extension FieldMutation {
         case .setDailyMoment: .dailyMoment
         case .answer(let question, _): .question(question)
         case .markReady(let localDate): .readiness(localDate)
+        case .setCategoryHidden(let category, _): .hiddenCategory(category)
         }
     }
 
@@ -265,6 +298,13 @@ extension FieldMutation {
     /// `FieldBackend` — patching one column rather than writing the row — this
     /// has to become false for that case, and a silent `true` would quietly
     /// throw away the earlier half of somebody's edit.
+    ///
+    /// `setCategoryHidden` is the case that most looks like the exception and
+    /// is not. It carries the entire value for its subject — a group is away
+    /// or it is not — so the last write still wins. This is also why moving a
+    /// whole group is *not* a mutation: that one really would be a partial
+    /// write, so it is expressed as one `upsertItem` per item instead, each
+    /// compacting on its own item the way an ordinary edit does.
     var supersedesEarlierWritesToTheSameSubject: Bool { true }
 }
 

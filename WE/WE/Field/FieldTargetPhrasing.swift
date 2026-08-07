@@ -64,7 +64,7 @@ enum FieldTargetPhrasing {
     /// Trades a couple calls, and the reason "place" is the safe default: a
     /// vet is a business with a listing, and looking one up costs nobody
     /// anything.
-    private static let trades: Set<String> = [
+    static let trades: Set<String> = [
         "vet", "dentist", "doctor", "dr", "gp", "clinic", "pharmacy",
         "salon", "barber", "garage", "mechanic", "restaurant", "hotel",
         "plumber", "electrician", "landlord", "super", "school", "gym",

@@ -55,6 +55,9 @@ struct FieldCaptureField: View {
                     receiptCard(receipt)
                         .padding(.top, 14)
                 }
+            } else if let revived = store.lastRevival {
+                revivalNote(revived)
+                    .padding(.top, 14)
             } else {
                 samplePhrases(store: store)
                     .padding(.top, 14)
@@ -67,6 +70,7 @@ struct FieldCaptureField: View {
             FieldItemSheet(itemID: reference.id)
         }
         .animation(.fieldZone(reduceMotion), value: store.lastReceipt)
+        .animation(.fieldZone(reduceMotion), value: store.lastRevival)
         .animation(.fieldZone(reduceMotion), value: store.correctingReceipt)
         .animation(.fieldZone(reduceMotion), value: caughtIsOpen)
         // The field is multi-line, so Return inserts a newline rather than
@@ -88,6 +92,34 @@ struct FieldCaptureField: View {
                 }
             }
         }
+    }
+
+    // MARK: A group coming back
+    //
+    // The other half of the warning on the receipt. That one is in the future
+    // tense and appears before Send; this is the past tense and appears after
+    // it, so a word returning to Life is never something the couple has to
+    // work out for themselves.
+    //
+    // Three words and no control. There is nothing to undo here — the item
+    // they just filed is in the group, and putting it away again would file
+    // that item under a heading nobody can see. The way back is the row at the
+    // foot of Life, once the group is empty again.
+
+    private func revivalNote(_ category: LifeCategory) -> some View {
+        Text("\(category.word) is back.")
+            .font(FieldType.receiptReasoning)
+            .foregroundStyle(.fieldInk(.reasoning))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("field.receipt.revived")
+            // Cleared by the view that shows it, because it is a sentence and
+            // not a state: it has been read by the time the couple types the
+            // next thing, and it must not still be there tomorrow morning.
+            .task(id: category) {
+                try? await Task.sleep(for: .seconds(6))
+                guard !Task.isCancelled else { return }
+                store.lastRevival = nil
+            }
     }
 
     /// Classify, then step back. The receipt is the thing to read next, and it
@@ -269,6 +301,26 @@ struct FieldCaptureField: View {
                     .foregroundStyle(.fieldInk(.reasoning))
                     .fieldLineHeight(1.65, size: 13.5)
                     .fixedSize(horizontal: false, vertical: true)
+
+                // Said before the fact, in the future tense, because nothing
+                // has happened yet — the group comes back on Send and not on
+                // reading this. Correcting the destination below leaves it
+                // exactly where they put it.
+                //
+                // Neither partner is named. Either of them may have set the
+                // group down, and telling somebody they did something they did
+                // not is worse than saying nothing about who did.
+                if store.isPutAway(receipt.category) {
+                    Text(
+                        "\(receipt.category.word) is currently put away. "
+                            + "Sending this will bring it back."
+                    )
+                    .font(FieldType.receiptReasoning)
+                    .foregroundStyle(accent)
+                    .fieldLineHeight(1.65, size: 13.5)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("field.receipt.revival")
+                }
 
                 // Send is the affirmative and carries the filled style,
                 // because it is the moment the thing actually crosses into

@@ -140,6 +140,28 @@ private final class FieldAdapterURLProtocol: URLProtocol, @unchecked Sendable {
           "last_sent_on":"2026-07-30"
         }]
         """,
+        // Two rows, deliberately out of order. `load()` sorts them, because a
+        // `FieldState` differing from the replay's only in this array's order
+        // would compare unequal and redraw LIFE for nothing.
+        //
+        // The extra columns are here and unread: the table records who put a
+        // group away and when, and nothing on screen ever names either. A DTO
+        // that started decoding `hidden_by` would be the first step toward
+        // copy that tells one partner the other did it.
+        "field_hidden_categories": """
+        [
+          {
+            "category":"watchlist",
+            "hidden_by":"\(b)",
+            "hidden_at":"2026-08-02T09:00:00Z"
+          },
+          {
+            "category":"money",
+            "hidden_by":"\(a)",
+            "hidden_at":"2026-08-01T09:00:00Z"
+          }
+        ]
+        """,
     ]
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -243,5 +265,10 @@ final class FieldSupabaseAdapterContractTests: XCTestCase {
         XCTAssertEqual(state.dailyMoment.sendMinute, 492)
         XCTAssertEqual(state.dailyMoment.replyRateAfter, 0.5)
         XCTAssertNotNil(state.dailyMoment.lastSentOn)
+        XCTAssertEqual(
+            state.hiddenCategories, ["money", "watchlist"],
+            "put-away groups arrived in the order the rows happened to come "
+                + "back, which the replay would never produce"
+        )
     }
 }

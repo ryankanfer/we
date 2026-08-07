@@ -314,6 +314,126 @@ final class FieldZoneUITests: XCTestCase {
         XCTAssertTrue(row.waitForNonExistence(timeout: 4))
     }
 
+    /// The single most valuable test in Stage 4.
+    ///
+    /// "Miso's teeth" is a sentence about a cat, filed under Care with a day
+    /// on it. The app has nothing to open for it, nothing to search, and no
+    /// business breaking it into steps — so the item sheet must show no help
+    /// block at all. Not an empty one, not a disabled one: none.
+    ///
+    /// If this ever fails, the app has started having opinions about a
+    /// couple's list, and every other test in this feature stops mattering.
+    @MainActor
+    func testAPlainItemOffersNothingUnsolicited() throws {
+        let app = launchZones()
+        XCTAssertTrue(
+            app.buttons["field.nav.life"].waitForExistence(timeout: 8)
+        )
+        app.buttons["field.nav.life"].tap()
+        settleOnLife(app)
+
+        let care = app.buttons["field.life.care"]
+        XCTAssertTrue(waitForHittable(care))
+        care.tap()
+
+        openRow(app, titled: "Miso's teeth")
+
+        // The sheet is up — asserted on a control that is always there.
+        XCTAssertTrue(
+            app.buttons["field.item.remove"].waitForExistence(timeout: 4)
+        )
+        for identifier in Self.helpIdentifiers {
+            XCTAssertFalse(
+                app.descendants(matching: .any)
+                    .matching(identifier: identifier)
+                    .firstMatch
+                    .exists,
+                "a plain item grew \(identifier)"
+            )
+        }
+    }
+
+    /// Every affordance the help block can put on screen. Named here so the
+    /// absence test above cannot quietly stop covering a new one.
+    private static let helpIdentifiers = [
+        "field.item.help.web",
+        "field.item.help.shop",
+        "field.item.help.maps",
+        "field.item.help.plan",
+        "field.item.help.calendar",
+        "field.item.help.ask",
+    ]
+
+    /// A row carries `field.room.row` as an identifier and wraps an inner
+    /// button with the same label, so asking for the title alone is ambiguous
+    /// — ask for both. And `BEGINSWITH` rather than equality: a row in the
+    /// pressing band combines its reason into the label ("Air filter. This was
+    /// down for Sunday…"), while a quiet row is the title alone.
+    @MainActor
+    private func openRow(_ app: XCUIApplication, titled title: String) {
+        let row = app.buttons
+            .matching(
+                NSPredicate(
+                    format: "identifier == %@ AND label BEGINSWITH %@",
+                    "field.room.row",
+                    title
+                )
+            )
+            .firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 8), "no row for \(title)")
+        row.tap()
+    }
+
+    /// The other half of the gate: where there *is* something to open, it is
+    /// one button, and it names where it goes before it is tapped.
+    @MainActor
+    func testSomethingBuyableOffersOneNamedDestination() throws {
+        let app = launchZones()
+        XCTAssertTrue(
+            app.buttons["field.nav.life"].waitForExistence(timeout: 8)
+        )
+        app.buttons["field.nav.life"].tap()
+        settleOnLife(app)
+
+        let home = app.buttons["field.life.home"]
+        XCTAssertTrue(waitForHittable(home))
+        home.tap()
+
+        openRow(app, titled: "Air filter")
+
+        XCTAssertTrue(
+            app.buttons["field.item.remove"].waitForExistence(timeout: 6),
+            "the item sheet did not open"
+        )
+
+        let shop = app.buttons["field.item.help.shop"]
+        XCTAssertTrue(
+            shop.waitForExistence(timeout: 6),
+            "no shop button. Tree:\n\(app.debugDescription)"
+        )
+
+        // The sheet must still be up. Two `.sheet` modifiers on one view used
+        // to close it the instant this block appeared, and the only visible
+        // symptom was the item sheet vanishing.
+        XCTAssertTrue(app.buttons["field.item.remove"].exists)
+        XCTAssertEqual(shop.label, "FIND AN AIR FILTER")
+
+        // No size on the item, so the app says so rather than searching badly.
+        XCTAssertTrue(
+            app.descendants(matching: .any)
+                .matching(identifier: "field.item.help.ask")
+                .firstMatch
+                .exists
+        )
+
+        // Picking the shop is the actual question, so it is asked. Nothing is
+        // preselected and nothing is recommended.
+        shop.tap()
+        let aShop = app.buttons["field.item.shop.target"]
+        XCTAssertTrue(aShop.waitForExistence(timeout: 6))
+        XCTAssertTrue(app.buttons["field.item.shop.amazon"].exists)
+    }
+
     /// The pull-to-search gesture lives on the same screen as the category
     /// buttons. A tap must not start it, and it must still work.
     ///
@@ -836,6 +956,180 @@ final class FieldZoneUITests: XCTestCase {
             .textClipped,
             .trait,
         ])
+    }
+
+    // MARK: - Getting rid of a group
+    //
+    // Run against the empty couple rather than the seeded one, and not for
+    // convenience: the fictional couple has something in all seven built-ins,
+    // and putting a group away is refused while anything is in it. A real
+    // couple's first launch is the only state where every word on Life is a
+    // heading over nothing, which is exactly when somebody would want to set
+    // one down.
+
+    /// The whole of the built-in half, in one pass: away, off Life, named at
+    /// the foot of it, and back.
+    @MainActor
+    func testAnEmptyBuiltInGroupCanBePutAwayAndBroughtBack() throws {
+        let app = launchEmpty()
+        XCTAssertTrue(
+            app.buttons["field.nav.life"].waitForExistence(timeout: 8)
+        )
+        app.buttons["field.nav.life"].tap()
+        settleOnLife(app)
+
+        let care = app.buttons["field.life.care"]
+        XCTAssertTrue(waitForHittable(care))
+        care.tap()
+
+        let menu = roomMenu(app)
+        XCTAssertTrue(menu.waitForExistence(timeout: 6))
+        menu.tap()
+
+        let putAway = app.buttons["Put away"].firstMatch
+        XCTAssertTrue(putAway.waitForExistence(timeout: 4))
+        putAway.tap()
+
+        // The room closes with it. Staying would leave the couple looking at
+        // a page for something no longer on Life.
+        XCTAssertTrue(care.waitForNonExistence(timeout: 6), "Care stayed on Life")
+
+        // Nothing is ever simply gone.
+        let row = app.buttons["field.life.putAway"]
+        XCTAssertTrue(row.waitForExistence(timeout: 4))
+        XCTAssertEqual(row.label, "1 group put away")
+        row.tap()
+
+        let bringBack = app.buttons
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", "Bring"))
+            .firstMatch
+        XCTAssertTrue(bringBack.waitForExistence(timeout: 4))
+        bringBack.tap()
+
+        XCTAssertTrue(
+            app.buttons["field.life.care"].waitForExistence(timeout: 6),
+            "Care did not come back"
+        )
+        XCTAssertTrue(row.waitForNonExistence(timeout: 4))
+    }
+
+    /// A container never sets its contents down with it. Care has five things
+    /// in it for the seeded couple, so the control is there and refuses.
+    @MainActor
+    func testAGroupWithThingsInItCannotBePutAway() throws {
+        let app = launchZones()
+        XCTAssertTrue(
+            app.buttons["field.nav.life"].waitForExistence(timeout: 8)
+        )
+        app.buttons["field.nav.life"].tap()
+        settleOnLife(app)
+
+        let care = app.buttons["field.life.care"]
+        XCTAssertTrue(waitForHittable(care))
+        care.tap()
+
+        let menu = roomMenu(app)
+        XCTAssertTrue(menu.waitForExistence(timeout: 6))
+        menu.tap()
+
+        let putAway = app.buttons["Put away"].firstMatch
+        XCTAssertTrue(putAway.waitForExistence(timeout: 4))
+        XCTAssertFalse(
+            putAway.isEnabled,
+            "a group with things in it offered to hide them along with itself"
+        )
+    }
+
+    /// The other half: emptying a group in one gesture.
+    ///
+    /// Run against Care because the fictional couple has no grown category, so
+    /// there is nothing on Life whose *word* can be watched disappearing —
+    /// that part is `FieldGroupTests.movingAGroupDissolvesIt`, where a grown
+    /// group can be arranged. What is driven here is the gesture: menu, sheet,
+    /// destination, and a room that is genuinely empty afterwards rather than
+    /// a sheet that dismissed without doing anything.
+    @MainActor
+    func testMovingEverythingOutOfAGroupEmptiesIt() throws {
+        let app = launchZones()
+        XCTAssertTrue(
+            app.buttons["field.nav.life"].waitForExistence(timeout: 8)
+        )
+        app.buttons["field.nav.life"].tap()
+        settleOnLife(app)
+
+        let care = app.buttons["field.life.care"]
+        XCTAssertTrue(waitForHittable(care))
+        care.tap()
+
+        XCTAssertTrue(
+            app.buttons.matching(identifier: "field.room.row").firstMatch
+                .waitForExistence(timeout: 6)
+        )
+
+        let menu = roomMenu(app)
+        XCTAssertTrue(menu.waitForExistence(timeout: 6))
+        menu.tap()
+
+        let moveAll = app.buttons["Move everything to…"].firstMatch
+        XCTAssertTrue(moveAll.waitForExistence(timeout: 4))
+        moveAll.tap()
+
+        // The sheet names what it is about to move before anybody commits to
+        // it. Matched on the sentence rather than the identifier, for the
+        // reason `roomMenu` gives about identifiers on a sheet's root.
+        XCTAssertTrue(
+            app.staticTexts
+                .matching(
+                    NSPredicate(format: "label CONTAINS[c] %@", "in Care")
+                )
+                .firstMatch
+                .waitForExistence(timeout: 4),
+            "the sheet must name what it is about to move"
+        )
+
+        let destination = app.buttons
+            .matching(identifier: "field.correction.option")
+            .firstMatch
+        XCTAssertTrue(destination.waitForExistence(timeout: 4))
+        destination.tap()
+
+        // A real state, said plainly — and the proof that everything moved
+        // rather than the sheet simply closing. Matched on the sentence, for
+        // the reason `roomMenu` gives about identifiers in this room.
+        XCTAssertTrue(
+            app.staticTexts
+                .matching(
+                    NSPredicate(
+                        format: "label CONTAINS[c] %@", "Nothing in care"
+                    )
+                )
+                .firstMatch
+                .waitForExistence(timeout: 6),
+            "the room still had something in it after moving everything out"
+        )
+        XCTAssertFalse(
+            app.buttons.matching(identifier: "field.room.row").firstMatch
+                .exists,
+            "a row survived a move of everything"
+        )
+    }
+
+    /// The `•••` in a room's header.
+    ///
+    /// Addressed by label, not by identifier, and not by choice: the room
+    /// carries `field.room.<category>` on its root, and SwiftUI propagates
+    /// that down over the identifier on every control in the header — the
+    /// `•••` and Done both report `field.room.care` in the tree. It is the
+    /// same quirk `testACategoryOpensItsRoomAndCloses` names when it says the
+    /// close button does not surface by identifier, and it is why Done is
+    /// tapped by label there too.
+    ///
+    /// The label is real accessibility text rather than a test hook, so this
+    /// is not a weaker assertion — a `•••` that stopped announcing itself as
+    /// "More" would be a bug worth failing on.
+    @MainActor
+    private func roomMenu(_ app: XCUIApplication) -> XCUIElement {
+        app.buttons["More"].firstMatch
     }
 
     // MARK: Launch

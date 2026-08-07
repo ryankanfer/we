@@ -169,6 +169,14 @@ private struct MemberRow: Codable {
     let name: String?
 }
 
+/// One built-in group this couple has set down. `hidden_by` and `hidden_at`
+/// exist on the table for the log and are deliberately not decoded — nothing
+/// on screen names who put a group away, because the copy has to read the same
+/// to whichever of them is looking at it.
+private struct HiddenCategoryRow: Codable {
+    let category: String
+}
+
 /// PostgreSQL `date` is intentionally not a timestamp. PostgREST returns it
 /// as `YYYY-MM-DD`, which Foundation's ISO-8601 `Date` decoder rejects.
 private func postgresDay(_ value: String?) -> Date? {
@@ -253,6 +261,9 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         async let captures = fetchCaptures()
         async let corrections = fetch([CorrectionRow].self, from: "field_corrections")
         async let moment = fetchMoment()
+        async let hidden = fetch(
+            [HiddenCategoryRow].self, from: "field_hidden_categories"
+        )
 
         let resolvedIdentity = try await identity
         let resolvedQuestions = try await questions
@@ -273,7 +284,12 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             corrections: try await corrections.map(map),
             captures: try await captures.map(map),
             dailyMoment: try await moment,
-            learningSince: try await rules.map(\.set_at).min() ?? Date()
+            learningSince: try await rules.map(\.set_at).min() ?? Date(),
+            // Sorted here rather than in the query, so this agrees with what
+            // `FieldMutation.setCategoryHidden` produces on replay. Two
+            // `FieldState` values that differ only in the order of this array
+            // would compare unequal and redraw LIFE for nothing.
+            hiddenCategories: try await hidden.map(\.category).sorted()
         )
     }
 
@@ -818,6 +834,37 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             .execute()
     }
 
+    /// An insert or a delete, not a column flip.
+    ///
+    /// Absence is the representation: `visibleCategories` asks whether a row
+    /// exists, so bringing a group back has to remove the row rather than set
+    /// a flag on it. A `hidden boolean` column would leave rows behind for
+    /// every group anybody ever briefly set down, and the state cache would
+    /// carry them forever.
+    ///
+    /// `on conflict do nothing` because a queued write may drain twice — see
+    /// `20260803120000_field_mutation_idempotency.sql`. Putting away a group
+    /// that is already away is a no-op, not an error, and must not reset
+    /// `hidden_at` either.
+    func setCategoryHidden(_ category: String, hidden: Bool) async throws {
+        if hidden {
+            _ = try await client
+                .from("field_hidden_categories")
+                .upsert([
+                    "couple_id": AnyJSON.string(coupleID.uuidString),
+                    "category": .string(category),
+                ], onConflict: "couple_id,category", ignoreDuplicates: true)
+                .execute()
+        } else {
+            _ = try await client
+                .from("field_hidden_categories")
+                .delete()
+                .eq("couple_id", value: coupleID.uuidString)
+                .eq("category", value: category)
+                .execute()
+        }
+    }
+
     func setIdentity(_ identity: FieldIdentity) async throws {
         // A skipped question writes null rather than "", so the two stay
         // distinguishable after a round trip.
@@ -1033,6 +1080,9 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         "field_captures",
         "field_corrections",
         "field_daily_moment",
+        // One partner puts Watchlist away; the other's LIFE has to stop
+        // drawing it without a foreground.
+        "field_hidden_categories",
         // Readiness is not part of `FieldState` and is not read by `load()`.
         // It is here because a tick is a tick: the store re-reads the circle
         // on the same signal it reloads the zones on, so the bloom arrives

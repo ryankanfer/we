@@ -804,12 +804,15 @@ enum FieldClassifier {
 
     // MARK: Routing
 
-    private static let taskVerbs = [
+    /// Internal rather than private: `FieldItemSteps` reads the same lists to
+    /// decide what an item is, and a second copy of these words would drift
+    /// away from this one the first time anybody edited either.
+    static let taskVerbs = [
         "remind", "reminder", "call", "book", "pay", "send", "buy", "pick up",
         "schedule", "renew", "cancel", "email", "text", "order", "return",
         "drop off", "clean", "fix", "file", "pack", "confirm", "rsvp", "wrap",
     ]
-    private static let dayWords = [
+    static let dayWords = [
         "today", "tonight", "tomorrow", "monday", "tuesday", "wednesday",
         "thursday", "friday", "saturday", "sunday", "this week", "next week",
         "weekend",
@@ -838,8 +841,8 @@ enum FieldClassifier {
     ]
     private static let moneyWords = ["rent", "bill", "invoice", "insurance", "fund", "save"]
     private static let careWords = ["mom", "dad", "birthday", "vet", "doctor", "appointment", "gift"]
-    private static let homeWords = ["filter", "laundry", "trash", "repair", "super", "lease"]
-    private static let buyWords = [
+    static let homeWords = ["filter", "laundry", "trash", "repair", "super", "lease"]
+    static let buyWords = [
         "amazon", "cart", "order", "delivery", "shipping", "returns", "buy",
         "batteries", "refill", "restock",
     ]
@@ -954,7 +957,7 @@ enum FieldClassifier {
     /// happens not to know, and the old rule read the first long word it saw —
     /// so a couple ended up with a list called Mark. A verb is never a
     /// heading, and neither is the word "event".
-    private static let uncategorisable: Set<String> = [
+    static let uncategorisable: Set<String> = [
         "thing", "things", "stuff", "something", "anything", "everything",
         "some", "with", "that", "this", "them", "they", "there", "here",
         "about", "from", "into", "then", "than", "when", "what", "just",
@@ -1026,20 +1029,31 @@ enum FieldClassifier {
     /// category is one tap to fix; a category called "The" is a mess the
     /// couple has to live in.
     static func invented(from lowered: String) -> LifeCategory? {
-        let words = lowered
-            .split(whereSeparator: { !$0.isLetter })
-            .map(String.init)
-
-        for word in words {
-            guard word.count >= 4,
-                  !uncategorisable.contains(word),
-                  !taskVerbs.contains(where: { word.hasPrefix($0) }),
-                  !dayWords.contains(word),
-                  !aspirationWords.contains(word)
-            else { continue }
+        for word in subjectWords(from: lowered) {
+            guard word.count >= 4 else { continue }
             return LifeCategory(named: word)
         }
         return nil
+    }
+
+    /// What a sentence is actually about, in the order it was said: the words
+    /// left once the verb, the day, and the filler are gone.
+    ///
+    /// Extracted from `invented(from:)` so `FieldItemSteps` can name a button
+    /// after the same subject a category would have been named after — "air
+    /// filter" rather than "replace". The length rule stays in `invented`,
+    /// because a heading has to be long enough to read and a button's noun
+    /// does not.
+    static func subjectWords(from lowered: String) -> [String] {
+        lowered
+            .split(whereSeparator: { !$0.isLetter })
+            .map(String.init)
+            .filter { word in
+                !uncategorisable.contains(word)
+                    && !taskVerbs.contains(where: { word.hasPrefix($0) })
+                    && !dayWords.contains(word)
+                    && !aspirationWords.contains(word)
+            }
     }
 
     /// Short, no verb, and not a common noun — the shape of a film or a

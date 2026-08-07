@@ -31,6 +31,8 @@ struct FieldLifeZone: View {
     /// hand-built `Binding` over an `@Observable` property does not drive
     /// `.sheet(item:)` reliably, and this is ephemeral to the screen anyway.
     @State private var openCategory: LifeCategory?
+    /// Whether the list of groups the couple has set down is open.
+    @State private var putAwayIsOpen = false
 
     var body: some View {
         FieldZoneScaffold(zone: .life) {
@@ -39,6 +41,8 @@ struct FieldLifeZone: View {
                     .padding(.bottom, FieldMetrics.sectionGapLoose)
 
                 categories
+
+                putAwayRow
             }
         }
         .overlay(alignment: .top) {
@@ -75,6 +79,10 @@ struct FieldLifeZone: View {
         )
         .sheet(item: $openCategory) { category in
             FieldCategoryRoom(category: category)
+                .environment(store)
+        }
+        .sheet(isPresented: $putAwayIsOpen) {
+            FieldPutAwaySheet()
                 .environment(store)
         }
         // Keyed on the items, not on appearance: revisiting Life should not
@@ -205,6 +213,11 @@ struct FieldLifeZone: View {
     /// A plain `Button` so the row looks exactly as it did — no highlight, no
     /// chevron, nothing added to the page. Life stays a set of words; the
     /// detail is behind them.
+    ///
+    /// The long press is an accelerator and never the only route: the same
+    /// menu is a visible `•••` in the room one tap behind this word. That is
+    /// the rule the SEARCH and CALENDAR words next door were added to keep —
+    /// a thing reachable only by a gesture is a thing most people never find.
     private func categoryRow(_ category: LifeCategory) -> some View {
         Button {
             openCategory = category
@@ -213,6 +226,20 @@ struct FieldLifeZone: View {
         }
         .buttonStyle(.plain)
         .accessibilityHint("Opens \(category.word)")
+        .contextMenu {
+            Button("Open \(category.word)") { openCategory = category }
+
+            // No "Rename" or "Move everything" here. Both open a sheet, and a
+            // sheet raised from a context menu on the page underneath has
+            // nowhere honest to put the room this group lives in — so the menu
+            // that can change a group stays in the room, where the count it
+            // is about is on screen.
+            if category.isBuiltIn, store.openItems(in: category).isEmpty {
+                Button("Put \(category.word) away") {
+                    store.putAway(category)
+                }
+            }
+        }
     }
 
     private func categoryLabel(_ category: LifeCategory) -> some View {
@@ -261,6 +288,56 @@ struct FieldLifeZone: View {
                 : "\(category.word). \(store.summary(for: category))"
         )
         .accessibilityIdentifier("field.life.\(category.rawValue)")
+    }
+
+    // MARK: What has been set down
+    //
+    // Renders nothing at all until something is put away, which is almost
+    // always. A permanent "0 groups put away" would be a heading over nothing
+    // — the same fault `thisWeek` above guards against.
+    //
+    // It exists so that nothing on this page is ever simply gone. A group the
+    // couple set down is still theirs and still findable, and a design where
+    // the only way back was to wait for the app to decide would make a
+    // mis-tap unrecoverable.
+
+    @ViewBuilder
+    private var putAwayRow: some View {
+        let away = store.putAwayCategories
+
+        if !away.isEmpty {
+            Button {
+                putAwayIsOpen = true
+            } label: {
+                HStack(spacing: 8) {
+                    Text(
+                        away.count == 1
+                            ? "1 group put away"
+                            : "\(away.count) groups put away"
+                    )
+                    .font(FieldType.body)
+                    .foregroundStyle(.fieldInk(.recessive))
+
+                    Text("›")
+                        .font(FieldType.body)
+                        .foregroundStyle(.fieldInk(.monoLabel))
+
+                    Spacer(minLength: 0)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, FieldMetrics.sectionGapLoose)
+            .overlay(alignment: .top) { FieldRuleLine(color: FieldRule.row) }
+            .accessibilityLabel(
+                away.count == 1
+                    ? "1 group put away"
+                    : "\(away.count) groups put away"
+            )
+            .accessibilityHint("Opens them, to bring any of them back")
+            .accessibilityIdentifier("field.life.putAway")
+        }
     }
 
     // MARK: The entry affordances
@@ -314,6 +391,78 @@ struct FieldLifeZone: View {
         .accessibilityLabel(word.capitalized)
         .accessibilityHint(hint)
         .accessibilityIdentifier(id)
+    }
+}
+
+// MARK: - The groups that were set down
+
+/// Every put-away group, each with its own way back.
+///
+/// Individually rather than all at once: a couple who set Watchlist and Money
+/// down at different times for different reasons should not have to take both
+/// back to get one.
+///
+/// The copy names no one. Either partner may have put a group away — this is
+/// a shared page and a joint setting — and "you put Care away" is a sentence
+/// that is wrong half the time and unanswerable when it is.
+private struct FieldPutAwaySheet: View {
+    @Environment(FieldStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack {
+            FieldPalette.bgElevated.ignoresSafeArea()
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    FieldLabel("Put away")
+
+                    Text(
+                        "These aren't on Life. Nothing in them was deleted, "
+                            + "and anything filed into one brings it back."
+                    )
+                    .font(FieldType.body)
+                    .foregroundStyle(.fieldInk(.sectionSubtitle))
+                    .fieldLineHeight(1.6, size: 14.5)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 14)
+                    .padding(.bottom, FieldMetrics.sectionGap)
+
+                    ForEach(store.putAwayCategories) { category in
+                        row(category)
+                    }
+                }
+                .padding(.top, 48)
+                .padding(.horizontal, FieldMetrics.screenSide)
+                .padding(.bottom, 60)
+            }
+        }
+        .preferredColorScheme(.dark)
+        // Closes itself once the last one is back, because the row that opens
+        // it has gone by then and there would be nothing here to look at.
+        .onChange(of: store.putAwayCategories.isEmpty) { _, isEmpty in
+            if isEmpty { dismiss() }
+        }
+        // No identifier on the root, for the reason given on the destination
+        // sheet in `FieldCategoryRoom`: it would propagate down over
+        // `field.putAway.bringBack` on every row here.
+    }
+
+    private func row(_ category: LifeCategory) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(category.word)
+                .font(FieldType.listItemLarge)
+                .foregroundStyle(.fieldInk(.headline))
+
+            Spacer(minLength: 12)
+
+            Button("Bring back") { store.bringBack(category) }
+                .buttonStyle(FieldQuietButtonStyle())
+                .accessibilityLabel("Bring \(category.word) back")
+                .accessibilityIdentifier("field.putAway.bringBack")
+        }
+        .padding(.vertical, 13)
+        .overlay(alignment: .top) { FieldRuleLine(color: FieldRule.row) }
     }
 }
 

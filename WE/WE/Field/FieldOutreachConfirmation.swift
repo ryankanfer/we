@@ -242,13 +242,12 @@ struct FieldOutreachConfirmation: View {
 
     /// Apple's own search, with the words that were already said. Nothing is
     /// invented and nothing is claimed.
+    ///
+    /// Built through `FieldSearchLink` rather than here, so this and the item
+    /// sheet's OPEN IN MAPS are one implementation with one test — and so the
+    /// one-query-item rule covers both.
     private func searchMaps() {
-        let query = request.query.text
-            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
-            ?? request.query.text
-        guard let url = URL(string: "http://maps.apple.com/?q=\(query)") else {
-            return
-        }
+        guard let url = FieldSearchLink.maps(request.query.text) else { return }
         openURL(url)
         store.dismissOutreach()
     }

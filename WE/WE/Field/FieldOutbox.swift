@@ -404,6 +404,13 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
         try await enqueue(.setDailyMoment(moment))
     }
 
+    /// Queued, like every other write to `FieldState`. Putting a group away on
+    /// a train is a decision about a shared page, not about a network, and it
+    /// means the same thing whenever it lands.
+    func setCategoryHidden(_ category: String, hidden: Bool) async throws {
+        try await enqueue(.setCategoryHidden(category: category, hidden: hidden))
+    }
+
     // MARK: The circle
     //
     // Queued, unlike the crossing above. The two look similar — both are a

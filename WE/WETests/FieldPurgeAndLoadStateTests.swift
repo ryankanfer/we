@@ -192,6 +192,9 @@ struct FieldLoadStateTests {
         func setStandingRule(_ rule: FieldStandingRule) async throws {}
         func setIdentity(_ identity: FieldIdentity) async throws {}
         func setDailyMoment(_ moment: FieldDailyMoment) async throws {}
+        func setCategoryHidden(
+            _ category: String, hidden: Bool
+        ) async throws {}
     }
 
     private func emptyState() -> FieldState {

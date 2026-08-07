@@ -41,7 +41,7 @@ final class FieldRESTStub: URLProtocol, @unchecked Sendable {
             "field_life_items", "field_horizons", "field_questions",
             "field_rhythms", "field_evidence", "field_held_topics",
             "field_standing_rules", "field_captures", "field_corrections",
-            "field_daily_moment",
+            "field_daily_moment", "field_hidden_categories",
             "field_readiness", "field_readiness_bloom",
         ]
 
@@ -177,11 +177,20 @@ final class FieldRESTStub: URLProtocol, @unchecked Sendable {
         }
 
         /// Upsert on the given conflict columns, matching PostgREST's
-        /// `resolution=merge-duplicates`.
+        /// `resolution=merge-duplicates` — or, when `ignoringDuplicates`, its
+        /// `resolution=ignore-duplicates`, which is `on conflict do nothing`.
+        ///
+        /// The distinction is not cosmetic. `field_hidden_categories` is
+        /// written with `ignoreDuplicates: true` so that a queued write
+        /// draining twice does not reset `hidden_at`. A stub that treated the
+        /// two resolutions alike would let a *missing* conflict target through
+        /// as a plain insert and store the same group twice, which is the one
+        /// thing the primary key exists to prevent.
         func upsert(
             _ table: String,
             _ rows: [[String: Any]],
-            conflict: [String]
+            conflict: [String],
+            ignoringDuplicates: Bool = false
         ) {
             lock.withLock {
                 var existing = tables[table] ?? []
@@ -192,6 +201,7 @@ final class FieldRESTStub: URLProtocol, @unchecked Sendable {
                         }
                     }
                     if let match {
+                        guard !ignoringDuplicates else { continue }
                         // Merge, because PostgREST updates only the columns
                         // present in the payload.
                         existing[match].merge(row) { _, new in new }
@@ -309,8 +319,13 @@ final class FieldRESTStub: URLProtocol, @unchecked Sendable {
                 .value?
                 .split(separator: ",")
                 .map(String.init)
-            if prefer.contains("merge-duplicates"), let conflict {
-                Self.store.upsert(table, body, conflict: conflict)
+            let ignoring = prefer.contains("ignore-duplicates")
+            if prefer.contains("merge-duplicates") || ignoring, let conflict {
+                Self.store.upsert(
+                    table, body,
+                    conflict: conflict,
+                    ignoringDuplicates: ignoring
+                )
             } else {
                 Self.store.insert(table, body)
             }
@@ -702,6 +717,81 @@ enum FieldBackendConformance {
         try await removingIsRealAndComplete(backend, test)
         try await theLearnedHourIsWrittenDown(backend, test)
         try await evidenceSurvivesARoundTrip(backend, test)
+        try await aGroupPutAwaySurvivesARoundTrip(backend, test)
+        try await bringingAGroupBackLeavesNothingBehind(backend, test)
+    }
+
+    // MARK: Putting a group away
+    //
+    // Asserted against both backends for the reason at the top of this file. A
+    // hide that never reaches the database passes every in-memory test and
+    // then reappears on the couple's next launch — and unlike a lost item,
+    // nobody would think to check, because the group looks exactly the way it
+    // looked before they put it away.
+
+    static func aGroupPutAwaySurvivesARoundTrip(
+        _ backend: FieldBackend,
+        _ test: XCTestCase,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        try await backend.setCategoryHidden("watchlist", hidden: true)
+
+        let reloaded = try await backend.load()
+        XCTAssertTrue(
+            reloaded.hiddenCategories.contains("watchlist"),
+            "a group put away came back on the next load",
+            file: file, line: line
+        )
+
+        // Twice is once. A queued write drains more than once by design — see
+        // `20260803120000_field_mutation_idempotency.sql` — and two rows for
+        // one group would survive a single "bring it back".
+        try await backend.setCategoryHidden("watchlist", hidden: true)
+        let again = try await backend.load()
+        XCTAssertEqual(
+            again.hiddenCategories.filter { $0 == "watchlist" }.count, 1,
+            "one group put away twice became two rows",
+            file: file, line: line
+        )
+
+        // Sorted, so two devices that hid the same groups in a different order
+        // hold an equal `FieldState` and LIFE does not redraw for nothing.
+        try await backend.setCategoryHidden("food", hidden: true)
+        let both = try await backend.load()
+        XCTAssertEqual(
+            both.hiddenCategories, both.hiddenCategories.sorted(),
+            "the put-away groups came back in an order the replay would not produce",
+            file: file, line: line
+        )
+    }
+
+    static func bringingAGroupBackLeavesNothingBehind(
+        _ backend: FieldBackend,
+        _ test: XCTestCase,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        try await backend.setCategoryHidden("money", hidden: true)
+        try await backend.setCategoryHidden("home", hidden: true)
+        try await backend.setCategoryHidden("money", hidden: false)
+
+        let reloaded = try await backend.load()
+
+        XCTAssertFalse(
+            reloaded.hiddenCategories.contains("money"),
+            "a group brought back was still away",
+            file: file, line: line
+        )
+        // The one that matters: absence is the representation, so bringing a
+        // group back has to remove its row rather than flag it. A backend that
+        // wrote `hidden = false` would pass the line above and still hand
+        // `visibleCategories` a row to trip over.
+        XCTAssertTrue(
+            reloaded.hiddenCategories.contains("home"),
+            "bringing one group back brought back another with it",
+            file: file, line: line
+        )
     }
 
     /// The bug this file was built to catch, found a second time.

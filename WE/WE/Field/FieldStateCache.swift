@@ -28,7 +28,14 @@ import os
 /// The envelope. Versioned from the start — a cache that cannot say "I do not
 /// understand this" has no choice but to hand back a misread relationship.
 struct CachedFieldState: Codable, Sendable {
-    static let currentVersion = 1
+    /// 2 since `FieldState.hiddenCategories` — a file written by version 1 has
+    /// no record of which groups a couple put away, so replaying it would
+    /// redraw them on LIFE for one frame before the load corrected it.
+    ///
+    /// Bumping this is cheap in a way bumping `FieldOutboxLog.currentVersion`
+    /// is not: a mismatch here drops a copy of server state and reloads, while
+    /// a mismatch there quarantines writes that exist nowhere else.
+    static let currentVersion = 2
 
     var version: Int
     var state: FieldState

@@ -35,6 +35,15 @@ struct FieldCategoryPicker: View {
     /// current place is filled rather than removed from the list.
     var selected: LifeCategory?
     var selectedTint: Color?
+    /// Opens on the naming field rather than the chips.
+    ///
+    /// For renaming a group, where the chips are the wrong first thing to see:
+    /// they are all real destinations — moving a group into an existing one is
+    /// a merge and works — but somebody who chose "Rename…" has already said
+    /// they mean to type a word, and making them tap `+ NEW` first is asking
+    /// the question twice. "Back to the list" is still there for the person
+    /// who changes their mind.
+    var startsNaming = false
 
     /// Naming rather than picking. Local, because nothing has been decided
     /// until it is committed and an abandoned half-typed word is not state the
@@ -98,6 +107,11 @@ struct FieldCategoryPicker: View {
                     .accessibilityIdentifier("field.correction.new")
                 }
             }
+        }
+        .onAppear {
+            guard startsNaming, !isNaming else { return }
+            isNaming = true
+            isNamingFocused = true
         }
     }
 

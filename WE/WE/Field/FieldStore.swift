@@ -65,6 +65,20 @@ protocol FieldBackend: Sendable {
     /// instruction it was given while claiming to have learned from it.
     func setDailyMoment(_ moment: FieldDailyMoment) async throws
 
+    /// Setting a built-in LIFE group down, for both of them, or picking it
+    /// back up.
+    ///
+    /// Required rather than defaulted, unlike `soloHistoryCount` below. A
+    /// no-op default would leave a group drawn on a page the couple had just
+    /// told the app to stop drawing it on — which is the exact failure this
+    /// whole surface exists to remove, arriving through the door meant to make
+    /// conformance easy.
+    ///
+    /// Takes the raw value rather than a `LifeCategory` for the reason
+    /// `FieldMutation.setCategoryHidden` gives: this is a stored row, and it
+    /// has to round-trip a value the current build would not construct.
+    func setCategoryHidden(_ category: String, hidden: Bool) async throws
+
     /// "I'd welcome a moment together", for the caller's own day.
     ///
     /// Returns nothing, deliberately. The obvious signature hands back the
@@ -136,6 +150,25 @@ struct FieldState: Codable, Hashable, Sendable {
     var captures: [FieldCapture]
     var dailyMoment: FieldDailyMoment
     var learningSince: Date
+
+    /// The built-in categories this couple has set down, by raw value.
+    ///
+    /// The one place a category is stored rather than derived, and it exists
+    /// only to record an *absence*. Every other category in the app is read
+    /// off the items that carry it — see `lifeCategories` — so a grown one
+    /// stops existing when its last item leaves and there is nothing to keep.
+    /// A built-in is drawn whether or not anything is in it, so emptying one
+    /// leaves the word behind, and a couple who never uses Watchlist has no
+    /// way to stop looking at it.
+    ///
+    /// Sorted, and an array rather than a `Set`, so the cache file and this
+    /// value's `Hashable` conformance are stable across two devices that
+    /// hid the same things in a different order.
+    ///
+    /// A raw `String` rather than a `LifeCategory` for the same reason the
+    /// database column is text: this is a stored row, and it must survive a
+    /// value the current build would refuse to construct.
+    var hiddenCategories: [String] = []
 
     /// What a real couple starts with: nothing.
     ///
@@ -272,6 +305,15 @@ final class FieldStore {
     /// Set when the user taps WRONG PLACE — the corrective picker.
     var correctingReceipt: FieldReceipt?
 
+    /// A group that has just come back, because something was filed into it.
+    ///
+    /// Ephemeral, and cleared by the line that shows it. The receipt warns
+    /// before the fact — "Care is currently put away. Sending this will bring
+    /// it back." — and this is the confirmation after it, so that a group
+    /// reappearing on Life is never something the couple has to work out for
+    /// themselves.
+    var lastRevival: LifeCategory?
+
     /// Corrections made to a receipt that has not been sent. They cross with
     /// it, or not at all.
     private var pendingCorrections: [FieldCorrection] = []
@@ -299,6 +341,18 @@ final class FieldStore {
     /// all five.
     private(set) var writtenSubtitles: [LifeCategory: String] = [:]
     private var subtitleFingerprints: [LifeCategory: Int] = [:]
+
+    /// The fifteen-minute plan for the one item somebody has open.
+    ///
+    /// Ephemeral in the strongest sense available: not in `FieldState`, so it
+    /// is never cached, never queued, never synced, and never seen by the
+    /// partner. It exists between opening a sheet and closing it, and the only
+    /// way it becomes shared is `keepPlan(on:)` — which is a tap, on a button
+    /// that says what it does.
+    ///
+    /// One at a time, by item id: there is one sheet, and a plan for an item
+    /// that is no longer on screen is a plan nobody asked for.
+    private(set) var itemPlan: FieldItemPlan?
 
     /// The instant every derivation is dated against.
     ///
@@ -553,9 +607,48 @@ final class FieldStore {
         return LifeCategory.builtIn + grown
     }
 
+    /// What Life draws.
+    ///
+    /// A sibling to `lifeCategories`, deliberately not a filter on it. Hiding
+    /// a group is a decision about a page, and the moment it also decided
+    /// where new captures were filed it would have become a routing decision
+    /// wearing a display decision's clothes — "put away" would quietly mean
+    /// "muted", and a vet appointment would land somewhere nobody looks. So
+    /// the classifier, Today, search, and the calendar all keep reading
+    /// `lifeCategories`, and this is the only thing the LIFE screen reads.
+    ///
+    /// Only built-ins can be hidden, and the guard is here rather than in a
+    /// database constraint. A grown category is deleted by being emptied, so a
+    /// row naming one is meaningless — but a row naming one that *still has
+    /// items* would take a live list off the screen while its contents went on
+    /// falling due. Honouring the row only for a built-in makes a stale or
+    /// hand-edited one inert. See the migration's note on why there is no
+    /// CHECK constraint saying the same thing in SQL.
+    var visibleCategories: [LifeCategory] {
+        guard !state.hiddenCategories.isEmpty else { return lifeCategories }
+        return lifeCategories.filter {
+            !($0.isBuiltIn && state.hiddenCategories.contains($0.rawValue))
+        }
+    }
+
+    /// The groups this couple has set down, in the order Life would have drawn
+    /// them. Empty almost always, which is why the row that names them on Life
+    /// renders nothing at all until it isn't.
+    var putAwayCategories: [LifeCategory] {
+        LifeCategory.builtIn.filter { state.hiddenCategories.contains($0.rawValue) }
+    }
+
+    func isPutAway(_ category: LifeCategory) -> Bool {
+        category.isBuiltIn && state.hiddenCategories.contains(category.rawValue)
+    }
+
     /// What the correction picker offers — every category that exists, so a
     /// thing can be moved into a grown one as easily as a given one.
-    var correctionCategories: [LifeCategory] { lifeCategories }
+    ///
+    /// Visible ones only. A group somebody put away is not a destination they
+    /// should be offered by name; the way back to it is the row at the foot of
+    /// Life, or a capture that belongs there and says so on its receipt.
+    var correctionCategories: [LifeCategory] { visibleCategories }
 
     /// Derived on every read. Never stored, never cached across a change.
     var todaySelection: FieldTodaySelector.Result {
@@ -669,15 +762,21 @@ final class FieldStore {
         Self.fingerprint(state.lifeItems)
     }
 
-    /// What the subtitle was written about. Titles and completion only —
-    /// re-ranking does not change what the sentence says, so it must not
-    /// trigger a regeneration.
+    /// What the subtitle was written about. Titles, completion, and where the
+    /// thing is filed — re-ranking does not change what the sentence says, so
+    /// it must not trigger a regeneration.
+    ///
+    /// The category is in here because a whole group moving changes no title:
+    /// without it, `moveGroup` leaves both the source and the destination
+    /// describing lists they no longer hold, and the stale sentences survive
+    /// every relaunch because the fingerprint still matches.
     private static func fingerprint(_ items: [LifeItem]) -> Int {
         var hasher = Hasher()
         for item in items.sorted(by: { $0.id < $1.id }) {
             hasher.combine(item.id)
             hasher.combine(item.title)
             hasher.combine(item.isDone)
+            hasher.combine(item.category.rawValue)
         }
         return hasher.finalize()
     }
@@ -705,8 +804,12 @@ final class FieldStore {
     /// stable, deliberate sequence rather than shuffling. Grown categories sit
     /// after the given five on a tie, because a category the app invented has
     /// not earned the top of the screen by existing.
+    ///
+    /// Reads `visibleCategories`, and it is the only thing that does. Every
+    /// other consumer of the category list is a decision about where something
+    /// belongs rather than about what is on screen.
     var categoryOrder: [LifeCategory] {
-        let fallback = lifeCategories
+        let fallback = visibleCategories
         return fallback.sorted { a, b in
             let pressureA = isPressured(a), pressureB = isPressured(b)
             if pressureA != pressureB { return pressureA }
@@ -888,6 +991,9 @@ final class FieldStore {
 
         lastReceipt = FieldClassifier.classify(text, context: classifierContext)
         captureDraft = ""
+        // The note about the last one has been read, or it has not; either
+        // way it is about a capture that is no longer the one on screen.
+        lastRevival = nil
     }
 
     /// File it, for real and in both places.
@@ -909,6 +1015,10 @@ final class FieldStore {
             capturedAt: now
         )
         state.captures.insert(capture, at: 0)
+        // Cleared before, so that what is on screen afterwards is about *this*
+        // send and not a leftover from the last one. `materialise` sets it
+        // again if this capture really does bring a group back.
+        lastRevival = nil
         materialise(receipt)
 
         // Corrections are training signal about the classifier, and they are
@@ -965,6 +1075,11 @@ final class FieldStore {
             ),
             at: 0
         )
+
+        // Here rather than in `submitCapture`, so that looking at a receipt
+        // changes nothing. A capture corrected to somewhere else never reaches
+        // this line, and the group stays where the couple put it.
+        reviveIfPutAway(receipt.category)
     }
 
     /// Puts a captured thing on today, or takes it back off.
@@ -1126,6 +1241,12 @@ final class FieldStore {
         )
         state.corrections.append(correction)
 
+        // The picker does not offer a put-away group, so this is reachable
+        // only from a partner's move arriving over realtime. It belongs here
+        // anyway: a group with something filed into it is not away, whichever
+        // device did the filing.
+        reviveIfPutAway(category)
+
         Task { [backend] in
             try? await backend?.upsert(item)
             try? await backend?.record(correction)
@@ -1142,6 +1263,210 @@ final class FieldStore {
         guard let category = LifeCategory(named: name) else { return nil }
         refile(itemID, to: category)
         return category
+    }
+
+    // MARK: A plan for one thing
+
+    /// Somebody tapped MAKE A 15-MINUTE PLAN. Nothing has been generated yet.
+    func planStarted(for itemID: String) {
+        itemPlan = FieldItemPlan(itemID: itemID)
+    }
+
+    /// The model answered, or it didn't.
+    ///
+    /// The id is checked rather than trusted: `.task` cancels when a sheet
+    /// closes, but a generation already in flight can still return, and a plan
+    /// for last week's guest room appearing under a film is the failure this
+    /// guard exists for.
+    func planFinished(_ steps: [String]?, for itemID: String) {
+        guard itemPlan?.itemID == itemID else { return }
+        guard let steps, !steps.isEmpty else {
+            itemPlan = nil
+            return
+        }
+        itemPlan = FieldItemPlan(itemID: itemID, steps: steps, isThinking: false)
+    }
+
+    /// The sheet closed. A plan is not a thing somebody comes back to.
+    func clearPlan() {
+        itemPlan = nil
+    }
+
+    /// Writes the plan onto the item, where both of them can see it.
+    ///
+    /// This is the only way anything here becomes shared, and it is worth
+    /// being plain about why the button says what it says: `field_life_items`
+    /// is couple-scoped and realtime-published, so writing `detail` *is*
+    /// sharing. There is no private half of this act to offer.
+    ///
+    /// Appended rather than assigned. A detail somebody typed themselves is
+    /// not scratch space for the model to write over.
+    func keepPlan(on itemID: String) {
+        guard !isImported(itemID),
+              let plan = itemPlan,
+              plan.itemID == itemID,
+              !plan.steps.isEmpty,
+              let index = state.lifeItems.firstIndex(where: { $0.id == itemID })
+        else { return }
+
+        let written = plan.steps.joined(separator: " · ")
+        let existing = state.lifeItems[index].detail?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+        state.lifeItems[index].detail = existing.isEmpty
+            ? written
+            : "\(existing) · \(written)"
+
+        let item = state.lifeItems[index]
+        itemPlan = nil
+        Task { [backend] in try? await backend?.upsert(item) }
+    }
+
+    // MARK: Whole groups
+
+    /// Moves everything out of one group and into another.
+    ///
+    /// This is how a grown category is deleted, and there is no second act
+    /// that deletes it: categories are derived from the items that carry them,
+    /// so a category with nothing left in it has already stopped existing.
+    /// Renaming is the same call with a freshly named destination.
+    ///
+    /// Three things it deliberately does not do.
+    ///
+    /// It does not call `refile`, and so records no `FieldCorrection`. Moving
+    /// one thing by hand is the clearest signal the classifier ever gets;
+    /// thirty of them from a single gesture is thirty lessons nobody gave it,
+    /// and the next month of filing would be shaped by a tidy-up.
+    ///
+    /// It does not delete anything. A container never destroys its contents —
+    /// the couple names a destination, and every item goes there.
+    ///
+    /// It does not become a `FieldMutation`. A "move group" write would be a
+    /// partial update, the one shape `supersedesEarlierWritesToTheSameSubject`
+    /// warns must not compact by subject; as one whole-item upsert per item it
+    /// compacts per item, exactly as an ordinary edit does.
+    ///
+    /// Returns how many moved, so the copy can say a number it did not guess.
+    @discardableResult
+    func moveGroup(_ from: LifeCategory, to destination: LifeCategory) -> Int {
+        guard from != destination else { return 0 }
+
+        var moved: [LifeItem] = []
+        for index in state.lifeItems.indices
+        where movesWithItsGroup(state.lifeItems[index], in: from) {
+            state.lifeItems[index].category = destination
+
+            // Same rule `refile` applies: a film is not due on Thursday.
+            if !destination.carriesDates {
+                state.lifeItems[index].dueOn = nil
+                state.lifeItems[index].closesAt = nil
+            }
+            moved.append(state.lifeItems[index])
+        }
+
+        guard !moved.isEmpty else { return 0 }
+
+        // Moving into a group that was put away brings it back, for the same
+        // reason a capture does: a heading standing over things is not away.
+        reviveIfPutAway(destination)
+
+        Task { [backend] in
+            for item in moved {
+                try? await backend?.upsert(item)
+            }
+        }
+        return moved.count
+    }
+
+    /// How many things `moveGroup` would actually take out of a group.
+    ///
+    /// The sheet names this number before anybody commits to it, so it has to
+    /// be the same set the move touches rather than "everything filed here" —
+    /// an imported calendar event sits in a category and does not move, and a
+    /// sheet promising to move four things while moving three is the app
+    /// miscounting somebody's own list back to them.
+    func movableCount(in category: LifeCategory) -> Int {
+        state.lifeItems.count { movesWithItsGroup($0, in: category) }
+    }
+
+    /// One predicate, read by the count on screen and by the move itself.
+    ///
+    /// Done items travel. One left behind keeps the category alive the moment
+    /// somebody reopens it, so a group the couple deleted would come back
+    /// weeks later carrying a single finished errand.
+    ///
+    /// Imported events do not. The app does not own somebody else's calendar,
+    /// and `refile` refuses them one at a time for the same reason.
+    private func movesWithItsGroup(
+        _ item: LifeItem,
+        in category: LifeCategory
+    ) -> Bool {
+        item.category == category && !isImported(item.id)
+    }
+
+    /// The same act by a name the couple supplies — renaming a group they
+    /// grew. `nil` when the name is not a heading, see `LifeCategory(named:)`.
+    @discardableResult
+    func moveGroup(
+        _ from: LifeCategory,
+        toNewCategory name: String
+    ) -> LifeCategory? {
+        guard let destination = LifeCategory(named: name) else { return nil }
+        moveGroup(from, to: destination)
+        return destination
+    }
+
+    /// Sets a built-in group down, for both of them.
+    ///
+    /// Refused while anything is still open in it. "Put away" has to mean the
+    /// word is gone and nothing went with it; a group hidden over a live list
+    /// would keep surfacing items on Today from a heading the couple can no
+    /// longer find, which is the one outcome that would make this feature
+    /// worse than not having it.
+    ///
+    /// Grown categories are refused outright — they are deleted by being
+    /// emptied, and hiding one would leave its items filed under a word that
+    /// exists nowhere on screen.
+    @discardableResult
+    func putAway(_ category: LifeCategory) -> Bool {
+        guard category.isBuiltIn,
+              openItems(in: category).isEmpty,
+              !state.hiddenCategories.contains(category.rawValue)
+        else { return false }
+
+        state.hiddenCategories.append(category.rawValue)
+        state.hiddenCategories.sort()
+
+        Task { [backend] in
+            try? await backend?.setCategoryHidden(
+                category.rawValue, hidden: true
+            )
+        }
+        return true
+    }
+
+    /// And picks it back up. Either of them can, whoever set it down.
+    func bringBack(_ category: LifeCategory) {
+        guard state.hiddenCategories.contains(category.rawValue) else { return }
+        state.hiddenCategories.removeAll { $0 == category.rawValue }
+
+        Task { [backend] in
+            try? await backend?.setCategoryHidden(
+                category.rawValue, hidden: false
+            )
+        }
+    }
+
+    /// A group that was away, with something now filed into it, is not away.
+    ///
+    /// Called from `materialise` and from `refile` rather than from
+    /// `classify`, and that is the whole of the rule: a receipt says what
+    /// *would* happen, so nothing is revived by looking at one. Correcting the
+    /// destination before sending leaves the group exactly where the couple
+    /// put it.
+    private func reviveIfPutAway(_ category: LifeCategory) {
+        guard isPutAway(category) else { return }
+        bringBack(category)
+        lastRevival = category
     }
 
     /// Moves an item on the calendar, or takes it off one.
@@ -1939,6 +2264,10 @@ final class FieldMemoryBackend: FieldBackend, @unchecked Sendable {
 
     func setDailyMoment(_ moment: FieldDailyMoment) async throws {
         apply(.setDailyMoment(moment))
+    }
+
+    func setCategoryHidden(_ category: String, hidden: Bool) async throws {
+        apply(.setCategoryHidden(category: category, hidden: hidden))
     }
 
     // MARK: The circle

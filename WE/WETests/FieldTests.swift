@@ -3809,6 +3809,428 @@ struct FieldItemEditingTests {
     }
 }
 
+// MARK: - Getting rid of a group
+//
+// The two halves of this are different in kind, and the tests are grouped to
+// keep that visible.
+//
+// Deleting a *grown* group needs no new concept: categories are derived from
+// the items that carry them, so moving the items out is the deletion.
+// Renaming is the same act with a different destination.
+//
+// Putting a *built-in* away is the first time a category is stored anywhere.
+// Everything asserted about it is about keeping that a display fact — the
+// classifier, Today, and search must all go on seeing a group that is no
+// longer drawn, or "put away" has quietly become "muted" and things people
+// wrote down stop reaching them.
+
+@MainActor
+struct FieldGroupTests {
+    /// A category with three things in it, one of them finished, plus a dated
+    /// one — enough to catch every rule `moveGroup` applies.
+    private func storeWithAGrownGroup() -> FieldStore {
+        var state = FieldState.empty(
+            nameA: "Ryan",
+            nameB: "Dylan",
+            now: FieldSampleData.today
+        )
+        let filters = LifeCategory(rawValue: "airfilters")
+        state.lifeItems = [
+            LifeItem(
+                id: "f1",
+                title: "Order the HEPA filter",
+                category: filters,
+                owner: .a,
+                dueOn: FieldSampleData.today,
+                source: .captured,
+                isTimeCritical: false,
+                isDone: false
+            ),
+            LifeItem(
+                id: "f2",
+                title: "Check the bedroom one",
+                category: filters,
+                owner: .b,
+                source: .captured,
+                isTimeCritical: false,
+                isDone: false
+            ),
+            LifeItem(
+                id: "f3",
+                title: "Replaced the kitchen one",
+                category: filters,
+                owner: .a,
+                source: .captured,
+                isTimeCritical: false,
+                isDone: true
+            ),
+            LifeItem(
+                id: "c1",
+                title: "Book the vet",
+                category: .care,
+                owner: .a,
+                source: .captured,
+                isTimeCritical: false,
+                isDone: false
+            ),
+        ]
+        return FieldStore(state: state, now: FieldSampleData.today)
+    }
+
+    private var filters: LifeCategory { LifeCategory(rawValue: "airfilters") }
+
+    // MARK: Emptying is deleting
+
+    /// The whole of "delete a grown group". Nothing else had to be built.
+    @Test
+    func movingAGroupDissolvesIt() {
+        let store = storeWithAGrownGroup()
+        #expect(store.lifeCategories.contains(filters))
+
+        let moved = store.moveGroup(filters, to: .home)
+
+        #expect(moved == 3)
+        #expect(
+            !store.lifeCategories.contains(filters),
+            "the word survived its last item"
+        )
+        #expect(store.openItems(in: .home).count == 2)
+    }
+
+    /// A finished errand left behind would keep a deleted group alive the
+    /// moment somebody reopened it — the couple's tidy-up coming back weeks
+    /// later carrying one item.
+    @Test
+    func movingAGroupCarriesFinishedThingsToo() {
+        let store = storeWithAGrownGroup()
+
+        store.moveGroup(filters, to: .home)
+
+        let done = store.state.lifeItems.first { $0.id == "f3" }
+        #expect(done?.category == .home)
+        #expect(done?.isDone == true)
+    }
+
+    /// The decision this whole feature turns on. `refile` records a correction
+    /// because moving *one* thing is a lesson; thirty from a single gesture is
+    /// thirty lessons nobody gave, and the next month of filing would be
+    /// shaped by a tidy-up.
+    @Test
+    func movingAGroupTeachesTheClassifierNothing() {
+        let store = storeWithAGrownGroup()
+        let before = store.state.corrections.count
+
+        store.moveGroup(filters, to: .home)
+
+        #expect(store.state.corrections.count == before)
+    }
+
+    /// The same rule `refile` applies, applied in bulk: a film is not due on
+    /// Thursday.
+    @Test
+    func movingAGroupIntoADatelessOneDropsTheDates() {
+        let store = storeWithAGrownGroup()
+        #expect(store.state.lifeItems.first { $0.id == "f1" }?.dueOn != nil)
+
+        store.moveGroup(filters, to: .watchlist)
+
+        let item = store.state.lifeItems.first { $0.id == "f1" }
+        #expect(item?.dueOn == nil)
+        #expect(item?.closesAt == nil)
+    }
+
+    /// Renaming is the same write. Refused rather than mangled when the name
+    /// is not a heading — and refusing must leave the group exactly as it was,
+    /// not half-moved.
+    @Test
+    func renamingAGroupKeepsEverythingInIt() {
+        let store = storeWithAGrownGroup()
+
+        let renamed = store.moveGroup(filters, toNewCategory: "filters")
+        #expect(renamed == LifeCategory(named: "filters"))
+        #expect(store.state.lifeItems.filter {
+            $0.category == LifeCategory(rawValue: "filters")
+        }.count == 3)
+        #expect(!store.lifeCategories.contains(self.filters))
+
+        #expect(
+            store.moveGroup(
+                LifeCategory(rawValue: "filters"),
+                toNewCategory: "the whole of everything else"
+            ) == nil
+        )
+        #expect(store.state.lifeItems.filter {
+            $0.category == LifeCategory(rawValue: "filters")
+        }.count == 3)
+    }
+
+    /// The sheet names a number before anybody commits to it, so that number
+    /// has to be the set the move actually touches. An imported calendar event
+    /// sits in a category and does not travel — the app does not own somebody
+    /// else's calendar — and a sheet offering to move four things while moving
+    /// three is the app miscounting a couple's own list back to them.
+    @Test
+    func theCountOnOfferIsTheCountThatMoves() {
+        var state = FieldState.empty(
+            nameA: "Ryan",
+            nameB: "Dylan",
+            now: FieldSampleData.today
+        )
+        state.lifeItems = [
+            LifeItem(
+                id: "f1",
+                title: "Order the HEPA filter",
+                category: filters,
+                owner: .a,
+                source: .captured,
+                isTimeCritical: false,
+                isDone: false
+            ),
+            LifeItem(
+                id: "cal:standing-desk",
+                title: "Delivery window",
+                category: filters,
+                owner: .a,
+                source: .captured,
+                isTimeCritical: false,
+                isDone: false
+            ),
+        ]
+        let store = FieldStore(state: state, now: FieldSampleData.today)
+
+        #expect(store.movableCount(in: filters) == 1)
+        #expect(store.moveGroup(filters, to: .home) == 1)
+        #expect(
+            store.state.lifeItems.first { $0.id == "cal:standing-desk" }?
+                .category == self.filters,
+            "an imported event was moved out of somebody else's calendar"
+        )
+    }
+
+    /// A group move changes no title, so a fingerprint of titles alone would
+    /// leave both the source and the destination describing lists they no
+    /// longer hold — and the stale sentence would survive every relaunch.
+    @Test
+    func movingAGroupInvalidatesTheSubtitles() {
+        let store = storeWithAGrownGroup()
+        let before = store.subtitleRefreshKey
+
+        store.moveGroup(filters, to: .home)
+
+        #expect(store.subtitleRefreshKey != before)
+    }
+
+    // MARK: Putting a built-in away
+
+    @Test
+    func puttingAGroupAwayTakesItOffLifeAndNowhereElse() {
+        let store = storeWithAGrownGroup()
+        #expect(store.putAway(.money))
+
+        #expect(!store.categoryOrder.contains(.money))
+        #expect(!store.visibleCategories.contains(.money))
+        // The sibling, not a filter on it. Everything that decides *where a
+        // thing belongs* still sees every category.
+        #expect(store.lifeCategories.contains(.money))
+        #expect(store.putAwayCategories == [.money])
+        #expect(store.isPutAway(.money))
+    }
+
+    /// A container never sets its contents down with it. Care has an open item
+    /// here, so the whole act is refused rather than half-done.
+    @Test
+    func aGroupWithThingsInItCannotBePutAway() {
+        let store = storeWithAGrownGroup()
+
+        #expect(store.putAway(.care) == false)
+        #expect(store.visibleCategories.contains(.care))
+        #expect(store.state.hiddenCategories.isEmpty)
+    }
+
+    /// A grown category is deleted by being emptied. Hiding one would leave
+    /// its items filed under a word that exists nowhere on screen.
+    @Test
+    func aGrownGroupCannotBePutAway() {
+        let store = storeWithAGrownGroup()
+
+        #expect(store.putAway(filters) == false)
+        #expect(store.state.hiddenCategories.isEmpty)
+    }
+
+    /// The guard that stands in for the CHECK constraint the migration
+    /// deliberately does not have. A row naming a grown category — stale, hand
+    /// edited, or from a future bug — must be inert rather than able to take a
+    /// live list off the screen while its contents go on falling due.
+    @Test
+    func aStoredHideOfAGrownGroupIsIgnored() {
+        var state = FieldState.empty(
+            nameA: "Ryan",
+            nameB: "Dylan",
+            now: FieldSampleData.today
+        )
+        state.lifeItems = [
+            LifeItem(
+                id: "f1",
+                title: "Order the HEPA filter",
+                category: LifeCategory(rawValue: "airfilters"),
+                owner: .a,
+                source: .captured,
+                isTimeCritical: false,
+                isDone: false
+            ),
+        ]
+        state.hiddenCategories = ["airfilters"]
+        let store = FieldStore(state: state, now: FieldSampleData.today)
+
+        #expect(store.visibleCategories.contains(self.filters))
+        #expect(store.putAwayCategories.isEmpty)
+    }
+
+    @Test
+    func bringingAGroupBackPutsTheWordBack() {
+        let store = storeWithAGrownGroup()
+        store.putAway(.money)
+
+        store.bringBack(.money)
+
+        #expect(store.visibleCategories.contains(.money))
+        #expect(store.putAwayCategories.isEmpty)
+    }
+
+    // MARK: What a hidden group must go on doing
+
+    /// The line between "put away" and "muted". Today reads items and has no
+    /// notion of a category at all — this is here so that stays true, because
+    /// the day somebody filters Today by `visibleCategories` a vet appointment
+    /// disappears.
+    @Test
+    func todayStillSurfacesThingsFromAGroupThatIsPutAway() {
+        var state = FieldState.empty(
+            nameA: "Ryan",
+            nameB: "Dylan",
+            now: FieldSampleData.today
+        )
+        state.lifeItems = [
+            LifeItem(
+                id: "m1",
+                title: "Pay the rent",
+                category: .money,
+                owner: .a,
+                dueOn: FieldSampleData.today,
+                source: .captured,
+                isTimeCritical: true,
+                isDone: false
+            ),
+        ]
+        // Written straight into state: `putAway` refuses while the item is
+        // there, and it is the item that has to still reach them.
+        state.hiddenCategories = ["money"]
+        let store = FieldStore(state: state, now: FieldSampleData.today)
+
+        #expect(!store.visibleCategories.contains(.money))
+        #expect(
+            store.todayCandidates.contains {
+                if case .life(let item) = $0.origin { return item.id == "m1" }
+                return false
+            },
+            "putting a group away stopped its items reaching Today"
+        )
+    }
+
+    /// Filing one thing into a put-away group brings it back too, and the
+    /// route matters: `refile` takes any category, so this is what a partner's
+    /// move arriving over realtime does. A heading standing over something is
+    /// not away.
+    @Test
+    func refilingOneThingIntoAGroupThatIsPutAwayBringsItBack() {
+        let store = storeWithAGrownGroup()
+        store.putAway(.money)
+
+        store.refile("f1", to: .money)
+
+        #expect(!store.isPutAway(.money))
+        #expect(store.visibleCategories.contains(.money))
+    }
+
+    /// The picker is presentation, so it follows Life. The way back to a
+    /// put-away group is the row at the foot of Life, not a chip that offers
+    /// it as though it were an ordinary destination.
+    @Test
+    func theCorrectionPickerDoesNotOfferAGroupThatIsPutAway() {
+        let store = storeWithAGrownGroup()
+        store.putAway(.money)
+
+        #expect(!store.correctionCategories.contains(.money))
+    }
+
+    // MARK: Coming back
+
+    @Test
+    func sendingSomethingIntoAGroupThatIsPutAwayBringsItBack() {
+        let store = storeWithAGrownGroup()
+        store.putAway(.money)
+
+        store.captureDraft = "pay the rent"
+        store.submitCapture()
+        guard var receipt = store.lastReceipt else {
+            Issue.record("expected a receipt")
+            return
+        }
+        receipt.category = .money
+        store.lastReceipt = receipt
+
+        // Reading the receipt changes nothing. The group is still away right
+        // up until the moment the thing is actually filed into it.
+        #expect(store.isPutAway(.money))
+
+        store.send()
+
+        #expect(!store.isPutAway(.money))
+        #expect(store.lastRevival == .money)
+        #expect(store.visibleCategories.contains(.money))
+    }
+
+    /// The consequence of putting revival in `send` rather than in `classify`.
+    /// Somebody who reads "sending this will bring Care back" and decides they
+    /// meant somewhere else has changed their mind about the capture, not
+    /// about the group.
+    @Test
+    func correctingAwayFromAGroupThatIsPutAwayLeavesItPutAway() {
+        let store = storeWithAGrownGroup()
+        store.putAway(.money)
+
+        store.captureDraft = "pay the rent"
+        store.submitCapture()
+        guard var receipt = store.lastReceipt else {
+            Issue.record("expected a receipt")
+            return
+        }
+        receipt.category = .money
+        store.lastReceipt = receipt
+
+        store.beginCorrection()
+        store.correct(to: .home)
+        store.send()
+
+        #expect(store.isPutAway(.money))
+        #expect(store.lastRevival == nil)
+        #expect(!store.visibleCategories.contains(.money))
+    }
+
+    /// Moving a whole group into one that was put away brings it back for the
+    /// same reason a capture does: a heading standing over things is not away.
+    @Test
+    func movingAGroupIntoOneThatIsPutAwayBringsItBack() {
+        let store = storeWithAGrownGroup()
+        store.putAway(.money)
+
+        store.moveGroup(filters, to: .money)
+
+        #expect(!store.isPutAway(.money))
+        #expect(store.visibleCategories.contains(.money))
+    }
+}
+
 // MARK: - Test helpers
 
 extension Color {

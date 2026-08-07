@@ -97,6 +97,9 @@ private final class FakeFieldServer: FieldBackend, @unchecked Sendable {
     func setDailyMoment(_ moment: FieldDailyMoment) async throws {
         try receive(.setDailyMoment(moment))
     }
+    func setCategoryHidden(_ category: String, hidden: Bool) async throws {
+        try receive(.setCategoryHidden(category: category, hidden: hidden))
+    }
 
     // MARK: The circle
     //
@@ -403,6 +406,84 @@ struct FieldOutboxTests {
 
         let subjects = outbox.pending.map(\.mutation.subject)
         #expect(subjects == [.item("a"), .item("b")])
+    }
+
+    // MARK: Putting a group away, offline
+
+    /// A group set down on a train is set down. The write is about a shared
+    /// page, not about a network, so it queues like every other change to
+    /// `FieldState` rather than being refused for want of signal.
+    @Test
+    func aGroupPutAwayOfflineReachesTheServerOnReconnect() async throws {
+        let store = store()
+        defer { store.removeAll() }
+
+        let server = FakeFieldServer(state: emptyState())
+        server.failuresRemaining = 1
+        let outbox = FieldOutbox(
+            wrapping: server,
+            partition: partition(),
+            store: store,
+            now: { Self.now }
+        )
+
+        await #expect(throws: (any Error).self) {
+            try await outbox.setCategoryHidden("watchlist", hidden: true)
+        }
+        #expect(outbox.pending.count == 1)
+
+        try await outbox.flush()
+
+        #expect(outbox.isEmpty)
+        #expect(server.state.hiddenCategories == ["watchlist"])
+    }
+
+    /// Changed their mind before the queue drained. What should reach the
+    /// server is where they landed, and nothing about the detour.
+    ///
+    /// This is the case `FieldMutation.Subject.hiddenCategory` is keyed on the
+    /// group rather than on the direction for: keyed on both, a hide and an
+    /// un-hide would be two subjects, both would survive compaction, and the
+    /// server would briefly hide a group the couple had already brought back.
+    @Test
+    func puttingAGroupAwayAndBringingItBackOfflineIsOneWrite() async throws {
+        let store = store()
+        defer { store.removeAll() }
+
+        let server = FakeFieldServer(state: emptyState())
+        server.failuresRemaining = 99
+        let outbox = FieldOutbox(
+            wrapping: server,
+            partition: partition(),
+            store: store,
+            now: { Self.now }
+        )
+
+        for hidden in [true, false] {
+            await #expect(throws: (any Error).self) {
+                try await outbox.setCategoryHidden("care", hidden: hidden)
+            }
+        }
+
+        #expect(outbox.pending.count == 1)
+        #expect(
+            outbox.pending.map(\.mutation.subject) == [.hiddenCategory("care")]
+        )
+
+        // A delta, not a total: `receive` counts refused attempts too, and the
+        // two above were refused.
+        let beforeDraining = server.receivedCount
+        server.failuresRemaining = 0
+        try await outbox.flush()
+
+        #expect(
+            server.state.hiddenCategories.isEmpty,
+            "the server was told about a decision that was undone before it heard"
+        )
+        #expect(
+            server.receivedCount - beforeDraining == 1,
+            "and heard about it once"
+        )
     }
 
     // MARK: 5. Files that cannot be read

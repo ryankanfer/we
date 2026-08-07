@@ -67,6 +67,13 @@ struct FieldItemSheet: View {
                                     .padding(.bottom, FieldMetrics.sectionGap)
                             }
 
+                            // Draws nothing for most items, and that is the
+                            // designed state — see `FieldItemSteps.actions`.
+                            // Deliberately inside the `else`: an imported
+                            // event is somebody else's record and this offers
+                            // nothing on one.
+                            FieldItemHelp(item: item)
+
                             removeIt
                         }
                     }
