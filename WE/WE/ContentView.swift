@@ -607,12 +607,17 @@ private struct PartnerWaitingView: View {
     // back as an accessibility label — VoiceOver should not be shouting.
 
     private var sendInvitationButton: some View {
-        ShareLink(item: "Join me in WE with code \(code)") {
+        ShareLink(item: invitationShareMessage) {
             Text("Send the invitation")
         }
         .buttonStyle(FieldFilledButtonStyle())
         .accessibilityLabel("Send the invitation")
         .accessibilityIdentifier("waiting.share")
+    }
+
+    private var invitationShareMessage: String {
+        couple?.activeInvitation()?.shareMessage
+            ?? "Join me in WE with code \(code)"
     }
 
     private var copyInvitationButton: some View {

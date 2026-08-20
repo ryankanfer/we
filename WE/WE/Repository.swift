@@ -105,8 +105,18 @@ protocol Repository {
     func submitResponse(
         insightID: String,
         choice: String,
-        note: String?
+        note: String?,
+        consentsToAIProcessing: Bool
     ) async throws
+    func passJourneyQuestion(insightID: String) async throws
+    func recordJourneyQuestionShown(insightID: String) async throws
+    func confirmSharedDirection(
+        insightID: String,
+        decision: DirectionDecision
+    ) async throws
+    /// One person's half of ending a journey. The journey closes when both
+    /// have called it; a single call is recorded and nothing else changes.
+    func completeFieldJourney(journeyID: String) async throws
     func resolveInsight(
         insightID: String,
         type: ResolutionType,
@@ -138,6 +148,8 @@ protocol Repository {
 }
 
 extension Repository {
+    func recordJourneyQuestionShown(insightID: String) async throws {}
+
     func loadPrivateProposals(
         for user: AuthenticatedUser
     ) async throws -> [SavedPrivateProposal] {

@@ -28,10 +28,10 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install pinned Supabase CLI
-        uses: supabase/setup-cli@v1
+        uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1 # v1.7.1
         with:
           version: ${{ env.SUPABASE_CLI_VERSION }}
 
@@ -40,12 +40,38 @@ jobs:
 
       - name: Upload database evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: nightly-supabase-contract
           path: artifacts/supabase
           if-no-files-found: warn
           retention-days: 30
+
+  privacy-contract:
+    name: Nightly private-to-shared contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+
+      - name: Run Edge Function contract tests
+        run: bash scripts/qa/run-edge-function-tests.sh artifacts/edge-functions
+
+      - name: Upload contract evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nightly-privacy-contract
+          path: artifacts/edge-functions
+          if-no-files-found: warn
+          retention-days: 14
 
   rendered-app-contract:
     name: Rendered app - ${{ matrix.name }}
@@ -80,7 +106,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Verify pinned Xcode
         run: |
@@ -88,7 +114,7 @@ jobs:
           test "$(xcodebuild -version | head -n 1)" = "Xcode 26.3"
 
       - name: Cache Swift packages
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: artifacts/swift-packages
           key: swiftpm-${{ runner.os }}-xcode-26.3-${{ hashFiles('WE/WE.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
@@ -155,7 +181,7 @@ jobs:
 
       - name: Upload rendered-app evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: rendered-${{ matrix.name }}
           path: |
@@ -183,7 +209,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Verify isolated-stack configuration
         env:
@@ -196,7 +222,7 @@ jobs:
           test "$(xcodebuild -version | head -n 1)" = "Xcode 26.3"
 
       - name: Cache Swift packages
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: artifacts/swift-packages
           key: swiftpm-${{ runner.os }}-xcode-26.3-${{ hashFiles('WE/WE.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
@@ -252,7 +278,7 @@ jobs:
 
       - name: Upload live-contract evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: nightly-live-couple
           path: |

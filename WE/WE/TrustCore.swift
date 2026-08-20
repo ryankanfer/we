@@ -233,12 +233,13 @@ nonisolated enum TrustCore {
             note: note
         )
 
+        // The second answer is a queue boundary, not a synthesis boundary.
+        // Only the protected server worker may turn two private answers into
+        // shared copy. TrustCore deliberately cannot inspect both answers to
+        // manufacture a result on-device.
         if let otherID = otherMemberID(in: state, viewer: memberID),
-           hasSubmitted(next.responses[otherID]) {
-            if next.responses[otherID]?.status == .revealed {
-                next.responses[otherID]?.status = .submitted
-            }
-            next.sharedDirection = safeDirection(for: next)
+           next.responses[otherID]?.status == .revealed {
+            next.responses[otherID]?.status = .submitted
         }
         return next
     }
@@ -354,74 +355,6 @@ nonisolated enum TrustCore {
         )
     }
 
-    private static func safeDirection(
-        for state: TrustState
-    ) -> SharedDirection {
-        let content: (
-            key: String,
-            title: String,
-            message: String,
-            symbol: String
-        )
-        // A shared direction may vary only with public insight context. If it
-        // varied with choice content or equality, a person could infer their
-        // partner's answer by comparing the result with their own.
-        if state.seedKey.hasPrefix("tonight-") {
-            content = (
-                "evening-room",
-                "Begin with a little room",
-                "Keep the first part unhurried, with room to change course.",
-                "sun.horizon"
-            )
-        } else if state.seedKey.hasPrefix("weekend-") {
-            content = (
-                "open-weekend",
-                "Leave part of it open",
-                "Choose one easy beginning without deciding the whole weekend.",
-                "water.waves"
-            )
-        } else if state.seedKey.hasPrefix("load-") {
-            content = (
-                "lighter-week",
-                "Make one thing lighter",
-                "Choose the smallest shared adjustment and let the rest wait.",
-                "line.horizontal.3.decrease"
-            )
-        } else if state.seedKey.hasPrefix("plan-") {
-            content = (
-                "protected-beginning",
-                "Protect the simplest beginning",
-                "Name one quality to carry into the plan without deciding every detail.",
-                "sparkle"
-            )
-        } else {
-            content = (
-                "shared-room",
-                "Start with a little room",
-                "Choose one easy beginning without deciding the whole shape.",
-                "line.horizontal.3.decrease"
-            )
-        }
-
-        return SharedDirection(
-            insightID: state.insightID,
-            key: content.key,
-            eyebrow: eyebrow(for: state.seedKey),
-            title: content.title,
-            message: content.message,
-            symbol: content.symbol,
-            createdAt: nil
-        )
-    }
-
-    private static func eyebrow(for seedKey: String) -> String {
-        if seedKey.hasPrefix("tonight-") { return "FOR TONIGHT" }
-        if seedKey.hasPrefix("weekend-") { return "FOR THE WEEKEND" }
-        if seedKey.hasPrefix("load-") { return "FOR THIS WEEK" }
-        if seedKey.hasPrefix("plan-") { return "FOR THE PLAN" }
-        return "BETWEEN YOU"
-    }
-
     static func normalizingLegacyState(
         _ state: TrustState
     ) -> TrustState {
@@ -429,10 +362,6 @@ nonisolated enum TrustCore {
         for memberID in next.responses.keys
         where next.responses[memberID]?.status == .revealed {
             next.responses[memberID]?.status = .submitted
-        }
-        if next.sharedDirection == nil,
-           next.responses.values.filter(hasSubmitted).count >= 2 {
-            next.sharedDirection = safeDirection(for: next)
         }
         return next
     }

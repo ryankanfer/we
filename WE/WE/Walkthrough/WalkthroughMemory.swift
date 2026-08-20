@@ -2,7 +2,7 @@
 //  WalkthroughMemory.swift
 //  WE
 //
-//  Journey 3 — Japan. Something said twice stops being a passing remark.
+//  Screen 3 — Us. The possibilities that keep returning.
 //
 //  The last journey, and the one that explains Us. Us is the only zone with no
 //  way in: there is no button that files to it and no branch of the classifier
@@ -15,18 +15,26 @@
 //  them would quietly empty itself out — which is the failure mode this
 //  journey exists to rule out in the reader's mind before they ever see Us.
 //
+//  That rule is the one shared journeys inherit: a journey room reads the
+//  couple's records through references and never copies them, and the views it
+//  grows recede without taking anything with them. The caption names the other
+//  half — that nothing opens on one person's say-so — because the mutual gate
+//  is the part a person has to trust before they will add anything at all.
+//
+//  The promotion proposal remains the live engine here, deliberately. It is
+//  derived on device from two real Life rows, so this screen can run offline
+//  and during onboarding. A shared-journey question cannot: it is created
+//  server-side from evidence a new couple does not have yet, and a walkthrough
+//  that mocked one would be the illustration this file exists to avoid.
+//
 
 import SwiftUI
 
 struct WalkthroughMemory: View {
     let proposal: FieldPromotion.Proposal
     let now: Date
-    @Binding var step: Int
     let journey: WalkthroughJourney
-    let onNextJourney: (WalkthroughJourney) -> Void
     let onClose: () -> Void
-
-    private static let stepCount = 2
 
     /// The two Life rows the proposal came from, in the order they were said.
     ///
@@ -43,11 +51,7 @@ struct WalkthroughMemory: View {
 
     var body: some View {
         WalkthroughScaffold(
-            label: journey.subject,
-            step: step,
-            stepCount: Self.stepCount,
-            onNext: next,
-            nextTitle: nextTitle,
+            journey: journey,
             onClose: onClose
         ) {
             stage
@@ -58,28 +62,10 @@ struct WalkthroughMemory: View {
 
     // MARK: The stage
 
-    /// Beat one asks; beat two is the horizon with both notes still under it.
-    ///
-    /// The beat that went was the one showing a single mention doing nothing.
-    /// "Said once, nothing happens" is a real rule, but drawing a row that
-    /// does nothing costs a whole screen to make a negative point — and the
-    /// question in beat one already says "twice" in its own reasoning line.
-    @ViewBuilder
     private var stage: some View {
-        switch step {
-        case 0:
-            VStack(alignment: .leading, spacing: FieldMetrics.cardGap) {
-                mentionRows(mentions)
-                WalkthroughAsk(question: proposal.question)
-            }
-        default:
-            VStack(alignment: .leading, spacing: FieldMetrics.cardGap) {
-                horizon
-                // Still there, still in Trips. Drawn *under* the horizon so
-                // the relationship reads as "this is about those" rather than
-                // "those became this".
-                mentionRows(mentions)
-            }
+        VStack(alignment: .leading, spacing: FieldMetrics.cardGap) {
+            mentionRows(mentions)
+            WalkthroughAsk(question: proposal.question)
         }
     }
 
@@ -95,74 +81,19 @@ struct WalkthroughMemory: View {
         }
     }
 
-    /// Us's own type: the largest in the app, with the countdown beside it.
-    /// Built here rather than as a shared component because Us draws exactly
-    /// one of these and no other journey has a horizon to show.
-    private var horizon: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            FieldLabel("Now in Us")
-
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(proposal.subject)
-                    .font(FieldType.horizon)
-                    .foregroundStyle(.fieldInk(.headline))
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Spacer(minLength: 8)
-
-                Text("NO DATE")
-                    .font(FieldType.dateCount)
-                    .tracking(FieldTracking.dateCount)
-                    .foregroundStyle(.fieldInk(.legend))
-            }
-
-            Rectangle()
-                .fill(FieldRule.us)
-                .frame(height: 1)
-                .padding(.top, 2)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(proposal.subject), now in Us, no date")
-    }
-
     // MARK: The caption
 
-    @ViewBuilder
     private var caption: some View {
-        switch step {
-        case 0:
-            WalkthroughBeat(
-                label: "Said twice",
-                line: "Once is a remark. Twice is worth asking about."
-            )
-        default:
-            WalkthroughBeat(
-                label: "Say yes",
-                line: "It becomes a horizon. Both notes stay in Trips."
-            )
-        }
-    }
-
-    // MARK: Moving on
-
-    private var isLastStep: Bool { step == Self.stepCount - 1 }
-
-    private var nextTitle: String {
-        isLastStep ? WalkthroughEnding.nextTitle(after: journey) : "Next"
-    }
-
-    private var next: (() -> Void)? {
-        guard isLastStep else {
-            return { step += 1 }
-        }
-        guard let following = journey.next else { return nil }
-        return { onNextJourney(following) }
+        WalkthroughBeat(
+            label: "Us notices what returns",
+            line: "Us notices what you keep returning to. Nothing opens until you both choose it."
+        )
     }
 }
 
 #Preview("Memory") {
     WalkthroughJourneyView(
-        journey: .memory,
+        journey: .us,
         now: Date(),
         onNextJourney: { _ in },
         onClose: {}

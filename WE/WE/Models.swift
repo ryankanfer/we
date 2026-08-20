@@ -66,8 +66,30 @@ nonisolated struct Couple: Identifiable, Codable, Hashable, Sendable {
     /// clock at the moment it is asked, because a screen left open across the
     /// boundary should stop offering a code that no longer works.
     func hasLiveInvitation(asOf now: Date = Date()) -> Bool {
-        guard let invitationExpiresAt else { return false }
-        return invitationExpiresAt > now
+        activeInvitation(asOf: now) != nil
+    }
+
+    func activeInvitation(
+        asOf now: Date = Date()
+    ) -> PartnerInvitation? {
+        guard let invitationExpiresAt, invitationExpiresAt > now else {
+            return nil
+        }
+        return PartnerInvitation(
+            code: joinCode,
+            expiresAt: invitationExpiresAt
+        )
+    }
+}
+
+nonisolated struct PartnerInvitation: Equatable, Sendable {
+    let code: String
+    let expiresAt: Date
+
+    var deepLink: String { "we://join/\(code)" }
+
+    var shareMessage: String {
+        "Join me in WE\n\(deepLink)\nCode: \(code)"
     }
 }
 
@@ -122,6 +144,12 @@ nonisolated struct Insight: Identifiable, Codable, Hashable, Sendable {
     let source: String
     let actionTitle: String
     let options: [String]
+    var journeyScope: JourneyScope = .longTerm
+    var triggerProvenance: JourneyTriggerProvenance? = nil
+    var subjectReferences: [JourneySubjectReference] = []
+    var expiresAt: String? = nil
+    var contextSnapshot: JourneyContextSnapshot? = nil
+    var sort: Int = 0
 }
 
 nonisolated enum ConsentVisibility: String, Codable, Sendable {
@@ -387,6 +415,13 @@ nonisolated struct RelationshipSnapshot: Codable, Hashable, Sendable {
     let archives: [RelationshipArchive]
     let syncedAt: Date
     var v2: V2RelationshipState? = nil
+    var directionConfirmations: [DirectionConfirmation] = []
+    var journeyPasses: [JourneyPass] = []
+    var journeys: [SharedJourney] = []
 
     var v2State: V2RelationshipState { v2 ?? .empty }
+
+    var canInvitePartner: Bool {
+        membership != nil && couple != nil && members.count < 2
+    }
 }

@@ -7,12 +7,14 @@
 -- keeps everything and a deletion that keeps nothing are both easy, and both
 -- wrong.
 --
--- The four claims:
+-- The claims:
 --
 --   1. the couple survives, one member lighter, slot vacated not renumbered
 --   2. shared-era rows survive whoever authored them, attribution nulled
 --   3. the leaver's solo-era private rows are gone, not merely unreadable
 --   4. a person alone still takes the whole couple with them
+--   5. no consent row can veto the departure, or outlive it in a state the
+--      survivor could act on
 --
 -- ON ORDER
 --
@@ -147,6 +149,41 @@ select is(
   'a capture records which side spoke it, not only who'
 );
 
+-- MARK: Consent rows that name B ---------------------------------------------
+--
+-- Written as the table owner because `insight_consent` has no insert policy —
+-- only RPCs write it — and the shapes under test are states those RPCs
+-- produce: `request_share` stamps `initiator_id`, and a private item carries
+-- `owner_id`. These two rows are what made `DELETE MY ACCOUNT` fail on the
+-- device: a bare `references public.profiles(id)` is a veto, not a cascade.
+
+insert into public.insights (
+  id, couple_id, seed_key, kind, domain, present,
+  title, body, evidence, source, options
+) values
+  (
+    '94000000-0000-0000-0000-0000000000a1',
+    (select couple_id from ctx), 'departure-shared', 'relational', 'us', true,
+    'A shared question', 'body', 'evidence', 'test', array['one', 'two']
+  ),
+  (
+    '94000000-0000-0000-0000-0000000000a2',
+    (select couple_id from ctx), 'departure-private', 'relational', 'us', true,
+    'B''s private question', 'body', 'evidence', 'test', array['one', 'two']
+  );
+
+insert into public.insight_consent (
+  insight_id, visibility, owner_id, readiness, initiator_id, requested_at
+) values
+  (
+    '94000000-0000-0000-0000-0000000000a1', 'shared', null,
+    'requested', '94000000-0000-0000-0000-000000000002', now()
+  ),
+  (
+    '94000000-0000-0000-0000-0000000000a2', 'private',
+    '94000000-0000-0000-0000-000000000002', 'idle', null, null
+  );
+
 -- MARK: B leaves ------------------------------------------------------------
 
 set local role authenticated;
@@ -233,6 +270,56 @@ select is(
      and title = 'A alone: therapy'),
   1,
   'A''s own solo history is untouched by B leaving'
+);
+
+-- A consent row must not be able to veto somebody's departure. This is the
+-- assertion the device error would have failed: `insight_consent_initiator_id_fkey`.
+select is(
+  (select ic.readiness from public.insight_consent ic
+   where ic.insight_id = '94000000-0000-0000-0000-0000000000a1'),
+  'withdrawn',
+  'a request to cross the line dies with the person who made it'
+);
+
+select is(
+  (select ic.initiator_id from public.insight_consent ic
+   where ic.insight_id = '94000000-0000-0000-0000-0000000000a1'),
+  null,
+  'and stops naming them'
+);
+
+-- Left as `requested` with a null initiator, `accept_share`'s "cannot accept
+-- your own request" guard is null against null and the survivor could publish
+-- a departed person's private item.
+select is(
+  (select ic.requested_at from public.insight_consent ic
+   where ic.insight_id = '94000000-0000-0000-0000-0000000000a1'),
+  null,
+  'there is no live request left for the survivor to accept'
+);
+
+-- Asserted against the base table, as claim 3 is: with the owner nulled the
+-- select policy would leave this row readable by nobody and deletable by
+-- nobody, which reads identical to gone from A's side.
+select is(
+  (select count(*)::int from public.insights
+   where id = '94000000-0000-0000-0000-0000000000a2'),
+  0,
+  'B''s private question goes with B, rather than surviving unreachable'
+);
+
+select is(
+  (select count(*)::int from public.insight_consent
+   where insight_id = '94000000-0000-0000-0000-0000000000a2'),
+  0,
+  'and its consent row goes with it'
+);
+
+select is(
+  (select count(*)::int from public.insights
+   where id = '94000000-0000-0000-0000-0000000000a1'),
+  1,
+  'the shared question stays with the couple'
 );
 
 -- MARK: What the survivor sees ----------------------------------------------

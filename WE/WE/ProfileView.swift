@@ -107,13 +107,18 @@ struct ProfileView: View {
                         dismiss()
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { onReplayPromise() }
                     }
-                    if let code = session.snapshot?.couple?.joinCode {
-                        ShareLink(item: "Join me in WE with code \(code)") {
-                            Label("Share our join code", systemImage: "square.and.arrow.up")
+                    if let invitation = session.snapshot?.couple?
+                        .activeInvitation()
+                    {
+                        ShareLink(item: invitation.shareMessage) {
+                            Label("Share partner invitation", systemImage: "square.and.arrow.up")
                         }
                     }
                     NavigationLink("How WE notices") {
                         SignalConsentView()
+                    }
+                    NavigationLink("Privacy policy") {
+                        WEPrivacyPolicyView()
                     }
                     if host.canUseSimulation {
                         NavigationLink("Mode") {
@@ -304,7 +309,7 @@ private struct DeleteAccountView: View {
                     SecureField("Current password", text: $password)
                         .textContentType(
                             disablesCredentialPrompts
-                                ? .oneTimeCode
+                                ? nil
                                 : .password
                         )
                     TextField("Type DELETE", text: $confirmation)

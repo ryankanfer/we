@@ -67,6 +67,14 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		C0DE20003013C00D00BACE01 /* Exceptions for "WE" folder in "WE" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Field/CUTOVER.md,
+				Field/FONTS.md,
+			);
+			target = 79C3EB343013C00A00394313 /* WE */;
+		};
 		C0DE20013013C00D00BACE01 /* Exceptions for "WETests" folder in "WETests" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -99,6 +107,9 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		79C3EB373013C00A00394313 /* WE */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				C0DE20003013C00D00BACE01 /* Exceptions for "WE" folder in "WE" target */,
+			);
 			path = WE;
 			sourceTree = "<group>";
 		};

@@ -1,0 +1,30 @@
+{
+  "version": "5",
+  "specifiers": {
+    "jsr:@deno/installer-shell-setup@*": "0.3.4"
+  },
+  "jsr": {
+    "@deno/installer-shell-setup@0.3.4": {
+      "integrity": "48665d1a737d487cce6874bc97bba70a5aeffa7053aca3f60df93c6fab8963b4"
+    }
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@supabase/supabase-js@^2.110.8",
+        "npm:@tailwindcss/postcss@4",
+        "npm:@types/node@22",
+        "npm:@types/react-dom@19",
+        "npm:@types/react@19",
+        "npm:framer-motion@^11.15.0",
+        "npm:next@^15.1.6",
+        "npm:react-dom@19",
+        "npm:react@19",
+        "npm:tailwindcss@4",
+        "npm:typescript@5",
+        "npm:vitest@^2.1.8",
+        "npm:zustand@^5.0.3"
+      ]
+    }
+  }
+}

@@ -21,6 +21,7 @@ import SwiftUI
 
 struct FieldTodayZone: View {
     @Environment(FieldStore.self) private var store
+    @EnvironmentObject private var session: AppSession
 
     /// 6d, reached from "What I'm watching".
     @State private var showsDeferral = false
@@ -72,6 +73,11 @@ struct FieldTodayZone: View {
                 FieldCaptureField()
                     .padding(.top, FieldMetrics.sectionGapLoose)
 
+                if sharedQuestionIsReady {
+                    sharedJourneyHandoff
+                        .padding(.top, FieldMetrics.sectionGapLoose)
+                }
+
                 if case .resolved(_, _, let watching) = store.todaySelection {
                     // The heading is a claim, and with nothing under it the
                     // claim was false: a label, two rules and a gap, on the
@@ -99,6 +105,42 @@ struct FieldTodayZone: View {
                 showsCircleTeaching = false
             }
         }
+    }
+
+    private var sharedQuestionIsReady: Bool {
+        guard WEFeatureFlags.sharedJourneysEnabled,
+              let snapshot = session.snapshot,
+              let viewer = session.user?.id
+        else { return false }
+        if case .question = SharedJourneyPolicy.presentation(
+            snapshot: snapshot,
+            viewerID: viewer,
+            now: store.now
+        ) { return true }
+        return false
+    }
+
+    private var sharedJourneyHandoff: some View {
+        Button {
+            store.go(to: .us)
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("One shared question is ready.")
+                    .font(FieldType.listItem)
+                    .foregroundStyle(.fieldInk(.headline))
+                Spacer(minLength: 0)
+                Text("OPEN US")
+                    .font(FieldType.dateCount)
+                    .tracking(FieldTracking.dateCount)
+                    .foregroundStyle(.fieldInk(.dateCount))
+            }
+            .padding(.vertical, 16)
+            .contentShape(Rectangle())
+            .overlay(alignment: .top) { FieldRuleLine() }
+            .overlay(alignment: .bottom) { FieldRuleLine(color: FieldRule.row) }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("field.today.sharedJourney")
     }
 
     // MARK: (a) Today is clear

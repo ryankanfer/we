@@ -56,6 +56,9 @@ struct YoursSurface: View {
     @State private var isClosing = false
     @State private var markIsVisible = false
     @State private var contentIsVisible = false
+    @State private var savedWords: String?
+    @State private var wordsAreSettling = false
+    @FocusState private var composeIsFocused: Bool
 
     init(
         store: YoursStore,
@@ -78,16 +81,58 @@ struct YoursSurface: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 34) {
-                    compose
-
-                    if let returned = store.returned {
-                        returnCard(returned)
-                    } else if let offer = store.returnedOffer {
-                        offerCard(offer)
+                    if showsTeaching {
+                        YoursTeachingRoom {
+                            handledTeachingThisPresentation = true
+                            showsTeaching = false
+                            Task { await store.markTaught(.firstEntry) }
+                        }
                     }
 
-                    emptyLine
-                    heldDrawer
+                    if let entry = releasing {
+                        YoursReleaseRoom { reason in
+                            releasing = nil
+                            Task { await store.letGo(entry, reason: reason) }
+                        }
+                    } else if let offer = releasingOffer {
+                        YoursReleaseRoom { reason in
+                            releasingOffer = nil
+                            Task { await store.letOfferGo(offer, reason: reason) }
+                        }
+                    } else if let entry = store.preparingOffer {
+                        YoursOfferComposer(
+                            entry: entry,
+                            onPrepare: { title, question, options in
+                                Task {
+                                    await store.prepareOffer(
+                                        from: entry,
+                                        title: title,
+                                        question: question,
+                                        options: options
+                                    )
+                                }
+                            },
+                            onCancel: { store.cancelPreparingOffer() }
+                        )
+                    } else if let entry = editing {
+                        YoursHeldEditor(
+                            entry: entry,
+                            onDecide: { decision, body in
+                                editing = nil
+                                Task {
+                                    switch decision {
+                                    case .updateHeld:
+                                        await store.updateHeld(entry, body: body)
+                                    case .letThisReturn:
+                                        await store.letThisReturn(entry, body: body)
+                                    }
+                                }
+                            },
+                            onCancel: { editing = nil }
+                        )
+                    } else {
+                        stateLedRoom
+                    }
                 }
                 .padding(.horizontal, FieldMetrics.screenSide)
                 .padding(.top, 18)
@@ -138,52 +183,29 @@ struct YoursSurface: View {
             // The second and last time the word is ever shown. §2: a symbol
             // can become wordless after it is learned, not before.
             showsTeaching = store.shouldTeachOnFirstEntry
+            if !showsTeaching,
+               store.returned == nil,
+               store.returnedOffer == nil {
+                composeIsFocused = true
+            }
         }
         .task { await store.drainDestroyQueue() }
-        .sheet(isPresented: $showsTeaching) {
-            YoursTeachingSheet {
-                handledTeachingThisPresentation = true
-                showsTeaching = false
-                Task { await store.markTaught(.firstEntry) }
-            }
+    }
+
+    @ViewBuilder
+    private var stateLedRoom: some View {
+        if let returned = store.returned {
+            returnCard(returned)
+            compose
+        } else if let offer = store.returnedOffer {
+            offerCard(offer)
+            compose
+        } else {
+            compose
         }
-        .sheet(item: $releasing) { entry in
-            YoursReleaseSheet { reason in
-                releasing = nil
-                Task { await store.letGo(entry, reason: reason) }
-            }
-        }
-        .sheet(item: $releasingOffer) { offer in
-            YoursReleaseSheet { reason in
-                releasingOffer = nil
-                Task { await store.letOfferGo(offer, reason: reason) }
-            }
-        }
-        .sheet(item: $store.preparingOffer) { entry in
-            YoursOfferComposer(entry: entry) { title, question, options in
-                Task {
-                    await store.prepareOffer(
-                        from: entry,
-                        title: title,
-                        question: question,
-                        options: options
-                    )
-                }
-            }
-        }
-        .sheet(item: $editing) { entry in
-            YoursHeldEditSheet(entry: entry) { decision, body in
-                editing = nil
-                Task {
-                    switch decision {
-                    case .updateHeld:
-                        await store.updateHeld(entry, body: body)
-                    case .letThisReturn:
-                        await store.letThisReturn(entry, body: body)
-                    }
-                }
-            }
-        }
+
+        emptyLine
+        heldDrawer
     }
 
     @ViewBuilder
@@ -212,21 +234,46 @@ struct YoursSurface: View {
 
     private var compose: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(YoursCopy.compose)
-                .font(FieldType.pageHeadline)
-                .foregroundStyle(.fieldInk(.headline))
+            HStack(alignment: .center, spacing: 18) {
+                Text(YoursCopy.compose)
+                    .font(FieldType.pageHeadline)
+                    .foregroundStyle(.fieldInk(.headline))
+
+                Spacer(minLength: 0)
+
+                YoursMark(
+                    style: .compact,
+                    presence: .living,
+                    hue: hue
+                )
+            }
 
             TextEditor(text: $store.draft)
                 .font(FieldType.body)
                 .foregroundStyle(.fieldInk(.headline))
                 .scrollContentBackground(.hidden)
-                .frame(minHeight: 120)
-                .padding(12)
-                .background(FieldPalette.ink.opacity(0.05))
-                .clipShape(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                )
+                .frame(minHeight: 168)
+                .padding(.horizontal, -5)
+                .focused($composeIsFocused)
                 .accessibilityIdentifier("yours.compose")
+                .overlay(alignment: .topLeading) {
+                    if let savedWords {
+                        Text(savedWords)
+                            .font(FieldType.body)
+                            .foregroundStyle(hue)
+                            .lineLimit(3)
+                            .opacity(wordsAreSettling ? 0 : 0.72)
+                            .scaleEffect(
+                                reduceMotion || !wordsAreSettling ? 1 : 0.16,
+                                anchor: .topLeading
+                            )
+                            .offset(
+                                x: reduceMotion ? 0 : (wordsAreSettling ? 214 : 0),
+                                y: reduceMotion ? 0 : (wordsAreSettling ? -56 : 0)
+                            )
+                            .allowsHitTesting(false)
+                    }
+                }
 
             // §8's save detail: the return and the outer bound, stated once,
             // at the moment of saving. Both dates, exactly, because forgetting
@@ -266,21 +313,48 @@ struct YoursSurface: View {
 
             if !store.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 HStack(spacing: 12) {
-                    Button("Save") {
-                        Task { await store.save() }
+                    Button("Set it down") {
+                        settleWords(holding: false)
                     }
-                    .buttonStyle(FieldOutlinedButtonStyle())
+                    .buttonStyle(FieldFilledButtonStyle())
+                    .accessibilityIdentifier("yours.setDown")
 
                     // §3: available from the first save, and visually
                     // secondary here. Somebody who knows on day one that a
                     // thing is permanent should not have to wait eighteen
                     // weeks to say so.
                     Button(YoursCopy.keepIndefinitely) {
-                        Task { await store.saveAndHold() }
+                        settleWords(holding: true)
                     }
                     .buttonStyle(FieldQuietButtonStyle())
                 }
             }
+        }
+    }
+
+    private func settleWords(holding: Bool) {
+        let words = store.draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty else { return }
+        savedWords = words
+        wordsAreSettling = false
+        composeIsFocused = false
+
+        withAnimation(
+            reduceMotion
+                ? .linear(duration: 0.18)
+                : .easeOut(duration: 0.52)
+        ) {
+            wordsAreSettling = true
+        }
+        Task {
+            if holding {
+                await store.saveAndHold()
+            } else {
+                await store.save()
+            }
+            try? await Task.sleep(for: .seconds(reduceMotion ? 0.2 : 0.55))
+            savedWords = nil
+            wordsAreSettling = false
         }
     }
 
@@ -613,7 +687,7 @@ struct YoursSurface: View {
 /// the RPC that does the destroying — so the two can never be mixed up at the
 /// point that matters, and a pooled release rate is not something this screen
 /// could produce even by accident.
-private struct YoursReleaseSheet: View {
+private struct YoursReleaseRoom: View {
     let onChoose: (YoursReleaseReason?) -> Void
 
     var body: some View {
@@ -634,10 +708,8 @@ private struct YoursReleaseSheet: View {
                 .font(FieldType.reasoning)
                 .foregroundStyle(.fieldInk(.legend))
         }
-        .padding(FieldMetrics.screenSide)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(FieldPalette.bg)
-        .presentationDetents([.medium])
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .accessibilityIdentifier("yours.release")
     }
 }
 
@@ -650,9 +722,8 @@ private struct YoursReleaseSheet: View {
 /// header, no settings row. This is a bounded exception to the no-word rule
 /// and not a loophole to widen: adding a third use is a product decision, not
 /// a copy edit.
-private struct YoursTeachingSheet: View {
+private struct YoursTeachingRoom: View {
     let onSeen: () -> Void
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -671,16 +742,13 @@ private struct YoursTeachingSheet: View {
                 .foregroundStyle(.fieldInk(.legend))
 
             Button("Begin") {
-                dismiss()
                 onSeen()
             }
             .buttonStyle(FieldOutlinedButtonStyle())
             .accessibilityIdentifier("yours.teaching.begin")
         }
-        .padding(FieldMetrics.screenSide)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(FieldPalette.bg)
-        .interactiveDismissDisabled()
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .padding(.bottom, 8)
     }
 }
 
@@ -696,12 +764,12 @@ private struct YoursTeachingSheet: View {
 private struct YoursOfferComposer: View {
     let entry: YoursEntry
     let onPrepare: (String, String, [String]) -> Void
+    let onCancel: () -> Void
 
     @State private var title = ""
     @State private var question = ""
     @State private var optionA = ""
     @State private var optionB = ""
-    @Environment(\.dismiss) private var dismiss
 
     private var isComplete: Bool {
         ![title, question, optionA, optionB].contains {
@@ -722,17 +790,14 @@ private struct YoursOfferComposer: View {
 
             Button(YoursCopy.prepareOffer) {
                 onPrepare(title, question, [optionA, optionB])
-                dismiss()
             }
             .buttonStyle(FieldOutlinedButtonStyle())
             .disabled(!isComplete)
 
-            Button("Cancel") { dismiss() }
+            Button("Cancel") { onCancel() }
                 .buttonStyle(FieldQuietButtonStyle())
         }
-        .padding(FieldMetrics.screenSide)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(FieldPalette.bg)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private func field(_ label: String, text: Binding<String>) -> some View {
@@ -758,14 +823,14 @@ private struct YoursOfferComposer: View {
 /// a save. There is no third option that quietly keeps both, and there is no
 /// version history: a revision log would be an accumulating, undeletable
 /// record of exactly the material this design exists to let go of.
-private struct YoursHeldEditSheet: View {
+private struct YoursHeldEditor: View {
     enum Decision { case updateHeld, letThisReturn }
 
     let entry: YoursEntry
     let onDecide: (Decision, String) -> Void
+    let onCancel: () -> Void
 
     @State private var body_ = ""
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -794,12 +859,10 @@ private struct YoursHeldEditSheet: View {
                 .font(FieldType.reasoning)
                 .foregroundStyle(.fieldInk(.legend))
 
-            Button("Cancel") { dismiss() }
+            Button("Cancel") { onCancel() }
                 .buttonStyle(FieldQuietButtonStyle())
         }
-        .padding(FieldMetrics.screenSide)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(FieldPalette.bg)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .onAppear { body_ = entry.body }
     }
 }

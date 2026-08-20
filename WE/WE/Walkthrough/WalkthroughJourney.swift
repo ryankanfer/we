@@ -2,7 +2,7 @@
 //  WalkthroughJourney.swift
 //  WE
 //
-//  Three journeys, and the state each one is told against.
+//  The three spaces in the walkthrough, and the state each one is shown with.
 //
 //  The point of this file is the thing `FieldStore` already names: the
 //  walkthrough "shows the real rule rather than a picture of one". Nothing
@@ -31,37 +31,40 @@
 import Foundation
 
 enum WalkthroughJourney: String, CaseIterable, Identifiable, Sendable {
-    /// Something said goes somewhere. The classifier.
-    case movement
-    /// Two things turn out to be one thing. `FieldOccasion`.
-    case context
-    /// Something said twice stops being a passing remark. `FieldPromotion`.
-    case memory
+    /// The home: say one thing and see where it went.
+    case today
+    /// The details both people have mentioned.
+    case life
+    /// The possibilities that keep returning.
+    case us
 
     var id: String { rawValue }
 
-    /// Three or four words under the example. Not a pitch — the example is
-    /// already on the screen doing the work, and a sentence explaining what
-    /// the reader can see is the thing that makes people leave.
-    var title: String {
+    /// The real surface label. Today names itself as home once because a new
+    /// person cannot yet know that the centre of the navigation is the place
+    /// they will return to.
+    var headerLabel: String {
         switch self {
-        case .movement: "It files it"
-        case .context: "It connects it"
-        case .memory: "It remembers it"
+        case .today: "TODAY · HOME"
+        case .life: "LIFE"
+        case .us: "US"
         }
     }
 
-    /// The subject, named on the chooser so the three are told apart by their
-    /// content and not by three abstractions.
-    var subject: String {
+    var progressIndex: Int {
+        Self.ordered.firstIndex(of: self) ?? 0
+    }
+
+    var nextTitle: String {
         switch self {
-        case .movement: "Greek food"
-        case .context: "Ryan's dad"
-        case .memory: "Japan"
+        case .today: "Next: Life"
+        case .life: "Next: Us"
+        case .us: "Open WE"
         }
     }
 
-    /// Ordered for the chooser, and for "next" at the end of one.
+    /// The teaching order starts where the app starts, then explains the
+    /// spaces on either side. It is an orientation, not a replica of a swipe.
     static var ordered: [WalkthroughJourney] { allCases }
 
     var next: WalkthroughJourney? {
@@ -279,58 +282,22 @@ enum WalkthroughOutcome {
         now: Date
     ) -> WalkthroughOutcome? {
         switch journey {
-        case .movement:
+        case .today:
             .movement(
                 FieldClassifier.classify(
                     WalkthroughSeed.capture,
                     context: WalkthroughSeed.classifierContext(now: now)
                 )
             )
-        case .context:
+        case .life:
             FieldOccasion
                 .proposal(WalkthroughSeed.occasionContext(now: now))
                 .map(WalkthroughOutcome.context)
-        case .memory:
+        case .us:
             FieldPromotion
                 .proposal(WalkthroughSeed.promotionContext(now: now))
                 .map(WalkthroughOutcome.memory)
         }
     }
 
-    /// The example as the first screen shows it: what the couple wrote, and
-    /// what WE did with it.
-    ///
-    /// Drawn from the resolved outcome rather than written, for the same
-    /// reason the journeys are. The chooser is the screen most people will
-    /// read and the only one some of them will, so it is the *last* place
-    /// that should be showing a hand-written approximation of the product.
-    struct Preview {
-        /// One or two lines, quoted as they were written.
-        var said: [String]
-        /// Where it ended up, in the mono voice the app files things in.
-        var landed: String
-    }
-
-    var preview: Preview {
-        switch self {
-        case .movement(let receipt):
-            Preview(
-                said: [receipt.input],
-                landed: receipt.category.rawValue.uppercased()
-            )
-        case .context(let proposal):
-            Preview(
-                said: [proposal.occasionTitle, proposal.itemTitle],
-                landed: "ONE PLAN?"
-            )
-        case .memory(let proposal):
-            Preview(
-                said: WalkthroughSeed
-                    .promotionItems(now: Date())
-                    .filter { proposal.itemIDs.contains($0.id) }
-                    .map(\.title),
-                landed: "US"
-            )
-        }
-    }
 }

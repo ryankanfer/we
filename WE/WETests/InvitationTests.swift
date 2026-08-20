@@ -149,6 +149,35 @@ struct InvitationTests {
         #expect(live.hasLiveInvitation(asOf: now.addingTimeInterval(120)) == false)
     }
 
+    @Test
+    func onlyALiveInvitationProducesShareableContent() throws {
+        let now = Date()
+        let live = Couple(
+            id: "c",
+            joinCode: "WEDEMO",
+            invitationExpiresAt: now.addingTimeInterval(60)
+        )
+        let spent = Couple(id: "c", joinCode: "OLDDEMO")
+
+        let invitation = try #require(live.activeInvitation(asOf: now))
+        #expect(invitation.code == "WEDEMO")
+        #expect(invitation.deepLink == "we://join/WEDEMO")
+        #expect(invitation.shareMessage.contains("Code: WEDEMO"))
+        let deepLink = try #require(URL(string: invitation.deepLink))
+        #expect(
+            WEDeepLinkRouter.destination(for: deepLink)
+                == .join(code: "WEDEMO")
+        )
+        #expect(spent.activeInvitation(asOf: now) == nil)
+    }
+
+    @Test
+    func onlyASpaceWithAnOpenPartnerSlotCanInvite() {
+        #expect(PreviewData.waitingSnapshot.canInvitePartner)
+        #expect(PreviewData.snapshot.canInvitePartner == false)
+        #expect(PreviewData.archivedSnapshot.canInvitePartner == false)
+    }
+
     // MARK: Departure
 
     @Test

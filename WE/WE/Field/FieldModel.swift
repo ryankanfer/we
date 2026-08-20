@@ -278,6 +278,21 @@ enum FieldItemSource: String, Codable, Sendable {
     case imported
 }
 
+/// Whether a row has crossed to the partner yet.
+///
+/// This is not a per-item toggle the user operates. `private` means solo-era
+/// history — written before there was a partner to write it to — and it stays
+/// private until its owner crosses it deliberately through
+/// `field_share_solo_history()`. See `20260803180000_field_solo_visibility.sql`.
+///
+/// The client needs it for one reason: a derivation whose output is *shared*
+/// presence must not read rows only one person can see, or the two people end
+/// up looking at differently-shaped apps. See `FieldPresenceKind`.
+enum FieldVisibility: String, Codable, Sendable {
+    case shared
+    case `private`
+}
+
 struct LifeItem: Identifiable, Codable, Hashable, Sendable {
     let id: String
     var title: String
@@ -308,6 +323,20 @@ struct LifeItem: Identifiable, Codable, Hashable, Sendable {
     /// keeps its default for every existing call site, and a cached item
     /// written before this field existed decodes to `nil` rather than failing.
     var sourceURL: URL?
+
+    /// Nil for every item written before solo visibility shipped, and for
+    /// every backend with no database behind it. Optional for the same reason
+    /// `sourceURL` is, and read through `isSharedPresence` rather than
+    /// directly so that absence resolves to the column default — `shared` —
+    /// in exactly one place.
+    var visibility: FieldVisibility?
+
+    /// Whether this item may inform something both people will see.
+    ///
+    /// Deliberately phrased as a question about presence rather than about
+    /// privacy. A private item is not hidden from its owner's own view; it is
+    /// barred from shaping a surface its owner's partner also has to live in.
+    var isSharedPresence: Bool { visibility != .private }
 
     /// How much this item is pressing, 0…1. Feeds both the category ordering
     /// on Life and the Today selection. It is never shown to the user as a

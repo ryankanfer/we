@@ -402,7 +402,8 @@ final class FieldSupabaseLiveContractTests: XCTestCase {
         try await repositoryA.submitResponse(
             insightID: insight.id,
             choice: firstChoice,
-            note: "PRIVATE_A_\(run)"
+            note: "PRIVATE_A_\(run)",
+            consentsToAIProcessing: true
         )
 
         snapshotB = try await repositoryB.loadRelationship(for: signedInB)
@@ -418,7 +419,8 @@ final class FieldSupabaseLiveContractTests: XCTestCase {
         try await repositoryB.submitResponse(
             insightID: insight.id,
             choice: secondChoice,
-            note: "PRIVATE_B_\(run)"
+            note: "PRIVATE_B_\(run)",
+            consentsToAIProcessing: true
         )
         snapshotA = try await repositoryA.loadRelationship(for: signedInA)
         snapshotB = try await repositoryB.loadRelationship(for: signedInB)

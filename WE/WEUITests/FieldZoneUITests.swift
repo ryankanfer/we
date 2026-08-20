@@ -53,7 +53,8 @@ final class FieldZoneUITests: XCTestCase {
         app.buttons["field.nav.us"].tap()
 
         XCTAssertTrue(
-            app.otherElements["field.us.empty"].waitForExistence(timeout: 6)
+            app.staticTexts["field.us.journey.empty"]
+                .waitForExistence(timeout: 6)
         )
         // The seed's reasoning line must not be anywhere near a real account.
         XCTAssertFalse(
@@ -75,7 +76,7 @@ final class FieldZoneUITests: XCTestCase {
     @MainActor
     func testForTodayPutsSomethingOnTheClearDay() throws {
         let app = launchEmpty()
-        let input = app.textFields["field.capture.input"]
+        let input = app.textViews["field.capture.input"]
         XCTAssertTrue(input.waitForExistence(timeout: 12))
 
         input.tap()
@@ -97,19 +98,29 @@ final class FieldZoneUITests: XCTestCase {
 
         let forToday = app.buttons["field.receipt.today"]
         XCTAssertTrue(forToday.waitForExistence(timeout: 6))
+        // The receipt grows below the fold. Existence alone is insufficient:
+        // its frame can still sit under the persistent zone navigation, where
+        // a coordinate tap would activate LIFE instead of the receipt action.
+        app.swipeUp()
+        XCTAssertTrue(
+            waitForHittable(forToday),
+            "the For today action must be clear of the zone navigation"
+        )
         forToday.tap()
         // Tapping it reads as "Not today", which is the only confirmation the
         // control itself gives — the date chip above carries the rest.
-        let todayStateUpdated = XCTNSPredicateExpectation(
-            predicate: NSPredicate(
-                format: "label CONTAINS[c] %@",
+        // Re-query after the tap. XCUIElement is a snapshot-backed proxy and
+        // can otherwise keep reporting the label it resolved before the
+        // SwiftUI update.
+        let notToday = app.buttons.matching(
+            NSPredicate(
+                format: "identifier == %@ AND label CONTAINS[c] %@",
+                "field.receipt.today",
                 "Not today"
-            ),
-            object: forToday
-        )
-        XCTAssertEqual(
-            XCTWaiter.wait(for: [todayStateUpdated], timeout: 6),
-            .completed,
+            )
+        ).firstMatch
+        XCTAssertTrue(
+            notToday.waitForExistence(timeout: 6),
             "the receipt must confirm that the captured item is now for today"
         )
 
@@ -170,7 +181,7 @@ final class FieldZoneUITests: XCTestCase {
     @MainActor
     func testReachingOutStopsForAConfirmationAndNeverGuesses() throws {
         let app = launchEmpty()
-        let input = app.textFields["field.capture.input"]
+        let input = app.textViews["field.capture.input"]
         XCTAssertTrue(input.waitForExistence(timeout: 12))
 
         input.tap()
@@ -331,7 +342,7 @@ final class FieldZoneUITests: XCTestCase {
     @MainActor
     func testAnItemOutreachOwnsOffersNoLookupBlock() throws {
         let app = launchEmpty()
-        let input = app.textFields["field.capture.input"]
+        let input = app.textViews["field.capture.input"]
         XCTAssertTrue(input.waitForExistence(timeout: 12))
 
         input.tap()
@@ -502,6 +513,22 @@ final class FieldZoneUITests: XCTestCase {
 
         let delete = app.buttons["field.account.delete"]
         XCTAssertTrue(delete.exists)
+
+        let privacy = app.buttons["field.account.privacyPolicy"]
+        for _ in 0..<6 where privacy.exists && !privacy.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(privacy.isHittable)
+        privacy.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["privacy.policy"]
+                .waitForExistence(timeout: 4)
+        )
+        app.buttons["Done"].tap()
+
+        for _ in 0..<6 where delete.exists && !delete.isHittable {
+            app.swipeUp()
+        }
         delete.tap()
 
         XCTAssertTrue(
@@ -929,16 +956,106 @@ final class FieldZoneUITests: XCTestCase {
     }
 
     @MainActor
+    func testUsQuestionIsOnePrivateEvidenceBackedChoice() {
+        let app = launchJourney("ready")
+        app.buttons["field.nav.us"].tap()
+
+        XCTAssertTrue(
+            app.staticTexts["field.us.journey.question"]
+                .waitForExistence(timeout: 6)
+        )
+        let choices = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH 'field.us.answer.'")
+        )
+        XCTAssertGreaterThanOrEqual(choices.count, 2)
+        XCTAssertLessThanOrEqual(choices.count, 4)
+        choices.element(boundBy: 0).tap()
+
+        let hold = app.buttons["field.us.holdAnswer"]
+        XCTAssertTrue(hold.exists)
+        XCTAssertFalse(
+            hold.isEnabled,
+            "choosing an answer must not silently authorize OpenAI processing"
+        )
+
+        let consent = app.switches["field.us.aiConsent"]
+        for _ in 0..<6 where consent.exists && !consent.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(consent.exists)
+        XCTAssertTrue(app.buttons["field.us.privacyPolicy"].exists)
+        // As with receipt actions, the paging shell can report a control as
+        // hittable while its frame is still beneath the persistent zone bar.
+        // Move the disclosure controls wholly into the visible scroll area.
+        app.swipeUp()
+        XCTAssertTrue(waitForHittable(consent))
+        consent.tap()
+        let enabledAfterConsent = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "enabled == true"),
+            object: app.buttons["field.us.holdAnswer"]
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [enabledAfterConsent], timeout: 4),
+            .completed,
+            "explicit OpenAI consent should enable holding the answer"
+        )
+        XCTAssertFalse(app.staticTexts["AFTER THAT"].exists)
+        XCTAssertFalse(app.staticTexts["THIS WEEK"].exists)
+    }
+
+    @MainActor
+    func testUsHeldRevealsNoPartnerStatus() {
+        let app = launchJourney("journeyheld")
+        app.buttons["field.nav.us"].tap()
+
+        let held = app.staticTexts["field.us.journey.held"]
+        XCTAssertTrue(held.waitForExistence(timeout: 6))
+        XCTAssertTrue(held.label.contains("OpenAI"))
+        XCTAssertTrue(held.label.contains("note stays private"))
+        XCTAssertFalse(held.label.localizedCaseInsensitiveContains("Dylan"))
+        XCTAssertFalse(held.label.localizedCaseInsensitiveContains("waiting"))
+    }
+
+    @MainActor
+    func testUsProposalAndActiveJourneyStayFocused() {
+        let proposalApp = launchJourney("journeyproposal")
+        proposalApp.buttons["field.nav.us"].tap()
+        XCTAssertTrue(
+            proposalApp.staticTexts["field.us.journey.proposal"]
+                .waitForExistence(timeout: 6)
+        )
+        XCTAssertTrue(proposalApp.buttons["field.us.chooseDirection"].exists)
+        XCTAssertTrue(proposalApp.buttons["field.us.restDirection"].exists)
+
+        let activeApp = launchJourney("journeyactive")
+        activeApp.buttons["field.nav.us"].tap()
+        XCTAssertTrue(
+            activeApp.staticTexts["field.us.journey.active"]
+                .waitForExistence(timeout: 6)
+        )
+        XCTAssertTrue(activeApp.staticTexts["THE NEXT USEFUL MOVE"].exists)
+        XCTAssertTrue(activeApp.buttons["What brought this here"].exists)
+        XCTAssertFalse(
+            activeApp.staticTexts[
+                "Dinner and the rest of the evening were still unshaped."
+            ].exists,
+            "evidence should begin collapsed"
+        )
+    }
+
+    @MainActor
     func testEmptyUsAtMaximumAccessibilitySettings() throws {
         let app = launchEmpty(maximumAccessibility: true)
         let us = app.buttons["field.nav.us"]
         XCTAssertTrue(us.waitForExistence(timeout: 12))
         us.tap()
 
-        let empty = app.otherElements["field.us.empty"]
+        let empty = app.staticTexts["field.us.journey.empty"]
         XCTAssertTrue(empty.waitForExistence(timeout: 6))
         XCTAssertTrue(
-            empty.label.contains("This is the long view"),
+            app.staticTexts[
+                "This room changes only when something real asks for a shared direction."
+            ].exists,
             "the empty state must explain itself as one coherent element"
         )
         keepScreenshot(
@@ -952,10 +1069,8 @@ final class FieldZoneUITests: XCTestCase {
     @MainActor
     func testCriticalZonesPassAccessibilityAudit() throws {
         let app = launchEmpty(maximumAccessibility: true)
-        XCTAssertTrue(
-            app.textFields["field.capture.input"]
-                .waitForExistence(timeout: 12)
-        )
+        let capture = app.textViews["field.capture.input"]
+        XCTAssertTrue(capture.waitForExistence(timeout: 12))
 
         try app.performAccessibilityAudit(for: [
             .hitRegion,
@@ -966,7 +1081,8 @@ final class FieldZoneUITests: XCTestCase {
 
         app.buttons["field.nav.us"].tap()
         XCTAssertTrue(
-            app.otherElements["field.us.empty"].waitForExistence(timeout: 6)
+            app.staticTexts["field.us.journey.empty"]
+                .waitForExistence(timeout: 6)
         )
         try app.performAccessibilityAudit(for: [
             .hitRegion,
@@ -1250,6 +1366,25 @@ final class FieldZoneUITests: XCTestCase {
         add(appearance)
     }
 
+    @MainActor
+    func testYoursWritesInTheRoomAndKeepsOnePrimaryAction() {
+        let app = launchZones()
+        openYours(app)
+
+        let compose = app.textViews["yours.compose"]
+        XCTAssertTrue(compose.waitForExistence(timeout: 5))
+        compose.tap()
+        compose.typeText("A thought I want to leave here")
+
+        XCTAssertTrue(app.buttons["yours.setDown"].exists)
+        XCTAssertEqual(
+            app.buttons["yours.setDown"].label.localizedLowercase,
+            "set it down"
+        )
+        XCTAssertTrue(app.buttons["Keep indefinitely"].exists)
+        XCTAssertFalse(app.navigationBars.firstMatch.exists)
+    }
+
     /// The close control used to have the whole screen as its hit region — the
     /// positioning frame sat outside the `Button` — so a tap anywhere
     /// dismissed the room, including a tap meant for the writing field. Both
@@ -1347,6 +1482,24 @@ final class FieldZoneUITests: XCTestCase {
         return app
     }
 
+    @MainActor
+    private func launchJourney(_ scenario: String) -> XCUIApplication {
+        let app = XCUIApplication()
+        WEUITestLaunchSupport.configure(app, reduceMotion: true)
+        app.launchEnvironment["WE_FIELD"] = "seeded"
+        app.launchEnvironment["WE_REPOSITORY"] = "preview"
+        app.launchEnvironment["WE_PREVIEW_SCENARIO"] = scenario
+        app.launchEnvironment["WE_SHARED_JOURNEYS"] = "1"
+        app.launchEnvironment["WE_SKIP_PROMISE"] = "1"
+        app.launchEnvironment["WE_SKIP_WALKTHROUGH"] = "1"
+        app.launchEnvironment["WE_DISABLE_CREDENTIAL_PROMPTS"] = "1"
+        app.launch()
+        XCTAssertTrue(
+            app.buttons["field.nav.us"].waitForExistence(timeout: 12)
+        )
+        return app
+    }
+
     /// What a real couple starts with: nothing. Deliberately *not* seeded —
     /// the fictional couple hides every state this app has on day one.
     @MainActor
@@ -1361,7 +1514,8 @@ final class FieldZoneUITests: XCTestCase {
             reduceTransparency: maximumAccessibility
         )
         app.launchEnvironment["WE_REPOSITORY"] = "preview"
-        app.launchEnvironment["WE_PREVIEW_SCENARIO"] = "ready"
+        app.launchEnvironment["WE_PREVIEW_SCENARIO"] = "empty"
+        app.launchEnvironment["WE_SHARED_JOURNEYS"] = "1"
         app.launchEnvironment["WE_SKIP_PROMISE"] = "1"
         app.launchEnvironment["WE_SKIP_WALKTHROUGH"] = "1"
         app.launchEnvironment["WE_DISABLE_CREDENTIAL_PROMPTS"] = "1"

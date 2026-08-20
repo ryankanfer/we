@@ -1,0 +1,11 @@
+{
+  "//": "Anchors a Deno workspace root for the Edge Functions. Without this, the frozen Next.js package.json at the repo root pulls Deno into node-compat mode and `Deno` itself stops resolving during type-check.",
+  "lock": false,
+  "nodeModulesDir": "auto",
+  "compilerOptions": {
+    "lib": ["deno.ns", "deno.window", "esnext"]
+  },
+  "tasks": {
+    "test": "deno test"
+  }
+}

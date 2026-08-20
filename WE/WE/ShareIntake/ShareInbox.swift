@@ -10,6 +10,24 @@ enum WEFeatureFlags {
         if let bool = value as? Bool { return bool }
         return (value as? String)?.lowercased() == "yes"
     }
+
+    static var sharedJourneysEnabled: Bool {
+        if let override = ProcessInfo.processInfo.environment[
+            "WE_SHARED_JOURNEYS"
+        ] {
+            return ["1", "true", "yes"].contains(override.lowercased())
+        }
+        let value = Bundle.main.object(
+            forInfoDictionaryKey: "WESharedJourneysEnabled"
+        )
+        if let bool = value as? Bool { return bool }
+        if let string = value as? String, !string.isEmpty {
+            return ["1", "true", "yes"].contains(string.lowercased())
+        }
+        // Seeded modes are explicit product fixtures. Live remains off until
+        // the deployment has the migration, worker secret, and ZDR project.
+        return FieldEntry.Mode.current != .live
+    }
 }
 
 @MainActor

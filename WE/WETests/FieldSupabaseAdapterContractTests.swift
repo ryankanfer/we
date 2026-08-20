@@ -48,7 +48,17 @@ private final class FieldAdapterURLProtocol: URLProtocol, @unchecked Sendable {
           "source":"captured",
           "detail":null,
           "is_time_critical":false,
-          "is_done":false
+          "is_done":false,
+          "visibility":"shared"
+        }]
+        """,
+        "field_life_resources": """
+        [{
+          "id":"dddddddd-dddd-dddd-dddd-dddddddddddd",
+          "life_item_id":"\(life)",
+          "kind":"link",
+          "url":"https://example.com/dentist",
+          "created_at":"2026-07-31T12:00:00Z"
         }]
         """,
         "field_horizons": """
@@ -162,6 +172,35 @@ private final class FieldAdapterURLProtocol: URLProtocol, @unchecked Sendable {
           }
         ]
         """,
+        // Both marks an adaptive surface can carry, and one row holding
+        // neither. `load()` sorts each list into `FieldState` for the same
+        // reason the hidden groups above are sorted.
+        //
+        // `set_down_by` is here and unread, exactly like `hidden_by`: the row
+        // records which of them put a surface away, and nothing on screen ever
+        // says so. Either of them can take it back up.
+        "field_adaptations": """
+        [
+          {
+            "adaptation_key":"capability:criteria:\(life)",
+            "earned_at":"2026-08-02T09:00:00Z",
+            "set_down_by":null,
+            "set_down_at":null
+          },
+          {
+            "adaptation_key":"capability:comparison:\(life)",
+            "earned_at":"2026-08-01T09:00:00Z",
+            "set_down_by":"\(b)",
+            "set_down_at":"2026-08-03T09:00:00Z"
+          },
+          {
+            "adaptation_key":"capability:schedule:\(life)",
+            "earned_at":null,
+            "set_down_by":null,
+            "set_down_at":null
+          }
+        ]
+        """,
     ]
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -244,6 +283,22 @@ final class FieldSupabaseAdapterContractTests: XCTestCase {
         )
 
         let state = try await backend.load()
+
+        XCTAssertEqual(
+            state.lifeItems.first?.visibility, .shared,
+            "the visibility column has to reach the client, or no shared "
+                + "derivation can tell private material from shared"
+        )
+        XCTAssertEqual(
+            state.adaptationsEarned,
+            [
+                "capability:comparison:33333333-3333-3333-3333-333333333333",
+                "capability:criteria:33333333-3333-3333-3333-333333333333",
+            ]
+        )
+        XCTAssertEqual(
+            state.adaptationsSetDown, ["capability:comparison:33333333-3333-3333-3333-333333333333"]
+        )
 
         XCTAssertEqual(backend.viewerOwner, .b)
         XCTAssertEqual(state.identity.nameA, "Partner A")

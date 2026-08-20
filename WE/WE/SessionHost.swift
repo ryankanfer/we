@@ -1266,14 +1266,29 @@ actor SimulationRepository: Repository {
     func submitResponse(
         insightID: String,
         choice: String,
-        note: String?
+        note: String?,
+        consentsToAIProcessing: Bool
     ) async throws {
+        guard consentsToAIProcessing else {
+            throw RepositoryError.invalidData(
+                "AI processing permission is required for a shared direction"
+            )
+        }
         try await store.mutateInsight(
             insightID,
             viewer: viewer,
             action: .submit(choice: choice, note: note)
         )
     }
+
+    func passJourneyQuestion(insightID: String) async throws {}
+
+    func confirmSharedDirection(
+        insightID: String,
+        decision: DirectionDecision
+    ) async throws {}
+
+    func completeFieldJourney(journeyID: String) async throws {}
 
     func resolveInsight(
         insightID: String,

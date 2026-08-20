@@ -192,8 +192,7 @@ struct FieldLookupPolicyTests {
     }
 
     /// Filed under Home rather than Buys, and reaching the shop branch through
-    /// `homeWords` — a different clause from the one the Buys tests cover, and
-    /// the item the UI test drives.
+    /// explicit purchasable-part evidence.
     @Test
     func theSeededAirFilterStillReachesAShop() throws {
         let filter = try #require(
@@ -203,6 +202,14 @@ struct FieldLookupPolicyTests {
         let offered = FieldLookupPolicy.choices(for: filter)
         #expect(offered.contains { $0.destination == .shops })
         #expect(!offered.contains { $0.destination == .maps })
+    }
+
+    @Test
+    func broadHomeContextDoesNotImplyBuyingAPart() {
+        for title in ["Review the lease", "Schedule the repair", "Call the super"] {
+            let offered = destinations(title, .home)
+            #expect(!offered.contains(.shops))
+        }
     }
 
     // MARK: The saved link

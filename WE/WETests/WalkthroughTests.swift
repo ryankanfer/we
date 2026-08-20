@@ -53,7 +53,7 @@ struct WalkthroughSeedTests {
     func theGreekPlaceIsFiledUnderFood() {
         for start in Self.starts {
             guard case .movement(let receipt)? = WalkthroughOutcome.resolve(
-                .movement,
+                .today,
                 now: start
             ) else {
                 Issue.record("no receipt on \(start)")
@@ -76,7 +76,7 @@ struct WalkthroughSeedTests {
     func theBottleIsReadAsNamingRyansDad() {
         for start in Self.starts {
             guard case .context(let proposal)? = WalkthroughOutcome.resolve(
-                .context,
+                .life,
                 now: start
             ) else {
                 Issue.record("no occasion on \(start)")
@@ -101,7 +101,7 @@ struct WalkthroughSeedTests {
     @Test
     func theOccasionDoesNotExistUntilItIsAgreedTo() {
         guard case .context(let proposal)? = WalkthroughOutcome.resolve(
-            .context,
+            .life,
             now: FieldSampleData.today
         ) else {
             Issue.record("no occasion")
@@ -116,7 +116,7 @@ struct WalkthroughSeedTests {
     func japanIsTheSubjectSaidTwice() {
         for start in Self.starts {
             guard case .memory(let proposal)? = WalkthroughOutcome.resolve(
-                .memory,
+                .us,
                 now: start
             ) else {
                 Issue.record("no promotion on \(start)")
@@ -143,94 +143,42 @@ struct WalkthroughSeedTests {
         #expect(Set(items.map(\.owner)) == [.a, .b])
     }
 
-    /// Every question in the app offers exactly two choices, and the
-    /// walkthrough draws whatever it is given. This is the same constraint
-    /// `FieldConstraintTests` holds the product to, asserted here because the
-    /// stage lays the two answers out side by side and a third would overflow.
+    /// Us shows the real question with its two answers side by side. A third
+    /// would overflow the compact orientation screen.
     @Test
-    func everyQuestionTheWalkthroughDrawsOffersTwoAnswers() {
-        for journey in WalkthroughJourney.allCases {
-            switch WalkthroughOutcome.resolve(
-                journey,
-                now: FieldSampleData.today
-            ) {
-            case .context(let proposal):
-                #expect(proposal.question.choices.count == 2)
-            case .memory(let proposal):
-                #expect(proposal.question.choices.count == 2)
-            case .movement, nil:
-                // The classifier files rather than asks; no question to draw.
-                break
-            }
+    func theUsQuestionOffersTwoAnswers() {
+        guard case .memory(let proposal)? = WalkthroughOutcome.resolve(
+            .us,
+            now: FieldSampleData.today
+        ) else {
+            Issue.record("no Us question")
+            return
         }
+
+        #expect(proposal.question.choices.count == 2)
     }
 }
 
-// MARK: - The chooser's ordering
+// MARK: - The orientation's order and labels
 
 struct WalkthroughJourneyOrderTests {
-    /// Each journey offers the next by name, and the last offers none. The
-    /// three views all read `journey.next` to decide whether their final
-    /// button says "Next: …" or "Done".
+    /// The walkthrough begins at the app's home, gives every space exactly one
+    /// screen, and finishes by opening the product.
     @Test
     func theJourneysChainAndThenStop() {
         let ordered = WalkthroughJourney.ordered
 
-        #expect(ordered == [.movement, .context, .memory])
-        #expect(ordered.first?.next == .context)
-        #expect(WalkthroughJourney.context.next == .memory)
-        #expect(WalkthroughJourney.memory.next == nil)
-        #expect(WalkthroughEnding.nextTitle(after: .memory) == "Done")
-        #expect(
-            WalkthroughEnding.nextTitle(after: .movement)
-                == "Next: Ryan's dad"
-        )
-    }
-}
-
-// MARK: - What the first screen shows
-
-/// The chooser stopped describing the journeys and started showing them: each
-/// door carries the couple's actual words and where they ended up. That only
-/// holds if the preview really is drawn from the resolved outcome, which is
-/// what these check.
-struct WalkthroughPreviewTests {
-    private func preview(
-        _ journey: WalkthroughJourney
-    ) -> WalkthroughOutcome.Preview? {
-        WalkthroughOutcome
-            .resolve(journey, now: FieldSampleData.today)?
-            .preview
-    }
-
-    @Test
-    func everyDoorQuotesSomethingTheCoupleActuallyWrote() {
-        #expect(preview(.movement)?.said == [WalkthroughSeed.capture])
-        #expect(preview(.context)?.said.count == 2)
-        #expect(preview(.memory)?.said.count == 2)
-
-        // Nothing empty, and nothing placeholder-shaped. A blank quotation
-        // mark on the first screen is worse than no example at all.
-        for journey in WalkthroughJourney.allCases {
-            let said = preview(journey)?.said ?? []
-            #expect(!said.isEmpty)
-            #expect(said.allSatisfy { !$0.trimmingCharacters(
-                in: .whitespaces
-            ).isEmpty })
-        }
-    }
-
-    /// The destination is the classifier's word, not one written here.
-    @Test
-    func theGreekDoorNamesTheCategoryItWasFiledTo() {
-        #expect(preview(.movement)?.landed == "FOOD")
-    }
-
-    @Test
-    func theJapanDoorQuotesBothMentions() {
-        let said = preview(.memory)?.said ?? []
-        #expect(said.contains("Japan in the spring"))
-        #expect(said.contains("Japan rail pass — worth it?"))
+        #expect(ordered == [.today, .life, .us])
+        #expect(ordered.map(\.progressIndex) == [0, 1, 2])
+        #expect(WalkthroughJourney.today.next == .life)
+        #expect(WalkthroughJourney.life.next == .us)
+        #expect(WalkthroughJourney.us.next == nil)
+        #expect(WalkthroughJourney.today.headerLabel == "TODAY · HOME")
+        #expect(WalkthroughJourney.life.headerLabel == "LIFE")
+        #expect(WalkthroughJourney.us.headerLabel == "US")
+        #expect(WalkthroughJourney.today.nextTitle == "Next: Life")
+        #expect(WalkthroughJourney.life.nextTitle == "Next: Us")
+        #expect(WalkthroughJourney.us.nextTitle == "Open WE")
     }
 }
 

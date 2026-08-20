@@ -614,14 +614,45 @@ final class AppSession: ObservableObject {
     func submitResponse(
         insightID: String,
         choice: String,
-        note: String? = nil
+        note: String? = nil,
+        consentsToAIProcessing: Bool
     ) async {
         await perform {
             try await self.repository.submitResponse(
                 insightID: insightID,
                 choice: choice,
-                note: note
+                note: note,
+                consentsToAIProcessing: consentsToAIProcessing
             )
+        }
+    }
+
+    func passJourneyQuestion(insightID: String) async {
+        await perform {
+            try await self.repository.passJourneyQuestion(insightID: insightID)
+        }
+    }
+
+    func recordJourneyQuestionShown(insightID: String) async {
+        guard connectionState == .online else { return }
+        try? await repository.recordJourneyQuestionShown(insightID: insightID)
+    }
+
+    func confirmSharedDirection(
+        insightID: String,
+        decision: DirectionDecision
+    ) async {
+        await perform {
+            try await self.repository.confirmSharedDirection(
+                insightID: insightID,
+                decision: decision
+            )
+        }
+    }
+
+    func completeFieldJourney(journeyID: String) async {
+        await perform {
+            try await self.repository.completeFieldJourney(journeyID: journeyID)
         }
     }
 

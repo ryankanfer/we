@@ -935,7 +935,12 @@ insert into public.insights (
   evidence,
   source,
   options,
-  sort
+  sort,
+  journey_scope,
+  trigger_provenance,
+  subject_references,
+  expires_at,
+  context_snapshot
 ) values (
   '83000000-0000-0000-0000-000000000001',
   (select couple_id from field_contract_context limit 1),
@@ -948,7 +953,12 @@ insert into public.insights (
   'A small check-in.',
   'A moment for tonight',
   array['Quiet and close', 'Out of the house'],
-  50
+  50,
+  'immediate',
+  'upcomingPlan',
+  '[{"kind":"plan","id":"tonight"}]'::jsonb,
+  now() + interval '24 hours',
+  jsonb_build_object('evidence', jsonb_build_array('A small check-in.'))
 );
 insert into public.insight_consent (
   insight_id,
@@ -972,6 +982,7 @@ select lives_ok(
   $$select public.submit_response(
     '83000000-0000-0000-0000-000000000001',
     'Quiet and close',
+    true,
     'A_PRIVATE_FIELD_NOTE'
   )$$,
   'Partner A submits a private answer'
@@ -1002,21 +1013,17 @@ select is(
   0::bigint,
   'Partner B cannot see Partner A''s raw answer'
 );
-select is(
-  (
-    select count(*)
-    from public.partner_answer_statuses()
-    where insight_id = '83000000-0000-0000-0000-000000000001'
-      and profile_id = '81000000-0000-0000-0000-000000000001'
-      and has_answered
-  ),
-  1::bigint,
-  'Partner B sees only that Partner A has answered'
+select throws_ok(
+  $$select * from public.partner_answer_statuses()$$,
+  '42501',
+  null,
+  'Partner B cannot inspect Partner A''s answer status'
 );
 select lives_ok(
   $$select public.submit_response(
     '83000000-0000-0000-0000-000000000001',
     'Out of the house',
+    true,
     'B_PRIVATE_FIELD_NOTE'
   )$$,
   'Partner B submits an independent private answer'
@@ -1036,8 +1043,31 @@ select is(
     from public.shared_directions
     where insight_id = '83000000-0000-0000-0000-000000000001'
   ),
+  0::bigint,
+  'mutual submission reveals nothing before protected synthesis'
+);
+
+reset role;
+select is(
+  (
+    select count(*) from public.journey_synthesis_jobs
+    where insight_id = '83000000-0000-0000-0000-000000000001'
+  ),
   1::bigint,
-  'mutual submission reveals one safe shared direction'
+  'the second answer enqueues one protected synthesis job'
+);
+select lives_ok(
+  $$select public.complete_journey_synthesis(
+    '83000000-0000-0000-0000-000000000001',
+    jsonb_build_object(
+      'status', 'proposed',
+      'summary', 'Leave the evening open and gentle',
+      'rationale', 'The unshaped evening supports a smaller shared beginning.',
+      'proposed_actions', '[]'::jsonb
+    ),
+    'field-contract-v1'
+  )$$,
+  'protected synthesis persists the safe shared result'
 );
 select ok(
   (
@@ -1052,10 +1082,8 @@ select ok(
     from public.shared_directions
     where insight_id = '83000000-0000-0000-0000-000000000001'
   ),
-  'the mutual result leaks neither private answer nor note'
+  'the synthesized result leaks neither private answer nor note'
 );
-
-reset role;
 set local role authenticated;
 select set_config(
   'request.jwt.claims',
@@ -1068,8 +1096,8 @@ select is(
     from public.responses
     where insight_id = '83000000-0000-0000-0000-000000000001'
   ),
-  1::bigint,
-  'Partner A still cannot see Partner B''s raw answer'
+  0::bigint,
+  'resolved raw answers are no longer retained'
 );
 select is(
   (
@@ -1161,6 +1189,7 @@ select throws_like(
   $$select public.submit_response(
     '83000000-0000-0000-0000-000000000001',
     'Quiet and close',
+    true,
     'OUTSIDER_PRIVATE_NOTE'
   )$$,
   '%not yours%',
@@ -1178,8 +1207,8 @@ select is(
     where insight_id = '83000000-0000-0000-0000-000000000001'
       and status = 'submitted'
   ),
-  2::bigint,
-  'database truth retains exactly two owner-only submitted answers'
+  0::bigint,
+  'database truth retains no resolved raw answer content'
 );
 select is(
   (

@@ -141,7 +141,7 @@ struct SignInView: View {
                 text: $password,
                 isSecure: true,
                 contentType: disablesCredentialPrompts
-                    ? .oneTimeCode
+                    ? nil
                     : (mode == .create ? .newPassword : .password),
                 autocapitalization: .never
             )
@@ -152,7 +152,7 @@ struct SignInView: View {
                     text: $confirmation,
                     isSecure: true,
                     contentType: disablesCredentialPrompts
-                        ? .oneTimeCode
+                        ? nil
                         : .newPassword,
                     autocapitalization: .never
                 )
@@ -176,6 +176,15 @@ struct SignInView: View {
     }
 
     private func submit() {
+        // The next account gate can appear before iOS finishes dismissing the
+        // secure-field keyboard. Resign first so its first action is not
+        // present-but-untappable behind the outgoing input surface.
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil
+        )
         Task {
             if mode == .signIn {
                 await session.signIn(email: email, password: password)

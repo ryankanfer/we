@@ -1,6 +1,26 @@
 import Foundation
 import Supabase
 
+private struct SharedJourneyDTOBatch: Sendable {
+    let insights: [InsightDTO]
+    let consents: [ConsentDTO]
+    let responses: [ResponseDTO]
+    let directions: [SharedDirectionDTO]
+    let confirmations: [DirectionConfirmationDTO]
+    let passes: [JourneyPassDTO]
+    let journeys: [SharedJourneyDTO]
+
+    static let empty = SharedJourneyDTOBatch(
+        insights: [],
+        consents: [],
+        responses: [],
+        directions: [],
+        confirmations: [],
+        passes: [],
+        journeys: []
+    )
+}
+
 final class SupabaseRepository: Repository {
     private let client: SupabaseClient?
 
@@ -351,7 +371,8 @@ final class SupabaseRepository: Repository {
     func submitResponse(
         insightID: String,
         choice: String,
-        note: String?
+        note: String?,
+        consentsToAIProcessing: Bool
     ) async throws {
         _ = try await configuredClient()
             .rpc(
@@ -359,8 +380,44 @@ final class SupabaseRepository: Repository {
                 params: SubmitResponseParameters(
                     insightID: insightID,
                     choice: choice,
-                    note: note
+                    note: note,
+                    consentsToAIProcessing: consentsToAIProcessing
                 )
+            )
+            .execute()
+    }
+
+    func passJourneyQuestion(insightID: String) async throws {
+        try await runInsightRPC("pass_journey_question", insightID: insightID)
+    }
+
+    func recordJourneyQuestionShown(insightID: String) async throws {
+        try await runInsightRPC(
+            "record_journey_question_shown",
+            insightID: insightID
+        )
+    }
+
+    func confirmSharedDirection(
+        insightID: String,
+        decision: DirectionDecision
+    ) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "confirm_shared_direction",
+                params: DirectionDecisionParameters(
+                    insightID: insightID,
+                    decision: decision.rawValue
+                )
+            )
+            .execute()
+    }
+
+    func completeFieldJourney(journeyID: String) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "complete_field_journey",
+                params: ["p_journey": journeyID]
             )
             .execute()
     }
@@ -542,7 +599,8 @@ final class SupabaseRepository: Repository {
     {
         let client = try configuredClient()
         let channel = client.channel("we-couple")
-        // Two, not nineteen.
+        // Relationship membership plus the shared-journey lifecycle. Field's
+        // remaining tables still use FieldSupabaseBackend's own channel.
         //
         // This channel used to register a `postgresChange` stream per V2 table
         // on every launch, and every one of them woke the app to re-run a
@@ -556,6 +614,13 @@ final class SupabaseRepository: Repository {
         let tables = [
             "couple_members",
             "relationship_archives",
+            "insights",
+            "insight_consent",
+            "responses",
+            "shared_directions",
+            "direction_confirmations",
+            "journey_passes",
+            "field_journeys",
         ]
         let sourceStreams = tables.map {
             channel.postgresChange(
@@ -655,6 +720,10 @@ final class SupabaseRepository: Repository {
             hueChosenAt: membershipDTO.hueChosenAt
         )
 
+        if WEFeatureFlags.sharedJourneysEnabled {
+            _ = try await client.rpc("refresh_shared_journey_question").execute()
+        }
+
         async let couplesRequest: [CoupleDTO] = client
             .from("couples")
             .select(
@@ -676,6 +745,12 @@ final class SupabaseRepository: Repository {
             .order("member_slot", ascending: true)
             .execute()
             .value
+        async let sharedJourneyRequest = loadSharedJourneyDTOs(
+            client: client,
+            userID: user.id,
+            coupleID: membership.coupleID,
+            enabled: WEFeatureFlags.sharedJourneysEnabled
+        )
         // The V2 relationship layer is not fetched.
         //
         // `WEApp.content` hands the screen to `FieldRoot` the moment the
@@ -694,9 +769,10 @@ final class SupabaseRepository: Repository {
         // client work is reversible in an afternoon; dropping tables is not,
         // and "unused by today's UI" is weaker evidence than "unused after
         // real beta behaviour". Revisit after beta.
-        let (coupleDTOs, memberDTOs) = try await (
+        let (coupleDTOs, memberDTOs, journeyDTOs) = try await (
             couplesRequest,
-            membersRequest
+            membersRequest,
+            sharedJourneyRequest
         )
 
         let members = try memberDTOs.map {
@@ -706,6 +782,42 @@ final class SupabaseRepository: Repository {
                 hue: memberHue($0.hue)
             )
         }
+        let consents = try Dictionary(
+            uniqueKeysWithValues: journeyDTOs.consents.map {
+                ($0.insightID, try consent($0))
+            }
+        )
+        let responses = try Dictionary(
+            grouping: journeyDTOs.responses.map(response),
+            by: \.insightID
+        )
+        let directions = try Dictionary(
+            uniqueKeysWithValues: journeyDTOs.directions.map {
+                ($0.insightID, try sharedDirection($0))
+            }
+        )
+        let insights = try journeyDTOs.insights.map { dto in
+            let value = try insight(dto)
+            return InsightRecord(
+                insight: value,
+                consent: consents[value.id],
+                responses: responses[value.id] ?? [],
+                sharedDirection: directions[value.id],
+                dismissedBy: [],
+                declinedBy: []
+            )
+        }
+        let confirmations = try journeyDTOs.confirmations.map(
+            directionConfirmation
+        )
+        let passes = journeyDTOs.passes.map {
+            JourneyPass(
+                insightID: $0.insightID,
+                profileID: $0.profileID,
+                passedAt: $0.passedAt
+            )
+        }
+        let journeys = try journeyDTOs.journeys.map(sharedJourney)
 
         return RelationshipSnapshot(
             profile: profile,
@@ -720,13 +832,98 @@ final class SupabaseRepository: Repository {
                 )
             },
             members: members,
-            insights: [],
+            insights: insights,
             reflections: [],
             plans: [],
             responsibilities: [],
             archives: archives,
             syncedAt: Date(),
-            v2: .empty
+            v2: .empty,
+            directionConfirmations: confirmations,
+            journeyPasses: passes,
+            journeys: journeys
+        )
+    }
+
+    /// The feature flag gates the schema read as well as the interface. That
+    /// makes rollback safe while a migration or worker deployment is still
+    /// being staged: a live client with the flag off never references the new
+    /// tables or columns.
+    private func loadSharedJourneyDTOs(
+        client: SupabaseClient,
+        userID: String,
+        coupleID: String,
+        enabled: Bool
+    ) async throws -> SharedJourneyDTOBatch {
+        guard enabled else { return .empty }
+
+        async let insightsRequest: [InsightDTO] = client
+            .from("insights")
+            .select(
+                "id,seed_key,kind,domain,present,title,body,evidence,source,"
+                    + "options,sort,journey_scope,trigger_provenance,"
+                    + "subject_references,expires_at,context_snapshot"
+            )
+            .eq("couple_id", value: coupleID)
+            .eq("present", value: true)
+            .order("sort", ascending: true)
+            .execute()
+            .value
+        async let consentsRequest: [ConsentDTO] = client
+            .from("insight_consent")
+            .select(
+                "insight_id,visibility,owner_id,readiness,initiator_id,"
+                    + "requested_at,accepted_at,resolution_type,resolution_choice"
+            )
+            .execute()
+            .value
+        async let responsesRequest: [ResponseDTO] = client
+            .from("responses")
+            .select("insight_id,profile_id,status,choice,note")
+            .eq("profile_id", value: userID)
+            .execute()
+            .value
+        async let directionsRequest: [SharedDirectionDTO] = client
+            .from("shared_directions")
+            .select(
+                "insight_id,couple_id,direction_key,eyebrow,title,message,"
+                    + "symbol,created_at,summary,rationale,proposed_actions,"
+                    + "synthesis_version,expires_at,status"
+            )
+            .execute()
+            .value
+        async let confirmationsRequest: [DirectionConfirmationDTO] = client
+            .from("direction_confirmations")
+            .select("insight_id,profile_id,decision,decided_at")
+            .eq("profile_id", value: userID)
+            .execute()
+            .value
+        async let passesRequest: [JourneyPassDTO] = client
+            .from("journey_passes")
+            .select("insight_id,profile_id,passed_at")
+            .eq("profile_id", value: userID)
+            .execute()
+            .value
+        async let journeysRequest: [SharedJourneyDTO] = client
+            .from("field_journeys")
+            .select(
+                "id,insight_id,direction_id,scope,title,summary,rationale,"
+                    + "evidence,next_move,horizon_id,status,activated_at,"
+                    + "subject_references"
+            )
+            .eq("couple_id", value: coupleID)
+            .eq("status", value: "active")
+            .execute()
+            .value
+
+        return try await SharedJourneyDTOBatch(
+            insights: insightsRequest,
+            consents: consentsRequest,
+            responses: responsesRequest,
+            directions: directionsRequest,
+            confirmations: confirmationsRequest,
+            passes: passesRequest,
+            journeys: journeysRequest
         )
     }
 
@@ -823,7 +1020,16 @@ final class SupabaseRepository: Repository {
             evidence: dto.evidence,
             source: dto.source,
             actionTitle: kind == .logistical ? "Shape a plan" : "Open together",
-            options: dto.options
+            options: dto.options,
+            journeyScope: dto.journeyScope.flatMap(JourneyScope.init(rawValue:))
+                ?? .longTerm,
+            triggerProvenance: dto.triggerProvenance.flatMap(
+                JourneyTriggerProvenance.init(rawValue:)
+            ),
+            subjectReferences: dto.subjectReferences ?? [],
+            expiresAt: dto.expiresAt,
+            contextSnapshot: dto.contextSnapshot,
+            sort: dto.sort
         )
     }
 
@@ -870,15 +1076,73 @@ final class SupabaseRepository: Repository {
 
     private func sharedDirection(
         _ dto: SharedDirectionDTO
-    ) -> SharedDirection {
-        SharedDirection(
+    ) throws -> SharedDirection {
+        let status = dto.status.flatMap(SharedDirectionStatus.init(rawValue:))
+            ?? .proposed
+        let actions = try (dto.proposedActions ?? []).map { value in
+            guard let kind = JourneyActionKind(rawValue: value.kind) else {
+                throw RepositoryError.invalidData("unknown journey action kind")
+            }
+            return ProposedJourneyAction(
+                id: value.id,
+                kind: kind,
+                title: value.title,
+                category: value.category,
+                detail: value.detail,
+                dueOn: value.dueOn
+            )
+        }
+        return SharedDirection(
             insightID: dto.insightID,
             key: dto.key,
             eyebrow: dto.eyebrow,
             title: dto.title,
             message: dto.message,
             symbol: dto.symbol,
-            createdAt: dto.createdAt
+            createdAt: dto.createdAt,
+            summary: dto.summary,
+            rationale: dto.rationale,
+            proposedActions: actions,
+            synthesisVersion: dto.synthesisVersion ?? "legacy",
+            expiresAt: dto.expiresAt,
+            status: status
+        )
+    }
+
+    private func directionConfirmation(
+        _ dto: DirectionConfirmationDTO
+    ) throws -> DirectionConfirmation {
+        guard let decision = DirectionDecision(rawValue: dto.decision) else {
+            throw RepositoryError.invalidData("unknown direction decision")
+        }
+        return DirectionConfirmation(
+            insightID: dto.insightID,
+            profileID: dto.profileID,
+            decision: decision,
+            decidedAt: dto.decidedAt
+        )
+    }
+
+    private func sharedJourney(_ dto: SharedJourneyDTO) throws -> SharedJourney {
+        guard let scope = JourneyScope(rawValue: dto.scope),
+              let status = SharedJourneyStatus(rawValue: dto.status)
+        else {
+            throw RepositoryError.invalidData("unknown shared journey state")
+        }
+        return SharedJourney(
+            id: dto.id,
+            insightID: dto.insightID,
+            directionID: dto.directionID,
+            scope: scope,
+            title: dto.title,
+            summary: dto.summary,
+            rationale: dto.rationale,
+            evidence: Array(dto.evidence.prefix(3)),
+            nextMove: dto.nextMove,
+            horizonID: dto.horizonID,
+            status: status,
+            activatedAt: dto.activatedAt,
+            subjectReferences: dto.subjectReferences ?? []
         )
     }
 

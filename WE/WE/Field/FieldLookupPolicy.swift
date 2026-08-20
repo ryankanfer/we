@@ -96,6 +96,14 @@ enum FieldLookupPolicy {
     /// asked what you meant, not a third thing the app might do behind you.
     static let maximumChoices = 3
 
+    /// Concrete parts and supplies, not the much broader words that make an
+    /// item belong in Home. A lease, a repair, or calling the super is Home
+    /// context; none is evidence that the useful next move is shopping.
+    static let homePurchaseWords = [
+        "filter", "bulb", "battery", "fuse", "hinge", "screw", "nail",
+        "caulk", "sealant", "paint", "detergent", "trash bag", "part",
+    ]
+
     /// What this app can honestly offer to look up for one item, or nothing.
     ///
     /// **Nothing is a common answer, and it should be.** Most of what a couple
@@ -121,12 +129,8 @@ enum FieldLookupPolicy {
         let sellsSomething = shop != nil
             || item.category == .buys
             || FieldClassifier.buyWords.contains { lowered.contains($0) }
-            // An air filter is filed under Home, not Buys, and "filter" is a
-            // home word rather than a buying one. Without this clause the one
-            // item in the sample seed that most obviously needs a shop is the
-            // one that stops being offered one.
             || (item.category == .home
-                && FieldClassifier.homeWords.contains { lowered.contains($0) })
+                && homePurchaseWords.contains { lowered.contains($0) })
         let namesPlace = namesAPlace(lowered)
 
         var ranked = catalogue(for: item.category).filter { choice in

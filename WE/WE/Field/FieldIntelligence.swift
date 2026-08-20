@@ -36,6 +36,9 @@ import Foundation
 // one reassurance it has not earned.
 
 enum FieldTodaySelector {
+    /// Orders the viewer's own day. Reads everything they can see.
+    static let presence: FieldPresenceKind = .personal
+
     struct Context {
         var now: Date
         var identity: FieldIdentity
@@ -755,6 +758,9 @@ enum FieldTodaySelector {
 // goes.
 
 enum FieldClassifier {
+    /// Files what one person just typed, before it is anything.
+    static let presence: FieldPresenceKind = .personal
+
     struct Context {
         var identity: FieldIdentity
         var speaker: FieldOwner
@@ -1655,6 +1661,9 @@ enum FieldCaptureSuggestions {
 // or train" — and never invents an errand nobody wrote down.
 
 enum FieldTimely {
+    /// Lists the viewer's own dated items; it does not create anything.
+    static let presence: FieldPresenceKind = .personal
+
     struct Nudge: Identifiable, Hashable, Sendable {
         let id: String
         /// "Ryan's dad in town". The occasion, or the item itself when there
@@ -1769,6 +1778,9 @@ enum FieldTimely {
 // "Timing is most of tact."
 
 enum FieldDeferral {
+    /// Timing of one person's own returns.
+    static let presence: FieldPresenceKind = .personal
+
     struct Context {
         var now: Date
         var identity: FieldIdentity
@@ -1874,6 +1886,9 @@ enum FieldDeferral {
 // highest-value item."
 
 enum FieldMomentScheduler {
+    /// One person's notification hour.
+    static let presence: FieldPresenceKind = .personal
+
     struct Decision: Hashable, Sendable {
         var shouldSend: Bool
         var statement: String?
@@ -1958,6 +1973,9 @@ enum FieldMomentScheduler {
 // subject is held (6d), so the app stops asking. Timing is most of tact.
 
 enum FieldPromotion {
+    /// Proposes a horizon, which is furniture in Us.
+    static let presence: FieldPresenceKind = .shared
+
     struct Proposal: Identifiable, Hashable, Sendable {
         var id: String
         /// "Japan" — the subject both mentions share.
@@ -2123,6 +2141,9 @@ enum FieldPromotion {
 // promotion: the pairing is dismissed, and the app does not raise it again.
 
 enum FieldOccasion {
+    /// Proposes a cluster, which both people will then live with.
+    static let presence: FieldPresenceKind = .shared
+
     /// What the couple would be agreeing to. Two shapes, one question: when
     /// `clusterID` is nil the occasion does not exist yet and answering yes
     /// creates it around the anchor; when it is set, the item joins what is
@@ -2493,6 +2514,9 @@ enum FieldOccasion {
 // is a comparison between two people wearing an organisational hat.
 
 enum FieldGrouping {
+    /// Headings over items the viewer already has in front of them.
+    static let presence: FieldPresenceKind = .personal
+
     /// A heading needs to earn its line. Two items under it is a heading with
     /// nothing to organise.
     static let minimumPerGroup = 2
@@ -2640,6 +2664,9 @@ enum FieldGrouping {
 // reason under all of them would recreate exactly the wall the zone avoids.
 
 enum FieldCategoryDigest {
+    /// Splits and annotates a room the viewer already has.
+    static let presence: FieldPresenceKind = .personal
+
     /// An item that earned an explanation, and the explanation.
     struct Row: Identifiable, Hashable, Sendable {
         var item: LifeItem
@@ -2850,6 +2877,9 @@ enum FieldCategoryDigest {
 // a statement about the app's own behaviour.
 
 enum FieldLearning {
+    /// Reports one person's own corrections back to them.
+    static let presence: FieldPresenceKind = .personal
+
     static func behaviourChanges(
         from corrections: [FieldCorrection],
         identity: FieldIdentity,

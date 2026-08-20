@@ -144,7 +144,6 @@ common_arguments=(
   -test-timeouts-enabled YES
   -default-test-execution-time-allowance 180
   -maximum-test-execution-time-allowance 600
-  CODE_SIGNING_ALLOWED=NO
   COMPILER_INDEX_STORE_ENABLE=NO
 )
 

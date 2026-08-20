@@ -24,13 +24,8 @@ import SwiftUI
 /// footer. Journeys supply the middle two and nothing else, so all three keep
 /// the same margins, the same rhythm, and the same way out.
 struct WalkthroughScaffold<Stage: View, Caption: View>: View {
-    let label: String
-    /// How far through, for the dots. Zero-based.
-    let step: Int
-    let stepCount: Int
-    /// Nil on the last step of the last journey, where "next" is not a step.
+    let journey: WalkthroughJourney
     var onNext: (() -> Void)?
-    var nextTitle = "Next"
     let onClose: () -> Void
     @ViewBuilder var stage: Stage
     @ViewBuilder var caption: Caption
@@ -46,6 +41,9 @@ struct WalkthroughScaffold<Stage: View, Caption: View>: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 header
+                WalkthroughNavigation(active: journey)
+                    .padding(.horizontal, FieldMetrics.screenSide)
+                    .padding(.bottom, FieldMetrics.sectionGapTight)
 
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: FieldMetrics.sectionGap) {
@@ -67,7 +65,7 @@ struct WalkthroughScaffold<Stage: View, Caption: View>: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
-            FieldLabel(label)
+            FieldLabel(journey.headerLabel)
 
             Spacer(minLength: 12)
 
@@ -91,17 +89,20 @@ struct WalkthroughScaffold<Stage: View, Caption: View>: View {
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 16) {
-            WalkthroughProgress(step: step, count: stepCount)
+            WalkthroughProgress(
+                step: journey.progressIndex,
+                count: WalkthroughJourney.ordered.count
+            )
 
             if let onNext {
                 Button(action: onNext) {
-                    Text(nextTitle).frame(maxWidth: .infinity)
+                    Text(journey.nextTitle).frame(maxWidth: .infinity)
                 }
                 .buttonStyle(FieldFilledButtonStyle())
                 .accessibilityIdentifier("walkthrough.next")
             } else {
                 Button(action: onClose) {
-                    Text("Done").frame(maxWidth: .infinity)
+                    Text(journey.nextTitle).frame(maxWidth: .infinity)
                 }
                 .buttonStyle(FieldFilledButtonStyle())
                 .accessibilityIdentifier("walkthrough.done")
@@ -115,23 +116,120 @@ struct WalkthroughScaffold<Stage: View, Caption: View>: View {
     }
 }
 
-/// Dots, not a bar and not "3 of 5". Three steps is a short thing and
-/// numbering it makes it sound long.
+// MARK: - The navigation they will see after the walkthrough
+
+/// A quiet, non-interactive replica of the app's navigation. Showing the real
+/// grammar on every screen makes the three explanations add up to one map:
+/// Life to the left, Today at the WE mark, and Us to the right.
+struct WalkthroughNavigation: View {
+    let active: WalkthroughJourney
+
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack(alignment: .center, spacing: 0) {
+                label("LIFE", journey: .life)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+
+                mark
+                    .padding(.horizontal, 26)
+
+                label("US", journey: .us)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            ZStack(alignment: .leading) {
+                Rectangle()
+                    .fill(FieldRule.primary)
+                    .frame(width: 48, height: 1)
+
+                Rectangle()
+                    .fill(WalkthroughSeed.identity.blend())
+                    .frame(width: 16, height: 1)
+                    .offset(x: indicatorOffset)
+            }
+            .frame(width: 48, height: 1)
+            .accessibilityHidden(true)
+        }
+        .frame(maxWidth: 440)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            "Navigation: Life, Today, Us. \(active.headerLabel) selected."
+        )
+        .accessibilityIdentifier("walkthrough.navigation")
+    }
+
+    private func label(
+        _ text: String,
+        journey: WalkthroughJourney
+    ) -> some View {
+        Text(text)
+            .font(FieldType.zoneLabel)
+            .tracking(FieldTracking.zoneLabel)
+            .foregroundStyle(
+                active == journey
+                    ? .fieldInk(.headline)
+                    : .fieldInk(.monoLabelQuiet)
+            )
+            .frame(minWidth: 44, minHeight: 44)
+    }
+
+    private var mark: some View {
+        ZStack {
+            Circle()
+                .fill(FieldPalette.ink.opacity(active == .today ? 0.11 : 0.06))
+                .overlay {
+                    Circle().strokeBorder(FieldRule.mark, lineWidth: 1)
+
+                    if active == .today {
+                        Circle().strokeBorder(
+                            WalkthroughSeed.identity.blend(),
+                            lineWidth: 1
+                        )
+                    }
+                }
+                .frame(width: 40, height: 40)
+
+            Text("WE")
+                .font(FieldType.mark)
+                .tracking(FieldTracking.mark)
+                .foregroundStyle(.fieldInk(.headline))
+        }
+        .frame(width: 48, height: 48)
+    }
+
+    private var indicatorOffset: CGFloat {
+        switch active {
+        case .life: 0
+        case .today: 16
+        case .us: 32
+        }
+    }
+}
+
+/// A small visual track plus an explicit count. A completely new person should
+/// never have to infer how much of the orientation remains.
 struct WalkthroughProgress: View {
     let step: Int
     let count: Int
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(0..<count, id: \.self) { index in
-                Capsule()
-                    .fill(
-                        index == step
-                            ? FieldPalette.ink.opacity(0.55)
-                            : FieldPalette.ink.opacity(0.18)
-                    )
-                    .frame(width: index == step ? 18 : 6, height: 3)
+        HStack(spacing: 12) {
+            HStack(spacing: 6) {
+                ForEach(0..<count, id: \.self) { index in
+                    Capsule()
+                        .fill(
+                            index == step
+                                ? FieldPalette.ink.opacity(0.55)
+                                : FieldPalette.ink.opacity(0.18)
+                        )
+                        .frame(width: index == step ? 18 : 6, height: 3)
+                }
             }
+
+            Text("\(step + 1) OF \(count)")
+                .font(FieldType.subLabel)
+                .tracking(FieldTracking.subLabel)
+                .foregroundStyle(.fieldInk(.monoLabelQuiet))
         }
         // The dots are 3pt tall and the whole row is one accessibility
         // element, which the hit-region audit rightly fails. Same fix
@@ -141,6 +239,7 @@ struct WalkthroughProgress: View {
         .contentShape(Rectangle())
         .accessibilityElement()
         .accessibilityLabel("Step \(step + 1) of \(count)")
+        .accessibilityIdentifier("walkthrough.progress")
     }
 }
 
@@ -157,6 +256,7 @@ struct WalkthroughProgress: View {
 struct WalkthroughBeat: View {
     let label: String
     let line: String
+    var detail: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -167,6 +267,14 @@ struct WalkthroughBeat: View {
                 .foregroundStyle(.fieldInk(.headline))
                 .fieldLineHeight(1.28, size: 25)
                 .fixedSize(horizontal: false, vertical: true)
+
+            if let detail {
+                Text(detail)
+                    .font(FieldType.body)
+                    .foregroundStyle(.fieldInk(.sectionSubtitle))
+                    .fieldLineHeight(1.5, size: 14.5)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

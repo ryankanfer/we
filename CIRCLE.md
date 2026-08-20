@@ -388,6 +388,8 @@ consciously and in writing, not to discover during an incident.
 - Private deletion is immediate when the relationship or the account ends
 - Written threat model before ship, covering at minimum: backup and PITR scope, replica lag, WAL
   retention, log sinks, crash-reporter payloads, and any Edge Function touching plaintext in transit
+  — see [`docs/PRIVATE_TO_SHARED_CONTRACT.md`](docs/PRIVATE_TO_SHARED_CONTRACT.md), which covers
+  `synthesize-shared-journeys` and governs what may cross from private answers into shared output
 
 ---
 

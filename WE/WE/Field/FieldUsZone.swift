@@ -17,7 +17,7 @@
 
 import SwiftUI
 
-struct FieldUsZone: View {
+struct LegacyFieldUsZone: View {
     @Environment(FieldStore.self) private var store
 
     var body: some View {

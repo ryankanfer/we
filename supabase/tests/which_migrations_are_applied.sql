@@ -60,4 +60,7 @@ select '20260803120000_field_mutation_idempotency',
          where table_schema = 'public' and table_name = 'field_corrections'
            and column_name = 'client_id'
        )
+union all
+select '20260808120000_shared_journeys_v1',
+       to_regclass('public.field_journeys') is not null
 order by 1;

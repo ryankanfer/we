@@ -25,23 +25,37 @@ nonisolated enum PreviewData {
             present: true,
             title: "How should tonight feel?",
             body: "Choose separately. WE will look for a shared direction without exposing either answer.",
-            evidence: "A small check-in for this evening.",
-            source: "A moment for tonight",
+            evidence: "Dinner and the rest of the evening are still unshaped.",
+            source: "Life · tonight's open plan",
             actionTitle: "Choose what feels right",
             options: [
                 "Quiet and close",
                 "Easy, with no decisions",
                 "Out of the house",
                 "Playful and spontaneous",
-                "Room to recharge",
-            ]
+            ],
+            journeyScope: .immediate,
+            triggerProvenance: .upcomingPlan,
+            subjectReferences: [
+                JourneySubjectReference(kind: "plan", id: "plan-sunday"),
+            ],
+            expiresAt: ISO8601DateFormatter.we.string(
+                from: Date().addingTimeInterval(JourneyScope.immediate.lifetime)
+            ),
+            contextSnapshot: JourneyContextSnapshot(
+                evidence: [
+                    "Dinner and the rest of the evening are still unshaped.",
+                ],
+                frozenAt: ISO8601DateFormatter.we.string(from: Date())
+            ),
+            sort: 0
         ),
         Insight(
             id: "weekend-shape",
             seedKey: "weekend-2026-30",
             kind: .logistical,
             domain: .us,
-            present: true,
+            present: false,
             title: "What should this weekend hold?",
             body: "Choose the shape you are quietly hoping for. WE will find the part that can belong to both of you.",
             evidence: "A little intention before the calendar fills itself.",
@@ -60,7 +74,7 @@ nonisolated enum PreviewData {
             seedKey: "load-2026-30",
             kind: .logistical,
             domain: .life,
-            present: true,
+            present: false,
             title: "What would make this week feel lighter?",
             body: "Answer privately. WE will suggest one adjustment without turning care into a score.",
             evidence: "Three active responsibilities are currently being carried.",
@@ -79,7 +93,7 @@ nonisolated enum PreviewData {
             seedKey: "plan-plan-cabin",
             kind: .logistical,
             domain: .us,
-            present: true,
+            present: false,
             title: "How should “A quiet weekend away” feel?",
             body: "The plan already exists. This is about the quality you want to protect inside it.",
             evidence: "Coming up on August 15.",
@@ -219,6 +233,123 @@ nonisolated enum PreviewData {
     )
 
     static let snapshot = makeSnapshot()
+
+    static let journeyHeldSnapshot = journeyFixture(
+        records: [
+            journeyQuestionRecord(
+                responses: [
+                    InsightResponse(
+                        insightID: "saturday-plan",
+                        profileID: "ryan",
+                        status: .submitted,
+                        choice: "Quiet and close",
+                        note: "Private"
+                    ),
+                ]
+            ),
+        ]
+    )
+
+    static let journeyProposalSnapshot = journeyFixture(
+        records: [
+            journeyQuestionRecord(
+                direction: SharedDirection(
+                    insightID: "saturday-plan",
+                    key: "preview-synthesized-v1",
+                    eyebrow: "A DIRECTION TO CHOOSE",
+                    title: "Leave the evening spacious",
+                    message: "The open plan supports a gentle beginning.",
+                    symbol: "circle.circle",
+                    createdAt: ISO8601DateFormatter.we.string(from: Date()),
+                    summary: "Leave the evening spacious.",
+                    rationale: "The open plan supports a gentle beginning.",
+                    proposedActions: [
+                        ProposedJourneyAction(
+                            id: "make-space",
+                            kind: .lifeItem,
+                            title: "Make space for the evening",
+                            category: "plans",
+                            detail: nil,
+                            dueOn: nil
+                        ),
+                    ],
+                    synthesisVersion: "preview-v1",
+                    expiresAt: ISO8601DateFormatter.we.string(
+                        from: Date().addingTimeInterval(86_400)
+                    ),
+                    status: .proposed
+                )
+            ),
+        ]
+    )
+
+    static let journeyActiveSnapshot = journeyFixture(
+        records: [],
+        journeys: [
+            SharedJourney(
+                id: "preview-journey",
+                insightID: "saturday-plan",
+                directionID: "saturday-plan",
+                scope: .immediate,
+                title: "Leave the evening spacious",
+                summary: "Begin gently and keep the rest open.",
+                rationale: "The evening was still unshaped.",
+                evidence: [
+                    "Dinner and the rest of the evening were still unshaped.",
+                ],
+                nextMove: "Make space for the evening",
+                horizonID: nil,
+                status: .active,
+                activatedAt: ISO8601DateFormatter.we.string(from: Date())
+            ),
+        ]
+    )
+
+    private static func journeyQuestionRecord(
+        responses: [InsightResponse] = [],
+        direction: SharedDirection? = nil
+    ) -> InsightRecord {
+        let question = insights.first { $0.id == "saturday-plan" }!
+        return InsightRecord(
+            insight: question,
+            consent: InsightConsent(
+                insightID: question.id,
+                visibility: .mutual,
+                ownerID: nil,
+                readiness: .accepted,
+                initiatorID: nil,
+                requestedAt: nil,
+                acceptedAt: ISO8601DateFormatter.we.string(from: Date()),
+                resolutionType: nil,
+                resolutionChoice: nil
+            ),
+            responses: responses,
+            sharedDirection: direction,
+            dismissedBy: [],
+            declinedBy: []
+        )
+    }
+
+    private static func journeyFixture(
+        records: [InsightRecord],
+        journeys: [SharedJourney] = []
+    ) -> RelationshipSnapshot {
+        let base = makeSnapshot()
+        return RelationshipSnapshot(
+            profile: base.profile,
+            membership: base.membership,
+            couple: base.couple,
+            members: base.members,
+            insights: records,
+            reflections: [],
+            plans: base.plans,
+            responsibilities: base.responsibilities,
+            archives: [],
+            syncedAt: base.syncedAt,
+            v2: .empty,
+            journeys: journeys
+        )
+    }
 
     static func makeSnapshot(
         members: [Member] = members,

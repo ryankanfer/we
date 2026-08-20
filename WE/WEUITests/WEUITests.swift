@@ -38,6 +38,13 @@ final class WEUITests: XCTestCase {
             app.staticTexts["Your side is ready."]
                 .waitForExistence(timeout: 3)
         )
+        // Recent iOS simulators can offer to save the test password from a
+        // separate system window after the app has already advanced. Decline
+        // it so this test measures the invitation route, not Passwords UI.
+        let declinePasswordSave = app.buttons["Not Now"]
+        if declinePasswordSave.waitForExistence(timeout: 2) {
+            declinePasswordSave.tap()
+        }
         let createSpace = app.buttons["pairing.createInvitation"]
         createSpace.tap()
         XCTAssertTrue(
@@ -87,12 +94,30 @@ final class WEUITests: XCTestCase {
     }
 
     @MainActor
+    func testRetiredPromiseDoesNotInterruptTheCurrentWaitingScreen() throws {
+        let app = launch(
+            scenario: "waiting",
+            skipsPromise: false
+        )
+
+        XCTAssertTrue(
+            app.buttons["accountButton"].waitForExistence(timeout: 8),
+            "a returning person should land on the current setup screen"
+        )
+        XCTAssertFalse(
+            app.staticTexts["Yours stays yours."].exists,
+            "the retired Promise must not present itself at launch"
+        )
+    }
+
+    @MainActor
     func testLivingConfluencePromiseSupportsReducedMotion() throws {
         let app = launch(
             scenario: "waiting",
             skipsPromise: false,
             reduceMotion: true
         )
+        replayPromise(in: app)
 
         XCTAssertTrue(
             app.staticTexts["Yours stays yours."]
@@ -126,6 +151,7 @@ final class WEUITests: XCTestCase {
             skipsPromise: false,
             accessibilityTextSize: true
         )
+        replayPromise(in: promiseApp)
 
         for expectedTitle in [
             "Yours stays yours.",
@@ -249,6 +275,18 @@ final class WEUITests: XCTestCase {
 
 
     @MainActor
+    private func replayPromise(in app: XCUIApplication) {
+        let account = app.buttons["accountButton"]
+        XCTAssertTrue(account.waitForExistence(timeout: 4))
+        account.tap()
+
+        let replay = app.buttons["Replay the Living Confluence Promise"]
+        scrollUntilVisible(replay, in: app, maxSwipes: 8)
+        XCTAssertTrue(replay.isHittable)
+        replay.tap()
+    }
+
+    @MainActor
     private func scrollUntilVisible(
         _ element: XCUIElement,
         in app: XCUIApplication,
@@ -263,10 +301,9 @@ final class WEUITests: XCTestCase {
     private func launch(
         scenario: String,
         skipsPromise: Bool = true,
-        // Default on, like the promise. The walkthrough opens over the welcome
-        // screen on a first run, and every test below that waits for a welcome
-        // button would otherwise fail for a reason that has nothing to do with
-        // what it is testing.
+        // The walkthrough opens over the welcome screen on a first run, and
+        // every test below that waits for a welcome button would otherwise fail
+        // for a reason that has nothing to do with what it is testing.
         skipsWalkthrough: Bool = true,
         reduceMotion: Bool = false,
         accessibilityTextSize: Bool = false
@@ -281,7 +318,6 @@ final class WEUITests: XCTestCase {
         app.launchEnvironment["WE_SKIP_WALKTHROUGH"] =
             skipsWalkthrough ? "1" : "0"
         app.launchArguments += [
-            "-hasSeenLivingConfluencePromise", skipsPromise ? "YES" : "NO",
             "-hasSeenWalkthrough", skipsWalkthrough ? "YES" : "NO",
             "-UIAccessibilityReduceMotionEnabled",
             reduceMotion ? "YES" : "NO"

@@ -350,6 +350,10 @@ final class YoursStore {
         preparingOffer = entry
     }
 
+    func cancelPreparingOffer() {
+        preparingOffer = nil
+    }
+
     func prepareOffer(
         from entry: YoursEntry,
         title: String,

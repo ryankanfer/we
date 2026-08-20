@@ -136,11 +136,18 @@ Supabase session is not allowed to reopen cached relationship data.
 ## 8. Verification
 
 The committed `WE.xctestplan` is the source of truth for native tests. Pull requests publish
-three stable checks that should be required by the default branch ruleset:
+four stable checks that should be required by the default branch ruleset:
 
 - `Schema + privacy contract`
+- `Private-to-shared contract`
 - `iOS build + unit`
 - `Critical UI smoke`
+
+`Private-to-shared contract` runs the Edge Function tests under
+`supabase/functions/`. It is the only automated check that private answers cannot reach shared
+copy, so it must be required rather than advisory — see
+[`docs/PRIVATE_TO_SHARED_CONTRACT.md`](../docs/PRIVATE_TO_SHARED_CONTRACT.md), which the suite
+enforces and does not replace.
 
 The database check rebuilds an isolated local Supabase stack from all migrations, runs every
 pgTAP contract, and fails on schema-lint warnings. In addition to the existing native-product

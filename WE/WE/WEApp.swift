@@ -8,14 +8,13 @@ struct WEApp: App {
     @StateObject private var host: SessionHost
     @StateObject private var pendingInvitation: PendingInvitation
     @StateObject private var externalSurfaces: ExternalSurfaceController
+    @StateObject private var previewSession: AppSession
     /// At the scene's root, not inside `liveApp`. Both branches of `content`
     /// have to reach it — the pre-couple screens open it by themselves, and
     /// the account surface inside the zones can ask for it again.
     @StateObject private var walkthrough = WalkthroughPresenter()
     @State private var visualEngine = VisualEngineCoordinator()
     private let testConfiguration = AppTestConfiguration.current
-    @AppStorage("hasSeenLivingConfluencePromise")
-    private var hasSeenPromise = false
     @State private var isReplayingPromise = false
 
     init() {
@@ -23,6 +22,13 @@ struct WEApp: App {
         _pendingInvitation = StateObject(wrappedValue: PendingInvitation())
         _externalSurfaces = StateObject(
             wrappedValue: ExternalSurfaceController()
+        )
+        _previewSession = StateObject(
+            wrappedValue: AppSession(
+                repository: PreviewRepository(
+                    scenario: AppEnvironment.current.previewScenario
+                )
+            )
         )
 
         // In `init` rather than a `.task`, because the payloads worth having
@@ -114,12 +120,15 @@ struct WEApp: App {
             case .gallery:
                 FieldGallery()
                     .environmentObject(previewSession)
+                    .task { await previewSession.restoreIfNeeded() }
             case .seeded:
                 FieldZoneShell()
                     .environmentObject(previewSession)
+                    .task { await previewSession.restoreIfNeeded() }
             case .demo:
                 FieldZoneShell(store: FieldStore(state: .demo))
                     .environmentObject(previewSession)
+                    .task { await previewSession.restoreIfNeeded() }
             case .live:
                 if let snapshot = host.session.snapshot,
                    isReady(host.session.state) {
@@ -157,12 +166,6 @@ struct WEApp: App {
         snapshot.emptyFieldState.identity
     }
 
-    /// Only built when a dev mode asks for it — `WE_FIELD` is unset in every
-    /// shipping run, so this never reaches a user.
-    private var previewSession: AppSession {
-        AppSession(repository: PreviewRepository())
-    }
-
     private var liveApp: some View {
         ZStack {
             ContentView {
@@ -178,7 +181,6 @@ struct WEApp: App {
             if showsPromise {
                 LivingConfluencePromise(
                     onComplete: {
-                        hasSeenPromise = true
                         isReplayingPromise = false
                     },
                     isReplay: isReplayingPromise
@@ -253,16 +255,10 @@ struct WEApp: App {
         if ProcessInfo.processInfo.environment["WE_SKIP_PROMISE"] == "1" {
             return false
         }
-        if isReplayingPromise {
-            return true
-        }
-        guard !hasSeenPromise else { return false }
-        switch host.session.state {
-        case .needsCouple, .waitingForPartner, .choosingHue, .ready:
-            return true
-        case .loading, .unconfigured, .signedOut, .verificationPending,
-                .resettingPassword, .failed:
-            return false
-        }
+        // This is preserved as an intentional re-read from Account. It no
+        // longer owns any launch state: the current walkthrough is the sole
+        // first-run explanation, and returning people land where their
+        // session actually is.
+        return isReplayingPromise
     }
 }

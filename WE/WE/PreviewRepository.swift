@@ -39,6 +39,9 @@ actor PreviewRepository: Repository {
         case .waiting: PreviewData.waitingSnapshot
         case .archived, .signedOut: PreviewData.archivedSnapshot
         case .choosingHue: PreviewData.choosingHueSnapshot
+        case .journeyHeld: PreviewData.journeyHeldSnapshot
+        case .journeyProposal: PreviewData.journeyProposalSnapshot
+        case .journeyActive: PreviewData.journeyActiveSnapshot
         }
     }
 
@@ -108,6 +111,7 @@ actor PreviewRepository: Repository {
 
     func createCouple() async throws {
         snapshot = waitingSnapshot
+        try await createInvitation()
     }
 
     func joinCouple(code: String) async throws {
@@ -401,8 +405,14 @@ actor PreviewRepository: Repository {
     func submitResponse(
         insightID: String,
         choice: String,
-        note: String?
+        note: String?,
+        consentsToAIProcessing: Bool
     ) async throws {
+        guard consentsToAIProcessing else {
+            throw RepositoryError.invalidData(
+                "AI processing permission is required for a shared direction"
+            )
+        }
         try updateInsight(insightID) { state, userID in
             try TrustCore.submitResponse(
                 state,
@@ -411,6 +421,84 @@ actor PreviewRepository: Repository {
                 note: note
             )
         }
+        synthesizePreviewDirectionIfReady(insightID: insightID)
+    }
+
+    func passJourneyQuestion(insightID: String) async throws {
+        guard let userID = currentUser?.id else {
+            throw RepositoryError.invalidData("an account is required")
+        }
+        let pass = JourneyPass(
+            insightID: insightID,
+            profileID: userID,
+            passedAt: ISO8601DateFormatter.we.string(from: Date())
+        )
+        snapshot = replacing(
+            journeyPasses: snapshot.journeyPasses
+                .filter { !($0.insightID == insightID && $0.profileID == userID) }
+                + [pass]
+        )
+    }
+
+    /// Completes outright rather than waiting for a second call. The preview
+    /// repository has one person in it, and modelling a handshake that cannot
+    /// be completed would make the gallery show a state a real couple leaves
+    /// in a moment.
+    func completeFieldJourney(journeyID: String) async throws {
+        snapshot.journeys = snapshot.journeys.map { journey in
+            guard journey.id == journeyID else { return journey }
+            var completed = journey
+            completed.status = .completed
+            return completed
+        }
+    }
+
+    func confirmSharedDirection(
+        insightID: String,
+        decision: DirectionDecision
+    ) async throws {
+        guard let userID = currentUser?.id else {
+            throw RepositoryError.invalidData("an account is required")
+        }
+        let value = DirectionConfirmation(
+            insightID: insightID,
+            profileID: userID,
+            decision: decision,
+            decidedAt: ISO8601DateFormatter.we.string(from: Date())
+        )
+        let confirmations = snapshot.directionConfirmations
+            .filter { !($0.insightID == insightID && $0.profileID == userID) }
+            + [value]
+        var journeys = snapshot.journeys
+        if decision == .choose,
+           Set(confirmations.filter {
+               $0.insightID == insightID && $0.decision == .choose
+           }.map(\.profileID)).count >= 2,
+           !journeys.contains(where: { $0.insightID == insightID }),
+           let record = snapshot.insights.first(where: { $0.id == insightID }),
+           let direction = record.sharedDirection {
+            journeys.append(SharedJourney(
+                id: "preview-journey-\(insightID)",
+                insightID: insightID,
+                directionID: insightID,
+                scope: record.insight.journeyScope,
+                title: direction.title,
+                summary: direction.displaySummary,
+                rationale: direction.displayRationale,
+                evidence: Array(
+                    (record.insight.contextSnapshot?.evidence
+                        ?? [record.insight.evidence]).prefix(3)
+                ),
+                nextMove: direction.proposedActions.first?.title,
+                horizonID: nil,
+                status: .active,
+                activatedAt: ISO8601DateFormatter.we.string(from: Date())
+            ))
+        }
+        snapshot = replacing(
+            directionConfirmations: confirmations,
+            journeys: journeys
+        )
     }
 
     func resolveInsight(
@@ -785,7 +873,10 @@ actor PreviewRepository: Repository {
         reflections: [Reflection]? = nil,
         plans: [PlanItem]? = nil,
         responsibilities: [Responsibility]? = nil,
-        v2: V2RelationshipState? = nil
+        v2: V2RelationshipState? = nil,
+        directionConfirmations: [DirectionConfirmation]? = nil,
+        journeyPasses: [JourneyPass]? = nil,
+        journeys: [SharedJourney]? = nil
     ) -> RelationshipSnapshot {
         RelationshipSnapshot(
             profile: profile ?? snapshot.profile,
@@ -798,8 +889,49 @@ actor PreviewRepository: Repository {
             responsibilities: responsibilities ?? snapshot.responsibilities,
             archives: snapshot.archives,
             syncedAt: Date(),
-            v2: v2 ?? snapshot.v2
+            v2: v2 ?? snapshot.v2,
+            directionConfirmations: directionConfirmations
+                ?? snapshot.directionConfirmations,
+            journeyPasses: journeyPasses ?? snapshot.journeyPasses,
+            journeys: journeys ?? snapshot.journeys
         )
+    }
+
+    private func synthesizePreviewDirectionIfReady(insightID: String) {
+        guard let index = snapshot.insights.firstIndex(where: { $0.id == insightID }),
+              snapshot.insights[index].sharedDirection == nil,
+              snapshot.insights[index].responses.filter({
+                  $0.status == .submitted
+              }).count >= 2
+        else { return }
+
+        let record = snapshot.insights[index]
+        var insights = snapshot.insights
+        insights[index].sharedDirection = SharedDirection(
+            insightID: insightID,
+            key: "preview-grounded",
+            eyebrow: "A DIRECTION TO CHOOSE",
+            title: "Protect an easy beginning",
+            message: "The answers support a beginning with room to adjust together.",
+            symbol: "circle.circle",
+            createdAt: ISO8601DateFormatter.we.string(from: Date()),
+            summary: "Begin simply, then leave the rest of the shape open.",
+            rationale: "This stays within the preferences held in both private answers and the shared evidence already named here.",
+            proposedActions: [
+                ProposedJourneyAction(
+                    id: "first-move",
+                    kind: .lifeItem,
+                    title: "Choose the first hour together",
+                    category: "talk",
+                    detail: nil,
+                    dueOn: nil
+                ),
+            ],
+            synthesisVersion: "preview-deterministic-v1",
+            expiresAt: record.insight.expiresAt,
+            status: .proposed
+        )
+        snapshot = replacing(insights: insights)
     }
 
     private var availableSuggestions: [ContextualSuggestion] {

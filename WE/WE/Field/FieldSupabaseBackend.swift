@@ -55,6 +55,16 @@ private struct ClusterRow: Codable {
     let anchor_date: String?
 }
 
+private struct AdaptationRow: Codable {
+    let adaptation_key: String
+    let earned_at: Date?
+    let set_down_at: Date?
+}
+
+private struct TeachingMomentRow: Codable {
+    let moment_key: String
+}
+
 private struct LifeItemRow: Codable {
     let id: UUID
     let title: String
@@ -67,6 +77,9 @@ private struct LifeItemRow: Codable {
     let detail: String?
     let is_time_critical: Bool
     let is_done: Bool
+    /// Optional so a build running against a database that predates solo
+    /// visibility still decodes. Absent resolves to `shared` in `map`.
+    let visibility: String?
 }
 
 /// The links a published share brought with it.
@@ -283,6 +296,9 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         async let hidden = fetch(
             [HiddenCategoryRow].self, from: "field_hidden_categories"
         )
+        async let adaptations = fetch(
+            [AdaptationRow].self, from: "field_adaptations"
+        )
 
         let resolvedIdentity = try await identity
         let resolvedQuestions = try await questions
@@ -311,7 +327,13 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             // `FieldMutation.setCategoryHidden` produces on replay. Two
             // `FieldState` values that differ only in the order of this array
             // would compare unequal and redraw LIFE for nothing.
-            hiddenCategories: try await hidden.map(\.category).sorted()
+            hiddenCategories: try await hidden.map(\.category).sorted(),
+            adaptationsSetDown: try await adaptations
+                .filter { $0.set_down_at != nil }
+                .map(\.adaptation_key).sorted(),
+            adaptationsEarned: try await adaptations
+                .filter { $0.earned_at != nil }
+                .map(\.adaptation_key).sorted()
         )
     }
 
@@ -477,7 +499,8 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             detail: row.detail,
             isTimeCritical: row.is_time_critical,
             isDone: row.is_done,
-            sourceURL: sourceURL
+            sourceURL: sourceURL,
+            visibility: row.visibility.flatMap(FieldVisibility.init(rawValue:))
         )
     }
 
@@ -917,6 +940,48 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
                 .eq("category", value: category)
                 .execute()
         }
+    }
+
+    /// Both marks go through RPCs rather than table writes. `set_down_by` is
+    /// stamped by the database for the reason `private.field_preserve_actor()`
+    /// established, and routing earning through a function is what lets
+    /// `earned_at` mean "first" — the `coalesce` lives server-side, where a
+    /// retried write cannot move it.
+    func setAdaptationSetDown(_ key: String, setDown: Bool) async throws {
+        _ = try await client
+            .rpc("set_down_adaptation", params: [
+                "p_key": AnyJSON.string(key),
+                "p_set_down": .bool(setDown),
+            ])
+            .execute()
+    }
+
+    func markAdaptationEarned(_ key: String) async throws {
+        _ = try await client
+            .rpc("mark_adaptation_earned", params: [
+                "p_key": AnyJSON.string(key),
+            ])
+            .execute()
+    }
+
+    /// Fetched separately from `load` rather than folded into `FieldState`.
+    /// State is couple state and it is cached to disk; this is one person's,
+    /// and it has no business in a file the other person's device also writes.
+    func teachingMoments() async throws -> [String] {
+        let rows: [TeachingMomentRow] = try await fetch(
+            [TeachingMomentRow].self, from: "field_teaching_moments"
+        )
+        return rows.map(\.moment_key)
+    }
+
+    func recordTeachingMoment(_ key: String) async throws {
+        _ = try await client
+            .from("field_teaching_moments")
+            .upsert([
+                "profile_id": AnyJSON.string(viewerID.uuidString),
+                "moment_key": .string(key),
+            ], onConflict: "profile_id,moment_key", ignoreDuplicates: true)
+            .execute()
     }
 
     func setIdentity(_ identity: FieldIdentity) async throws {

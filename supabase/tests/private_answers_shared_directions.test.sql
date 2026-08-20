@@ -11,6 +11,23 @@ select has_table(
 );
 select has_table(
   'public',
+  'journey_response_receipts',
+  'private answers leave only owner-readable submission receipts'
+);
+select hasnt_column(
+  'public',
+  'journey_response_receipts',
+  'choice',
+  'submission receipts cannot retain a choice'
+);
+select hasnt_column(
+  'public',
+  'journey_response_receipts',
+  'note',
+  'submission receipts cannot retain a private note'
+);
+select has_table(
+  'public',
   'private_proposals',
   'Soft Start proposals have owner-only storage'
 );
@@ -51,7 +68,7 @@ select ok(
 );
 select unlike(
   pg_get_functiondef(
-    'public.submit_response(uuid,text,text)'::regprocedure
+    'public.submit_response(uuid,text,boolean,text)'::regprocedure
   ),
   '%status = ''revealed''%',
   'submitting never reveals response rows'
@@ -63,19 +80,9 @@ select like(
   '%v_direction.title%',
   'resolution persists only server-produced direction wording'
 );
-select unlike(
-  pg_get_functiondef(
-    'private.shared_direction_values(uuid)'::regprocedure
-  ),
-  '%public.responses%',
-  'shared direction generation cannot query private response rows'
-);
-select unlike(
-  pg_get_functiondef(
-    'private.shared_direction_values(uuid)'::regprocedure
-  ),
-  '%v_aligned_choice%',
-  'shared direction generation cannot vary with answer content or equality'
+select ok(
+  to_regprocedure('private.shared_direction_values(uuid)') is null,
+  'the answer-blind static direction generator is retired'
 );
 
 insert into auth.users (
@@ -180,7 +187,12 @@ insert into public.insights (
   evidence,
   source,
   options,
-  sort
+  sort,
+  journey_scope,
+  trigger_provenance,
+  subject_references,
+  expires_at,
+  context_snapshot
 ) values (
   '73000000-0000-0000-0000-000000000001',
   '72000000-0000-0000-0000-000000000001',
@@ -193,7 +205,12 @@ insert into public.insights (
   'A small check-in.',
   'A moment for tonight',
   array['Quiet and close', 'Out of the house'],
-  1
+  1,
+  'immediate',
+  'upcomingPlan',
+  '[{"kind":"plan","id":"tonight"}]'::jsonb,
+  now() + interval '24 hours',
+  jsonb_build_object('evidence', jsonb_build_array('A small check-in.'))
 );
 
 insert into public.insight_consent (
@@ -208,16 +225,37 @@ insert into public.insight_consent (
   now()
 );
 
+reset role;
 set local role authenticated;
 select set_config(
   'request.jwt.claims',
   '{"sub":"71000000-0000-0000-0000-000000000001","role":"authenticated"}',
   true
 );
+select throws_ok(
+  $$select public.submit_response(
+    '73000000-0000-0000-0000-000000000001',
+    'Quiet and close',
+    false,
+    'MUST_NOT_BE_STORED'
+  )$$,
+  'P0001',
+  'OpenAI processing permission is required',
+  'an answer cannot submit without explicit OpenAI processing consent'
+);
+select is(
+  (
+    select count(*) from public.responses
+    where insight_id = '73000000-0000-0000-0000-000000000001'
+  ),
+  0::bigint,
+  'declining OpenAI processing stores no answer or note'
+);
 select lives_ok(
   $$select public.submit_response(
     '73000000-0000-0000-0000-000000000001',
     'Quiet and close',
+    true,
     'FIRST_PRIVATE_NOTE'
   )$$,
   'the first private answer submits'
@@ -239,20 +277,17 @@ select is(
   0::bigint,
   'the partner cannot select the first raw response'
 );
-select is(
-  (
-    select count(*)
-    from public.partner_answer_statuses()
-    where insight_id = '73000000-0000-0000-0000-000000000001'
-      and has_answered
-  ),
-  1::bigint,
-  'the partner receives only a boolean held status'
+select throws_ok(
+  $$select * from public.partner_answer_statuses()$$,
+  '42501',
+  null,
+  'the partner cannot inspect even a boolean answer status'
 );
 select lives_ok(
   $$select public.submit_response(
     '73000000-0000-0000-0000-000000000001',
     'Out of the house',
+    true,
     'SECOND_PRIVATE_NOTE'
   )$$,
   'the second private answer submits'
@@ -272,8 +307,79 @@ select is(
     from public.shared_directions
     where insight_id = '73000000-0000-0000-0000-000000000001'
   ),
+  0::bigint,
+  'the second submission exposes no direction before protected synthesis'
+);
+
+reset role;
+select is(
+  (
+    select count(*)
+    from public.responses
+    where insight_id = '73000000-0000-0000-0000-000000000001'
+      and status = 'submitted'
+  ),
+  2::bigint,
+  'both source rows remain submitted and owner-only'
+);
+select is(
+  (
+    select count(*)
+    from public.journey_response_receipts
+    where insight_id = '73000000-0000-0000-0000-000000000001'
+      and ai_processing_consented_at is not null
+      and ai_processing_consent_version = '2026-08-20'
+  ),
+  2::bigint,
+  'both content-free receipts retain the accepted disclosure version'
+);
+select is(
+  (
+    select count(*)
+    from public.journey_synthesis_jobs
+    where insight_id = '73000000-0000-0000-0000-000000000001'
+  ),
   1::bigint,
-  'the second submission creates one safe shared direction'
+  'the second answer enqueues synthesis exactly once'
+);
+select lives_ok(
+  $$select public.complete_journey_synthesis(
+    '73000000-0000-0000-0000-000000000001',
+    jsonb_build_object(
+      'status', 'proposed',
+      'summary', 'Leave room for a gentle evening',
+      'rationale', 'The open evening supports a smaller shared beginning.',
+      'proposed_actions', jsonb_build_array(jsonb_build_object(
+        'id', 'evening-space',
+        'kind', 'lifeItem',
+        'title', 'Make space for the evening',
+        'category', 'plans',
+        'detail', null,
+        'due_on', null
+      ))
+    ),
+    'contract-test-v1'
+  )$$,
+  'the protected worker can persist a validated shared proposal'
+);
+select is(
+  (
+    select count(*) from public.responses
+    where insight_id = '73000000-0000-0000-0000-000000000001'
+  ),
+  0::bigint,
+  'raw answers are deleted when proposal resolution finishes'
+);
+select is(
+  (
+    select count(*) from public.journey_response_receipts
+    where insight_id = '73000000-0000-0000-0000-000000000001'
+      and resolved_at is not null
+      and ai_processing_consented_at is not null
+      and ai_processing_consent_version = '2026-08-20'
+  ),
+  2::bigint,
+  'only two content-free, versioned consent receipts remain'
 );
 select ok(
   (
@@ -289,18 +395,6 @@ select ok(
     where insight_id = '73000000-0000-0000-0000-000000000001'
   ),
   'shared wording contains neither answer nor note'
-);
-
-reset role;
-select is(
-  (
-    select count(*)
-    from public.responses
-    where insight_id = '73000000-0000-0000-0000-000000000001'
-      and status = 'submitted'
-  ),
-  2::bigint,
-  'both source rows remain submitted and owner-only'
 );
 select throws_ok(
   $$insert into public.responses (
@@ -346,6 +440,74 @@ select ok(
   'caller-provided resolution wording is never persisted'
 );
 
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"71000000-0000-0000-0000-000000000001","role":"authenticated"}',
+  true
+);
+select lives_ok(
+  $$select public.confirm_shared_direction(
+    '73000000-0000-0000-0000-000000000001', 'choose'
+  )$$,
+  'one person can privately choose the proposal'
+);
+select is(
+  (select count(*) from public.field_journeys),
+  0::bigint,
+  'one acceptance cannot activate a journey'
+);
+
+reset role;
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"71000000-0000-0000-0000-000000000002","role":"authenticated"}',
+  true
+);
+select is(
+  (
+    select count(*) from public.direction_confirmations
+    where insight_id = '73000000-0000-0000-0000-000000000001'
+  ),
+  0::bigint,
+  'the second person cannot inspect the first confirmation'
+);
+select lives_ok(
+  $$select public.confirm_shared_direction(
+    '73000000-0000-0000-0000-000000000001', 'choose'
+  )$$,
+  'the second independent acceptance activates the journey'
+);
+select is(
+  (select count(*) from public.field_journeys),
+  1::bigint,
+  'both acceptances expose one active journey'
+);
+select is(
+  (
+    select count(*) from public.field_life_items
+    where journey_action_id = 'evening-space'
+  ),
+  1::bigint,
+  'the reviewed Life action is created exactly once'
+);
+select lives_ok(
+  $$select public.confirm_shared_direction(
+    '73000000-0000-0000-0000-000000000001', 'choose'
+  )$$,
+  'a retried acceptance is idempotent'
+);
+select is(
+  (
+    select count(*) from public.field_life_items
+    where journey_action_id = 'evening-space'
+  ),
+  1::bigint,
+  'a retry cannot duplicate the reviewed Life action'
+);
+
+reset role;
 set local role authenticated;
 select set_config(
   'request.jwt.claims',

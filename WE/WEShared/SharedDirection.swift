@@ -1,9 +1,7 @@
 import Foundation
 
 /// The only result that can cross from two owner-only answers into shared UI.
-///
-/// Its copy is prepared from public insight context. It never contains or
-/// varies with either person's answer, note, or answer equality.
+/// Exact answers and notes are never copied into this value.
 nonisolated struct SharedDirection: Codable, Hashable, Sendable {
     let insightID: String
     let key: String
@@ -12,4 +10,13 @@ nonisolated struct SharedDirection: Codable, Hashable, Sendable {
     let message: String
     let symbol: String
     let createdAt: String?
+    var summary: String? = nil
+    var rationale: String? = nil
+    var proposedActions: [ProposedJourneyAction] = []
+    var synthesisVersion: String = "legacy"
+    var expiresAt: String? = nil
+    var status: SharedDirectionStatus = .proposed
+
+    var displaySummary: String { summary ?? title }
+    var displayRationale: String { rationale ?? message }
 }

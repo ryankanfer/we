@@ -160,13 +160,13 @@ struct FieldCaptureField: View {
                         .foregroundStyle(.fieldInk(.monoLabel))
                 }
 
-                TextField("", text: $store.captureDraft, axis: .vertical)
+                TextEditor(text: $store.captureDraft)
                     .font(FieldType.captureInput)
                     .foregroundStyle(.fieldInk(.headline))
                     .tint(store.identity.personA.color)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 48, maxHeight: 128)
                     .focused($isFocused)
-                    .submitLabel(.done)
-                    .onSubmit { submit() }
                     .accessibilityLabel("Tell WE anything")
                     .accessibilityIdentifier("field.capture.input")
             }
@@ -338,16 +338,7 @@ struct FieldCaptureField: View {
                     // TODAY chip that appears above — the app shows what it is
                     // about to do rather than announcing that it did it.
                     if receipt.category.carriesDates {
-                        Button(isForToday(receipt) ? "Not today" : "For today") {
-                            store.toggleForToday()
-                        }
-                        .buttonStyle(FieldQuietButtonStyle())
-                        .accessibilityIdentifier("field.receipt.today")
-                        .accessibilityHint(
-                            isForToday(receipt)
-                                ? "Takes the date back off"
-                                : "Puts it on today"
-                        )
+                        receiptTodayButton(receipt)
                     }
 
                     Button("Wrong place") { store.beginCorrection() }
@@ -380,6 +371,18 @@ struct FieldCaptureField: View {
     private func isForToday(_ receipt: FieldReceipt) -> Bool {
         guard let dueOn = receipt.dueOn else { return false }
         return Calendar.gregorianUS.isDate(dueOn, inSameDayAs: store.now)
+    }
+
+    private func receiptTodayButton(_ receipt: FieldReceipt) -> some View {
+        let forToday = isForToday(receipt)
+        return Button(forToday ? "Not today" : "For today") {
+            store.toggleForToday()
+        }
+        .buttonStyle(FieldQuietButtonStyle())
+        .accessibilityIdentifier("field.receipt.today")
+        .accessibilityHint(
+            forToday ? "Takes the date back off" : "Puts it on today"
+        )
     }
 
     /// One tap to a corrected destination. Not a picker wheel, not a sheet —

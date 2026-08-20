@@ -99,6 +99,19 @@ protocol FieldBackend: Sendable {
 
     func changes() -> AsyncStream<Void>
 
+    /// Set an adaptive surface down, or take it back up. Never touches the
+    /// records the surface was reading.
+    func setAdaptationSetDown(_ key: String, setDown: Bool) async throws
+
+    /// Record that a surface crossed its threshold, once. Idempotent.
+    func markAdaptationEarned(_ key: String) async throws
+
+    /// What this person — not this device, and not this couple — has already
+    /// been shown once.
+    func teachingMoments() async throws -> [String]
+
+    func recordTeachingMoment(_ key: String) async throws
+
     /// How much of this person's solo history has not crossed to their
     /// partner, so the disclosure can name a number before anybody commits.
     func soloHistoryCount() async throws -> Int
@@ -118,6 +131,16 @@ protocol FieldBackend: Sendable {
 /// behind it has no solo era to cross, and returning nothing means the
 /// disclosure never appears where it would be meaningless.
 extension FieldBackend {
+    /// No-ops for the same reason `soloHistoryCount` returns zero: a backend
+    /// with no database behind it has nowhere to keep a mark, and the previews,
+    /// the gallery, and every test fake keep conforming without a line of
+    /// change. A surface in those builds simply re-derives its state each time,
+    /// which is the honest behaviour when nothing is being remembered.
+    func setAdaptationSetDown(_ key: String, setDown: Bool) async throws {}
+    func markAdaptationEarned(_ key: String) async throws {}
+    func teachingMoments() async throws -> [String] { [] }
+    func recordTeachingMoment(_ key: String) async throws {}
+
     func soloHistoryCount() async throws -> Int { 0 }
     func shareSoloHistory() async throws -> Int { 0 }
 
@@ -169,6 +192,26 @@ struct FieldState: Codable, Hashable, Sendable {
     /// database column is text: this is a stored row, and it must survive a
     /// value the current build would refuse to construct.
     var hiddenCategories: [String] = []
+
+    /// Adaptive surfaces the couple has set down, by `FieldAdaptationKey`.
+    ///
+    /// Setting one down hides the surface and touches none of its inputs —
+    /// that reversibility is the whole point. Couple-wide rather than
+    /// per-person, because a shared surface has to be present or absent for
+    /// both; one person quietly keeping a room the other closed would be the
+    /// same asymmetry `FieldPresenceKind` rules out.
+    ///
+    /// Sorted arrays rather than `Set`s here and below for the reason
+    /// `hiddenCategories` documents: the cache file and this value's
+    /// `Hashable` conformance must be stable across two devices.
+    var adaptationsSetDown: [String] = []
+
+    /// Adaptive surfaces that have crossed their threshold at least once.
+    ///
+    /// The persisted half of `FieldThreshold`'s hysteresis. Stored per couple
+    /// rather than per device so both people gain and keep the same furniture
+    /// at the same moment.
+    var adaptationsEarned: [String] = []
 
     /// What a real couple starts with: nothing.
     ///
@@ -387,6 +430,13 @@ final class FieldStore {
 
     private(set) var loadState: LoadState = .loading
 
+    /// What this person has already been shown once.
+    ///
+    /// Not part of `FieldState`, and deliberately not `@AppStorage`: a
+    /// first-time explanation is meant to happen once in a person's life with
+    /// the product, not once per phone they install it on.
+    private(set) var teachingMoments: Set<String> = []
+
     /// When the server last answered — from the cache at launch, then from
     /// each successful load. What `.stale` renders.
     private(set) var lastLoadedAt: Date?
@@ -505,19 +555,44 @@ final class FieldStore {
     /// them — which is what the walkthrough does, and it is the reason it can
     /// be said to show the real rule rather than a picture of one.
     var occasionProposal: FieldOccasion.Proposal? {
-        FieldOccasion.proposal(selectorContext)
+        FieldOccasion.proposal(sharedSelectorContext)
     }
 
     var promotionProposal: FieldPromotion.Proposal? {
-        FieldPromotion.proposal(selectorContext)
+        FieldPromotion.proposal(sharedSelectorContext)
     }
 
+    /// Today's ordering reads everything this person can see, including their
+    /// own uncrossed solo history. That is correct: it is their view.
     private var selectorContext: FieldTodaySelector.Context {
+        selectorContext(items: state.lifeItems)
+    }
+
+    /// The same context with private rows removed, for the derivations that
+    /// bring something *new* into existence for both people — see
+    /// `FieldPresenceKind`.
+    ///
+    /// The line is narrower than "anything on a shared screen", and the
+    /// narrowness is deliberate. `FieldCategoryDigest` and `FieldGrouping`
+    /// read the unfiltered context on purpose: they order and annotate items
+    /// the viewer is already entitled to see, and filtering them would delete
+    /// a person's own solo-era items out of their own category room. What
+    /// must be filtered is the derivations whose output is a thing appearing
+    /// — a cluster, a horizon, a capability — because presence is binary and
+    /// conspicuous, and "why do you have a section I don't?" is a question
+    /// about private material that neither person can answer.
+    private var sharedSelectorContext: FieldTodaySelector.Context {
+        selectorContext(items: state.lifeItems.filter(\.isSharedPresence))
+    }
+
+    private func selectorContext(
+        items: [LifeItem]
+    ) -> FieldTodaySelector.Context {
         FieldTodaySelector.Context(
             now: now,
             identity: state.identity,
             partners: state.partners,
-            lifeItems: state.lifeItems,
+            lifeItems: items,
             clusters: state.clusters,
             horizons: state.horizons,
             heldTopics: state.heldTopics,
@@ -530,6 +605,23 @@ final class FieldStore {
                     .filter { calendar.isDate($0.value, inSameDayAs: now) }
                     .keys
             ),
+            calendar: calendar
+        )
+    }
+
+    /// The material every `.shared` derivation reads.
+    ///
+    /// Private rows are removed inside `FieldSharedPresenceContext.init`, not
+    /// here, so there is no version of this property that forgets to filter.
+    var sharedPresenceContext: FieldSharedPresenceContext {
+        FieldSharedPresenceContext(
+            now: now,
+            lifeItems: state.lifeItems,
+            clusters: state.clusters,
+            horizons: state.horizons,
+            evidence: state.evidence,
+            setDown: Set(state.adaptationsSetDown),
+            earned: Set(state.adaptationsEarned),
             calendar: calendar
         )
     }
@@ -1443,6 +1535,62 @@ final class FieldStore {
         return true
     }
 
+    // MARK: Adaptive surfaces
+
+    /// Put an adaptive surface away.
+    ///
+    /// The inputs are untouched — this store knows the key and nothing else,
+    /// so there is no path from here to the records the surface was reading.
+    /// That is what makes the gesture safe to offer.
+    func setDown(adaptation key: String) {
+        guard !state.adaptationsSetDown.contains(key) else { return }
+        state.adaptationsSetDown.append(key)
+        state.adaptationsSetDown.sort()
+        Task { [backend] in
+            try? await backend?.setAdaptationSetDown(key, setDown: true)
+        }
+    }
+
+    /// And takes it back up. Either of them can, whoever set it down — the
+    /// same rule as a LIFE group.
+    func takeUp(adaptation key: String) {
+        guard state.adaptationsSetDown.contains(key) else { return }
+        state.adaptationsSetDown.removeAll { $0 == key }
+        Task { [backend] in
+            try? await backend?.setAdaptationSetDown(key, setDown: false)
+        }
+    }
+
+    /// Record that surfaces crossed their threshold, so both people keep them
+    /// from the same moment. Idempotent at every layer; safe to call from a
+    /// view's `task`.
+    func markEarned(_ keys: [String]) {
+        let fresh = keys.filter { !state.adaptationsEarned.contains($0) }
+        guard !fresh.isEmpty else { return }
+        state.adaptationsEarned.append(contentsOf: fresh)
+        state.adaptationsEarned.sort()
+        Task { [backend] in
+            for key in fresh {
+                try? await backend?.markAdaptationEarned(key)
+            }
+        }
+    }
+
+    // MARK: Teaching
+
+    func hasBeenTaught(_ moment: String) -> Bool {
+        teachingMoments.contains(moment)
+    }
+
+    /// Marks a first-time explanation as delivered, for this person, for good.
+    func teach(_ moment: String) {
+        guard !teachingMoments.contains(moment) else { return }
+        teachingMoments.insert(moment)
+        Task { [backend] in
+            try? await backend?.recordTeachingMoment(moment)
+        }
+    }
+
     /// And picks it back up. Either of them can, whoever set it down.
     func bringBack(_ category: LifeCategory) {
         guard state.hiddenCategories.contains(category.rawValue) else { return }
@@ -1493,7 +1641,7 @@ final class FieldStore {
     func answer(_ question: FieldQuestion, with choice: FieldChoice) {
         // A promotion question has no horizon behind it yet — answering it is
         // what decides whether there is ever going to be one.
-        if let proposal = FieldPromotion.proposal(selectorContext),
+        if let proposal = FieldPromotion.proposal(sharedSelectorContext),
            proposal.question.id == question.id {
             if choice.id == proposal.affirmative?.id {
                 promote(proposal, answering: choice)
@@ -1508,7 +1656,7 @@ final class FieldStore {
 
         // An occasion question has no cluster behind it either, when the
         // occasion is one the app is offering to form.
-        if let proposal = FieldOccasion.proposal(selectorContext),
+        if let proposal = FieldOccasion.proposal(sharedSelectorContext),
            proposal.question.id == question.id {
             if choice.id == proposal.affirmative?.id {
                 attach(proposal)
@@ -1989,6 +2137,9 @@ final class FieldStore {
             state = try await backend.load()
             lastLoadedAt = now
             loadState = .loaded
+            // Separate from state on purpose: this is one person's, and
+            // `FieldState` is the couple's and is cached to disk.
+            teachingMoments = Set((try? await backend.teachingMoments()) ?? [])
         } catch {
             // Cached data is still worth drawing; it was true recently and
             // saying so is more useful than an empty screen. Without a cache

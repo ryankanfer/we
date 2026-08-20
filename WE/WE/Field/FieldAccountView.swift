@@ -24,6 +24,8 @@ struct FieldAccountView: View {
 
     @State private var showsDelete = false
     @State private var showsFeedback = false
+    @State private var showsPrivacyPolicy = false
+    @State private var copiedInvitationCode = false
 
     var body: some View {
         ZStack {
@@ -37,7 +39,15 @@ struct FieldAccountView: View {
                     identity
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
+                    if canInvitePartner {
+                        partnerConnection
+                            .padding(.bottom, FieldMetrics.sectionGapLoose)
+                    }
+
                     noticing
+                        .padding(.bottom, FieldMetrics.sectionGapLoose)
+
+                    privacy
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
                     understanding
@@ -66,6 +76,15 @@ struct FieldAccountView: View {
                 email: session.user?.email
             )
         }
+        .fullScreenCover(isPresented: $showsPrivacyPolicy) {
+            NavigationStack {
+                WEPrivacyPolicyView(showsCloseButton: true)
+            }
+            .preferredColorScheme(.dark)
+        }
+        .onChange(of: liveInvitation?.code) { _, _ in
+            copiedInvitationCode = false
+        }
     }
 
     private var closeButton: some View {
@@ -93,6 +112,118 @@ struct FieldAccountView: View {
                 .foregroundStyle(.fieldInk(.headline))
                 .fieldLineHeight(1.16, size: 32)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // MARK: Partner connection
+
+    private var canInvitePartner: Bool {
+        session.snapshot?.canInvitePartner ?? false
+    }
+
+    private var liveInvitation: PartnerInvitation? {
+        session.snapshot?.couple?.activeInvitation()
+    }
+
+    private var partnerConnection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldRuleLine()
+
+            FieldLabel("Partner connection")
+                .padding(.top, 20)
+                .padding(.bottom, 6)
+
+            if let invitation = liveInvitation {
+                liveInvitationContent(invitation)
+            } else {
+                createInvitationContent
+            }
+        }
+        .accessibilityIdentifier("field.account.invitation")
+    }
+
+    private func liveInvitationContent(
+        _ invitation: PartnerInvitation
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(
+                "Share this link or code with your partner. The invitation "
+                    + "itself contains no private writing or answers."
+            )
+            .font(FieldType.body)
+            .foregroundStyle(.fieldInk(.sectionSubtitle))
+            .fieldLineHeight(1.6, size: 14.5)
+            .fixedSize(horizontal: false, vertical: true)
+
+            Text(invitation.code)
+                .font(FieldType.metric)
+                .tracking(4)
+                .foregroundStyle(.fieldInk(.headline))
+                .textSelection(.enabled)
+                .accessibilityLabel("Join code \(invitation.code)")
+
+            Text(
+                "Works until "
+                    + invitation.expiresAt.formatted(
+                        .dateTime.month(.wide).day()
+                    )
+                    + "."
+            )
+            .font(FieldType.body)
+            .foregroundStyle(.fieldInk(.metadataProse))
+            .fixedSize(horizontal: false, vertical: true)
+
+            ShareLink(item: invitation.shareMessage) {
+                Text("Share invitation")
+            }
+            .buttonStyle(FieldFilledButtonStyle())
+            .accessibilityIdentifier("field.account.invitation.share")
+
+            Button(copiedInvitationCode ? "Copied" : "Copy code") {
+                UIPasteboard.general.string = invitation.code
+                copiedInvitationCode = true
+            }
+            .buttonStyle(FieldOutlinedButtonStyle())
+            .accessibilityIdentifier("field.account.invitation.copy")
+
+            Button("Replace this invitation") {
+                Task { await session.createInvitation() }
+            }
+            .buttonStyle(FieldQuietButtonStyle())
+            .disabled(session.isWorking || !session.canMutate)
+            .accessibilityIdentifier("field.account.invitation.replace")
+
+            Text("Replacing it stops the current link and code immediately.")
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.metadataProse))
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button("Withdraw this invitation") {
+                Task { await session.revokeInvitation() }
+            }
+            .buttonStyle(FieldQuietButtonStyle())
+            .disabled(session.isWorking || !session.canMutate)
+            .accessibilityIdentifier("field.account.invitation.revoke")
+        }
+    }
+
+    private var createInvitationContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(
+                "When you are ready, make a private invitation for your "
+                    + "partner. It expires after seven days."
+            )
+            .font(FieldType.body)
+            .foregroundStyle(.fieldInk(.sectionSubtitle))
+            .fieldLineHeight(1.6, size: 14.5)
+            .fixedSize(horizontal: false, vertical: true)
+
+            Button("Create invitation") {
+                Task { await session.createInvitation() }
+            }
+            .buttonStyle(FieldFilledButtonStyle())
+            .disabled(session.isWorking || !session.canMutate)
+            .accessibilityIdentifier("field.account.invitation.create")
         }
     }
 
@@ -190,6 +321,32 @@ struct FieldAccountView: View {
         return session.v2State.signalConsents.first {
             $0.profileID == session.user?.id && $0.signal == signal
         }?.isEnabled ?? true
+    }
+
+    private var privacy: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldRuleLine()
+
+            FieldLabel("Privacy and data")
+                .padding(.top, 20)
+                .padding(.bottom, 18)
+
+            Button("Read the privacy policy") {
+                showsPrivacyPolicy = true
+            }
+            .buttonStyle(FieldOutlinedButtonStyle())
+            .accessibilityIdentifier("field.account.privacyPolicy")
+
+            Text(
+                "It names what WE stores, which services process it, how "
+                    + "OpenAI is used, and how to delete your account."
+            )
+            .font(FieldType.body)
+            .foregroundStyle(.fieldInk(.metadataProse))
+            .fieldLineHeight(1.5, size: 14.5)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 14)
+        }
     }
 
     // MARK: Understanding

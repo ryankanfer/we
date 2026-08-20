@@ -12,7 +12,7 @@ import Testing
 @MainActor
 struct WETests {
     @Test
-    func happyPathCreatesOnlyASafeSharedDirection() throws {
+    func secondAnswerWaitsForProtectedServerSynthesis() throws {
         var state = TrustCore.initialState()
         state = try TrustCore.requestReveal(state, by: "ry", at: 1)
 
@@ -46,16 +46,14 @@ struct WETests {
         let projection = try #require(
             TrustCore.project(state, for: "dylan")
         )
-        let direction = try #require(projection.sharedDirection)
-        #expect(projection.phase == .shared)
+        #expect(projection.phase == .held)
         #expect(projection.partnerResponse == nil)
         #expect(projection.matched == nil)
-        #expect(!direction.title.contains("Keep it"))
-        #expect(!direction.message.contains("time away"))
+        #expect(projection.sharedDirection == nil)
     }
 
     @Test
-    func differentAnswersStillProduceOnlyAReversibleDirection() throws {
+    func differentAnswersCannotBeResolvedOnDevice() throws {
         var state = TrustCore.initialState()
         state = try TrustCore.requestReveal(state, by: "ry", at: 0)
         state = try TrustCore.acceptReveal(state, by: "dylan", at: 1)
@@ -70,28 +68,21 @@ struct WETests {
             choice: "Change it"
         )
 
-        #expect(state.sharedDirection?.key == "shared-room")
+        #expect(state.sharedDirection == nil)
         #expect(state.resolution == nil)
-
-        state = try TrustCore.resolve(
-            state,
-            type: .leftOpen,
-            at: 2
-        )
-        #expect(state.resolution?.type == .leftOpen)
-        #expect(state.resolution?.choice == nil)
+        #expect(throws: TrustTransitionError.self) {
+            try TrustCore.resolve(state, type: .leftOpen, at: 2)
+        }
     }
 
     @Test
-    func sharedDirectionCannotRevealAnswerContentOrEquality() throws {
+    func answerContentNeverProducesSharedCopyOnDevice() throws {
         let privateChoices = [
             "Quiet and close",
             "Out of the house",
             "Playful and spontaneous",
             "A choice containing UNIQUE_PRIVATE_MARKER",
         ]
-        var visibleDirections = Set<SharedDirection>()
-
         for firstChoice in privateChoices {
             for secondChoice in privateChoices {
                 var state = TrustCore.initialState(
@@ -119,18 +110,9 @@ struct WETests {
                     choice: secondChoice,
                     note: "SECOND_PRIVATE_NOTE"
                 )
-                visibleDirections.insert(
-                    try #require(state.sharedDirection)
-                )
+                #expect(state.sharedDirection == nil)
             }
         }
-
-        #expect(visibleDirections.count == 1)
-        let visibleCopy = visibleDirections
-            .map { "\($0.title) \($0.message)" }
-            .joined(separator: " ")
-        #expect(!visibleCopy.contains("UNIQUE_PRIVATE_MARKER"))
-        #expect(!visibleCopy.contains("PRIVATE_NOTE"))
     }
 
     @Test
@@ -475,6 +457,15 @@ struct WETests {
             by: "dylan",
             choice: "Keep it"
         )
+        state.sharedDirection = SharedDirection(
+            insightID: state.insightID,
+            key: "server-result",
+            eyebrow: "A DIRECTION TO CHOOSE",
+            title: "Protect an easy beginning",
+            message: "Grounded shared reasoning.",
+            symbol: "circle.circle",
+            createdAt: nil
+        )
         state = try TrustCore.resolve(
             state,
             type: .settled,
@@ -501,7 +492,8 @@ struct WETests {
         try await repository.submitResponse(
             insightID: insightID,
             choice: "Out of the house",
-            note: nil
+            note: nil,
+            consentsToAIProcessing: true
         )
         var snapshot = try await repository.loadRelationship(
             for: PreviewData.user
@@ -568,11 +560,11 @@ struct WETests {
         let projection = try #require(
             TrustCore.project(state, for: "ry")
         )
-        #expect(projection.phase == .shared)
+        #expect(projection.phase == .held)
         #expect(projection.myResponse.status == .submitted)
         #expect(projection.partnerResponse == nil)
         #expect(projection.matched == nil)
-        #expect(projection.sharedDirection?.message.contains("SECRET") == false)
+        #expect(projection.sharedDirection == nil)
     }
 
     @Test
@@ -1058,6 +1050,26 @@ struct WETests {
         #expect(restored.version == CachedRelationship.currentVersion)
         #expect(restored.snapshot.v2State == snapshot.v2State)
         #expect(restored.snapshot.responsibilities == snapshot.responsibilities)
+    }
+
+    @Test
+    func submitResponseParametersCarryExplicitAIConsent() throws {
+        let encoded = try JSONEncoder().encode(
+            SubmitResponseParameters(
+                insightID: "insight-id",
+                choice: "Quiet and close",
+                note: "private",
+                consentsToAIProcessing: true
+            )
+        )
+        let object = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+
+        #expect(object["p_insight"] as? String == "insight-id")
+        #expect(object["p_choice"] as? String == "Quiet and close")
+        #expect(object["p_note"] as? String == "private")
+        #expect(object["p_ai_processing_consent"] as? Bool == true)
     }
 
     private func testPlan(

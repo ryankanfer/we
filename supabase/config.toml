@@ -49,3 +49,6 @@ otp_expiry = 3600
 
 [functions.cleanup-life-resources]
 verify_jwt = true
+
+[functions.synthesize-shared-journeys]
+verify_jwt = false
