@@ -96,3 +96,53 @@ final class WEStillnessUITests: XCTestCase {
         return app
     }
 }
+
+/// The colour picker, after Pigment.
+final class WEPigmentUITests: XCTestCase {
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+    }
+
+    @MainActor
+    func testTheEightFamiliesAreOfferedAsWords() throws {
+        let app = XCUIApplication()
+        WEUITestLaunchSupport.configure(app, reduceMotion: true)
+        app.launchEnvironment["WE_FIELD"] = "gallery"
+        app.launchEnvironment["WE_SKIP_PROMISE"] = "1"
+        app.launchEnvironment["WE_SKIP_WALKTHROUGH"] = "1"
+        app.launchArguments += [
+            "-hasSeenLivingConfluencePromise", "YES",
+            "-hasSeenWalkthrough", "YES",
+        ]
+        app.launch()
+
+        let row = app.buttons
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", "Onboarding"))
+            .firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 8))
+        row.tap()
+
+        // All eight, to one person. The warm and cool split halved the choice
+        // to solve a problem Pigment solves by measurement.
+        for family in ["burgundy", "rose", "rust", "amber",
+                       "sage", "moss", "teal", "indigo"] {
+            XCTAssertTrue(
+                app.buttons["field.swatch.\(family)"]
+                    .waitForExistence(timeout: 4),
+                "\(family) is not offered"
+            )
+        }
+
+        keepScreenshot(of: app, named: "golden.we.pigment.picker")
+
+        // Names, not step numbers or category headers.
+        for banned in ["01", "02", "SETTING UP · 1 OF 3", "1 OF 3",
+                       "THEN THREE QUESTIONS", "YOUR COLOUR",
+                       "OUR ATMOSPHERE"] {
+            XCTAssertFalse(
+                app.staticTexts[banned].exists,
+                "the picker must not show \(banned)"
+            )
+        }
+    }
+}

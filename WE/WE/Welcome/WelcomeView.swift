@@ -177,7 +177,7 @@ struct WelcomeView: View {
     private var privacy: some View {
         VStack(alignment: .leading, spacing: 14) {
             Rectangle()
-                .fill(FieldSwatch.clay.color.opacity(0.7))
+                .fill(FieldSwatch.burgundy.color.opacity(0.7))
                 .frame(width: 56, height: 1)
                 .accessibilityHidden(true)
 

@@ -900,35 +900,43 @@ final class FieldZoneUITests: XCTestCase {
 
     // MARK: Onboarding (6f)
 
+    /// Onboarding asks for a colour and nothing else.
+    ///
+    /// The three questions used to sit directly under the blend, so the
+    /// moment the couple's two colours became a third thing was immediately
+    /// followed by a form — and they were the only screen in the sequence
+    /// asking the couple to produce data rather than receive something. They
+    /// are cut, and return days later as the first thing WE asks on its own.
+    ///
+    /// Asserted as absence rather than deleted outright, because "we removed
+    /// the questions" and "the questions quietly came back" look identical in
+    /// a diff a year from now.
     @MainActor
-    func testOnboardingAnswersAreOptionalAndReversible() throws {
+    func testOnboardingAsksForAColourAndNothingElse() throws {
         let app = launchOnboarding()
 
         XCTAssertTrue(
-            app.staticTexts["Choose a colour each."]
-                .waitForExistence(timeout: 8)
+            app.staticTexts["Choose yours."].waitForExistence(timeout: 8)
         )
 
-        // Three questions and a calendar is the entire cold start.
-        XCTAssertTrue(app.staticTexts["Do you live together?"].exists)
-        XCTAssertTrue(
-            app.staticTexts["What's the one thing you're saving for?"].exists
-        )
-        XCTAssertTrue(
-            app.staticTexts["Who or what else do you look after?"].exists
-        )
+        for question in [
+            "Do you live together?",
+            "What's the one thing you're saving for?",
+            "Who or what else do you look after?",
+        ] {
+            XCTAssertFalse(
+                app.staticTexts[question].exists,
+                "onboarding must not ask: \(question)"
+            )
+        }
 
-        let yes = app.buttons["field.onboarding.livesTogether.true"]
-        XCTAssertTrue(yes.waitForExistence(timeout: 4))
-        yes.tap()
-        XCTAssertTrue(yes.isSelected)
+        // And none of the setup scaffolding the questions came wrapped in.
+        for banned in ["SETTING UP · 1 OF 3", "THEN THREE QUESTIONS"] {
+            XCTAssertFalse(app.staticTexts[banned].exists, banned)
+        }
 
-        // Tapping the chosen answer again clears it — nothing is compulsory,
-        // including having answered.
-        yes.tap()
-        XCTAssertFalse(yes.isSelected)
-
-        // Finishing is reachable without answering anything at all.
+        // What is left is the choice and one word.
+        XCTAssertTrue(app.buttons["field.swatch.burgundy"].exists)
         let finish = app.buttons["field.onboarding.finish"]
         XCTAssertTrue(finish.exists)
         XCTAssertTrue(finish.isEnabled)

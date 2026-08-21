@@ -230,8 +230,8 @@ struct FieldState: Codable, Hashable, Sendable {
     ) -> FieldState {
         FieldState(
             identity: FieldIdentity(
-                personA: .clay,
-                personB: .slate,
+                personA: .burgundy,
+                personB: .sage,
                 nameA: nameA,
                 nameB: nameB
             ),

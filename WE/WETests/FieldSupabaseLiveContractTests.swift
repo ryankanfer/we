@@ -249,7 +249,7 @@ final class FieldSupabaseLiveContractTests: XCTestCase {
 
         var identityB = try await backendB.load().identity
         XCTAssertEqual(identityB.personA, .amber)
-        XCTAssertEqual(identityB.personB, .slate)
+        XCTAssertEqual(identityB.personB, .sage)
         identityB.personA = .rust
         identityB.personB = .teal
         try await backendB.setIdentity(identityB)

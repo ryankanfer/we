@@ -100,8 +100,13 @@ struct FieldPaletteTests {
 
     @Test
     func personColoursMatchTheHandoff() {
-        #expect(FieldSwatch.clay.color.fieldHex == 0xD98E5A)
-        #expect(FieldSwatch.slate.color.fieldHex == 0x79A6B8)
+        // Pigment. Every value here was solved rather than picked; the solve
+        // itself lives in `WEPigmentTests`, and this pins two of the results
+        // so a hand edit to a hex has to come past both.
+        #expect(FieldSwatch.burgundy.soft.fieldHex == 0xB4576A)
+        #expect(FieldSwatch.burgundy.deep.fieldHex == 0x7E2F42)
+        #expect(FieldSwatch.sage.soft.fieldHex == 0x8AA98B)
+        #expect(FieldSwatch.sage.deep.fieldHex == 0x4E6B52)
         // The ground moved, deliberately: "Type Holds the Room" asks for warm
         // ink black rather than the desaturated deep green the handoff
         // specified, because green is a colour and a colour competes with the
@@ -132,8 +137,8 @@ struct FieldPaletteTests {
     func eachPaletteOffersFourSwatchesAndDefaultsToTheFirst() {
         #expect(FieldPersonPalette.warm.swatches.count == 4)
         #expect(FieldPersonPalette.cool.swatches.count == 4)
-        #expect(FieldPersonPalette.warm.defaultSwatch == .clay)
-        #expect(FieldPersonPalette.cool.defaultSwatch == .slate)
+        #expect(FieldPersonPalette.warm.defaultSwatch == .burgundy)
+        #expect(FieldPersonPalette.cool.defaultSwatch == .sage)
     }
 }
 
@@ -2447,7 +2452,7 @@ struct FieldStoreTests {
             )
         )
         let members = [
-            Member(id: a.uuidString, name: "A", hue: .clay),
+            Member(id: a.uuidString, name: "A", hue: .burgundy),
             Member(id: b.uuidString, name: "B", hue: .sage),
         ]
 
@@ -2475,8 +2480,8 @@ struct FieldStoreTests {
     @Test
     func liveOnboardingCannotChooseThePartnersSwatch() {
         var state = FieldState.seed
-        state.identity.personA = .clay
-        state.identity.personB = .slate
+        state.identity.personA = .burgundy
+        state.identity.personB = .sage
         let backend = FieldMemoryBackend(
             state: state,
             viewerOwner: .b
@@ -2486,7 +2491,7 @@ struct FieldStoreTests {
         store.choose(.amber, for: .a)
         store.choose(.teal, for: .b)
 
-        #expect(store.identity.personA == .clay)
+        #expect(store.identity.personA == .burgundy)
         #expect(store.identity.personB == .teal)
     }
 

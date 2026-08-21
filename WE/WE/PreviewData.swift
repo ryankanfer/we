@@ -440,11 +440,38 @@ nonisolated enum PreviewData {
         )
     }()
 
-    static let waitingSnapshot = makeSnapshot(
-        members: [members[0]],
-        plans: [],
-        responsibilities: []
-    )
+    /// One person, with an invitation actually out.
+    ///
+    /// The scenario is named for waiting, and until now its couple carried no
+    /// `invitationExpiresAt` at all — so `hasLiveInvitation()` was false and
+    /// every screen built on it rendered the withdrawn branch. A test
+    /// asserting the send button was reachable could not have passed, because
+    /// the send button only exists while there is something live to send.
+    static let waitingSnapshot: RelationshipSnapshot = {
+        let base = makeSnapshot(
+            members: [members[0]],
+            plans: [],
+            responsibilities: []
+        )
+        return RelationshipSnapshot(
+            profile: base.profile,
+            membership: base.membership,
+            couple: Couple(
+                id: "preview-couple",
+                joinCode: "WEDEMO",
+                // Relative to now rather than a stamped date, so the fixture
+                // does not quietly expire and take the tests with it.
+                invitationExpiresAt: Date().addingTimeInterval(7 * 86_400)
+            ),
+            members: base.members,
+            insights: base.insights,
+            reflections: base.reflections,
+            plans: base.plans,
+            responsibilities: base.responsibilities,
+            archives: base.archives,
+            syncedAt: base.syncedAt
+        )
+    }()
 
     static let choosingHueSnapshot = RelationshipSnapshot(
         profile: Profile(id: "ryan", name: "Ryan"),

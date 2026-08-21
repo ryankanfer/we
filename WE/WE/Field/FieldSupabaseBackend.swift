@@ -352,8 +352,12 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         let rows: [IdentityRow] = try await fetch([IdentityRow].self, from: "field_identity")
         let row = rows.first
         return FieldIdentity(
-            personA: row.flatMap { FieldSwatch(rawValue: $0.swatch_a) } ?? .clay,
-            personB: row.flatMap { FieldSwatch(rawValue: $0.swatch_b) } ?? .slate,
+            // `init(stored:)` rather than `init(rawValue:)`: the column can
+            // hold a colour from before the palette changed, and rawValue
+            // returns nil for those, which would send a couple who chose clay
+            // and slate silently to the seeded pair.
+            personA: row.flatMap { FieldSwatch(stored: $0.swatch_a) } ?? .burgundy,
+            personB: row.flatMap { FieldSwatch(stored: $0.swatch_b) } ?? .sage,
             nameA: nameA,
             nameB: nameB,
             livesTogether: row?.lives_together,
@@ -420,7 +424,7 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             FieldPartner(
                 id: id?.uuidString ?? side.rawValue,
                 name: name,
-                swatch: side == .a ? .clay : .slate,
+                swatch: side == .a ? .burgundy : .sage,
                 owner: side,
                 awayWindows: windows
                     .filter { $0.profile_id == id }

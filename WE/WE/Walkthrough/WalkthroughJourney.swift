@@ -95,7 +95,7 @@ enum WalkthroughSeed {
         FieldPartner(
             id: "ryan",
             name: "Ryan",
-            swatch: .clay,
+            swatch: .burgundy,
             owner: .a,
             awayWindows: [],
             standingPreferences: []
@@ -103,7 +103,7 @@ enum WalkthroughSeed {
         FieldPartner(
             id: "dylan",
             name: "Dylan",
-            swatch: .slate,
+            swatch: .sage,
             owner: .b,
             awayWindows: [],
             standingPreferences: []

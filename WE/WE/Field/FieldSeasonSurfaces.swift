@@ -215,106 +215,103 @@ struct FieldSeasonClosedView: View {
 
 // MARK: - 6f. Onboarding
 
+/// Choosing colours, and nothing else.
+///
+/// This screen used to be setup: a step counter reading "Setting up · 1 of 3",
+/// a preview card, an eyebrow reading "Then three questions", three numbered
+/// questions, and boxed yes and no buttons. All of it is gone.
+///
+/// The step counter first, because it is the clearest case. "The ceremony
+/// reveals its own length by ending" — a counter is the app telling somebody
+/// how much of its own process is left, which is a fact about the app.
+///
+/// The three questions are cut rather than restyled (3k). They sat after the
+/// blend, so the moment the couple's two colours became a third thing was
+/// immediately followed by a form, and they were the only screen in the
+/// sequence asking the couple to produce data rather than receive something.
+/// They come back days later as the first thing WE asks on its own, which
+/// suits a product meant to grow quieter with trust — an app that asks
+/// questions once it has been useful is different from one that asks before
+/// it has done anything.
+///
+/// What is left is the choice, the blend, and one word.
 struct FieldOnboardingView: View {
     @Environment(FieldStore.self) private var store
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @State private var savingFor = ""
-    @State private var looksAfter = ""
     var onFinish: () -> Void = {}
 
     var body: some View {
         ZStack {
-            FieldPalette.bg.ignoresSafeArea()
+            WECanvas.dark.bg.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    header
-                        .padding(.bottom, FieldMetrics.sectionGap)
+                    WEDisplayText("Choose yours.", role: .hero)
+                        .padding(.bottom, 18)
 
-                    preview
-                        .padding(.bottom, FieldMetrics.sectionGapLoose)
+                    Text(
+                        "Anything of \(store.identity.nameA)'s will be one "
+                            + "colour, anything of \(store.identity.nameB)'s "
+                            + "the other, and anything you share is both."
+                    )
+                    .font(FieldType.body)
+                    .foregroundStyle(.fieldInk(.sectionSubtitle))
+                    .fieldLineHeight(1.6, size: 14.5)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, FieldMetrics.sectionGapLoose)
 
                     swatchRow(for: .a)
-                        .padding(.bottom, FieldMetrics.sectionGap)
+                        .padding(.bottom, FieldMetrics.sectionGapLoose)
 
                     swatchRow(for: .b)
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
-                    questions
+                    blend
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
-                    closing
+                    // One word. Not "That's us", which answers on the
+                    // couple's behalf, and not "Continue", which is a step in
+                    // a process the counter used to be counting.
+                    WEEditorialAction("Begin") { finish() }
+                        .accessibilityIdentifier("field.onboarding.finish")
                 }
                 .padding(.top, FieldMetrics.screenTop)
-                .padding(.horizontal, FieldMetrics.screenSide)
+                .padding(.horizontal, FieldMetrics.usSide)
                 .padding(.bottom, 60)
             }
+
+            WEColourField(
+                state: .shared,
+                identity: store.identity,
+                height: 168
+            )
+            .frame(maxHeight: .infinity, alignment: .bottom)
+            .ignoresSafeArea(edges: .bottom)
         }
+        .environment(\.weCanvas, .dark)
         .preferredColorScheme(.dark)
         .accessibilityIdentifier("field.onboarding")
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            FieldLabel("Setting up · 1 of 3")
-
-            Text("Choose a colour each.")
-                .font(FieldType.pageHeadline)
-                .foregroundStyle(.fieldInk(.headline))
-                .fieldLineHeight(1.16, size: 32)
-
-            Text(
-                "From here on, anything of \(store.identity.nameA)'s is one "
-                    + "colour, anything of \(store.identity.nameB)'s is the "
-                    + "other, and anything you share is both."
-            )
-            .font(FieldType.body)
-            .foregroundStyle(.fieldInk(.sectionSubtitle))
-            .fieldLineHeight(1.6, size: 14.5)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    /// A 104pt block filled with the blend, containing the word "Ours.", with
-    /// the pair's names beneath. **The preview updates live on tap.**
-    private var preview: some View {
-        VStack(spacing: 14) {
-            ZStack {
-                Rectangle()
-                    .fill(store.identity.blend(.onboarding))
-
-                Text("Ours.")
-                    .font(.system(size: 30, weight: .light, design: .serif))
-                    .foregroundStyle(FieldPalette.bg.opacity(0.86))
-            }
-            .frame(height: 104)
-            .clipShape(
-                RoundedRectangle(
-                    cornerRadius: FieldMetrics.cardRadius,
-                    style: .continuous
-                )
-            )
-            .animation(
-                .fieldZone(reduceMotion),
-                value: store.identity
-            )
-
-            Text(
-                "\(store.identity.personA.name) and \(store.identity.personB.name)"
-            )
-            .font(FieldType.subLabel)
-            .tracking(FieldTracking.subLabel)
-            .foregroundStyle(.fieldInk(.recessive))
-        }
-        .accessibilityElement(children: .combine)
+    /// The emotional peak, and the reason difference is the mechanism rather
+    /// than a problem: two colours stay distinct and produce a third that
+    /// neither person made.
+    ///
+    /// Three words on the page, not a filled card containing one. The card
+    /// made the blend into a specimen being displayed; the colour field
+    /// underneath is where the blend actually lives everywhere else in the
+    /// app, so it is where it is shown being made.
+    private var blend: some View {
+        WEDisplayText(
+            "\(store.identity.nameA)'s. \(store.identity.nameB)'s. Ours.",
+            role: .majorQuestion
+        )
         .accessibilityLabel(
-            "Preview. \(store.identity.personA.name) and "
-                + "\(store.identity.personB.name)."
+            "\(store.identity.personA.name) and "
+                + "\(store.identity.personB.name)"
         )
     }
 
-    /// Four 58pt swatches, headed by that partner's name and current dot.
     private func swatchRow(for owner: FieldOwner) -> some View {
         FieldSwatchRow(owner: owner, identity: store.identity) { swatch in
             store.choose(swatch, for: owner)
@@ -322,147 +319,11 @@ struct FieldOnboardingView: View {
         .disabled(!store.canChooseSwatch(for: owner))
     }
 
-    /// Three questions, and no more. "Resist adding fields — low barrier to
-    /// entry is an explicit product requirement, and the intelligence is
-    /// supposed to earn its knowledge by observation."
-    ///
-    /// Every one is skippable. Leaving a field empty stores nil rather than
-    /// an empty string, so "they did not say" stays distinct from "they said
-    /// nothing".
-    private var questions: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            FieldRuleLine()
-
-            FieldLabel("Then three questions")
-                .padding(.top, 20)
-                .padding(.bottom, 6)
-
-            question(1, FieldSampleData.onboardingQuestions[0]) {
-                livesTogetherChoice
-            }
-
-            question(2, FieldSampleData.onboardingQuestions[1]) {
-                answerField(
-                    "Nothing in particular",
-                    text: $savingFor,
-                    identifier: "field.onboarding.savingFor"
-                ) { store.answerSavingFor(savingFor) }
-            }
-
-            question(3, FieldSampleData.onboardingQuestions[2]) {
-                answerField(
-                    "No one else, for now",
-                    text: $looksAfter,
-                    identifier: "field.onboarding.looksAfter"
-                ) { store.answerLooksAfter(looksAfter) }
-            }
-        }
-    }
-
-    private func question<Answer: View>(
-        _ number: Int,
-        _ prompt: String,
-        @ViewBuilder answer: () -> Answer
-    ) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Text("\(number)")
-                .font(FieldType.dateCount)
-                .tracking(FieldTracking.dateCount)
-                .foregroundStyle(.fieldInk(.dateCount))
-                .padding(.top, 5)
-
-            VStack(alignment: .leading, spacing: 12) {
-                Text(prompt)
-                    .font(FieldType.listItemLarge)
-                    .foregroundStyle(.fieldInk(.legend))
-                    .fieldLineHeight(1.35, size: 18)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                answer()
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, 14)
-        .overlay(alignment: .top) { FieldRuleLine(color: FieldRule.row) }
-    }
-
-    /// Yes / no, and neither is preselected — the third state is the one where
-    /// they simply have not said.
-    private var livesTogetherChoice: some View {
-        HStack(spacing: 10) {
-            livesTogetherButton(true)
-            livesTogetherButton(false)
-        }
-    }
-
-    private func livesTogetherButton(_ value: Bool) -> some View {
-        let isChosen: Bool = store.identity.livesTogether == value
-        let tint: Color? = isChosen ? store.identity.personA.color : nil
-
-        return Button(value ? "Yes" : "No") {
-            // Tapping the chosen answer again clears it. Nothing here is
-            // compulsory, including having answered.
-            store.answerLivesTogether(isChosen ? nil : value)
-        }
-        .buttonStyle(FieldOutlinedButtonStyle(tint: tint))
-        .accessibilityAddTraits(isChosen ? .isSelected : [])
-        .accessibilityIdentifier("field.onboarding.livesTogether.\(value)")
-    }
-
-    private func answerField(
-        _ placeholder: String,
-        text: Binding<String>,
-        identifier: String,
-        commit: @escaping () -> Void
-    ) -> some View {
-        TextField(placeholder, text: text)
-            .font(FieldType.captureInput)
-            .foregroundStyle(.fieldInk(.headline))
-            .textFieldStyle(.plain)
-            .submitLabel(.done)
-            .onSubmit(commit)
-            // Committing on blur as well as on submit, because the keyboard's
-            // Done key is not the only way out of a field.
-            .onChange(of: text.wrappedValue) { _, _ in commit() }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(
-                FieldPalette.ink.opacity(0.06),
-                in: RoundedRectangle(
-                    cornerRadius: FieldMetrics.cardRadius,
-                    style: .continuous
-                )
-            )
-            .overlay {
-                RoundedRectangle(
-                    cornerRadius: FieldMetrics.cardRadius,
-                    style: .continuous
-                )
-                .stroke(FieldRule.row, lineWidth: 1)
-            }
-            .accessibilityIdentifier(identifier)
-    }
-
-    private var closing: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text(FieldSampleData.onboardingClosing)
-                .font(FieldType.listItem)
-                .foregroundStyle(.fieldInk(.sectionSubtitle))
-                .fieldLineHeight(1.6, size: 15.5)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Button("That's us") { finish() }
-                .buttonStyle(FieldFilledButtonStyle())
-                .accessibilityIdentifier("field.onboarding.finish")
-        }
-    }
-
     private func finish() {
-        // Commit whatever is in the fields but never got a submit — leaving
-        // the screen is as much an answer as tapping Done.
-        store.answerSavingFor(savingFor)
-        store.answerLooksAfter(looksAfter)
+        // Nothing to commit. The three questions this used to gather are cut
+        // from onboarding entirely; `store.answerSavingFor` and its siblings
+        // are still the way they are answered, from wherever WE eventually
+        // asks them.
 
         // Hand over first, then ask. Awaiting the permission sheet before
         // calling `onFinish` leaves them staring at the setup screen behind a

@@ -224,14 +224,14 @@ extension FieldSwatch {
     /// the two vocabularies actually share.
     var memberHue: MemberHue {
         switch self {
-        case .clay: .clay
+        case .burgundy: .burgundy
+        case .rose: .blush
         case .rust: .ember
         case .amber: .ember
-        case .rose: .blush
-        case .slate: .tide
+        case .sage: .sage
+        case .moss: .celadon
         case .teal: .tide
         case .indigo: .plum
-        case .sage: .sage
         }
     }
 }

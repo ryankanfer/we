@@ -48,8 +48,8 @@ enum FieldDemoData {
     // MARK: Partners
 
     static let identity = FieldIdentity(
-        personA: .clay,
-        personB: .slate,
+        personA: .burgundy,
+        personB: .sage,
         nameA: "User 1",
         nameB: "User 2"
     )
@@ -58,7 +58,7 @@ enum FieldDemoData {
         FieldPartner(
             id: "user1",
             name: "User 1",
-            swatch: .clay,
+            swatch: .burgundy,
             owner: .a,
             awayWindows: [
                 FieldAwayWindow(
@@ -74,7 +74,7 @@ enum FieldDemoData {
         FieldPartner(
             id: "user2",
             name: "User 2",
-            swatch: .slate,
+            swatch: .sage,
             owner: .b,
             awayWindows: [],
             standingPreferences: []

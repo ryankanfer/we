@@ -185,9 +185,9 @@ enum FieldPersonPalette: String, CaseIterable, Codable, Sendable {
     var swatches: [FieldSwatch] {
         switch self {
         case .warm:
-            [.clay, .rust, .amber, .rose]
+            [.burgundy, .rose, .rust, .amber]
         case .cool:
-            [.slate, .teal, .indigo, .sage]
+            [.sage, .moss, .teal, .indigo]
         }
     }
 
@@ -195,48 +195,192 @@ enum FieldPersonPalette: String, CaseIterable, Codable, Sendable {
     var defaultSwatch: FieldSwatch { swatches[0] }
 }
 
+/// Pigment: eight hue families, muted and complex rather than bright.
+///
+/// The old set was eight unrelated swatches at one value each, which meant a
+/// colour that worked as edge light on the dark page was invisible as an
+/// authorship mark on cream, and the reverse. Measuring that is what turned
+/// deep and soft from a second row of swatches into a *role*: the same family
+/// resolved for the ground it is standing on.
+///
+/// Deep and soft are therefore never offered as a choice. Asking somebody to
+/// pick between two values of one hue is asking them to decide something they
+/// cannot see the consequence of, and one of the two answers would always be
+/// wrong on half the app. Sixteen colours exist; nobody is ever shown sixteen
+/// swatches.
+///
+/// Every value here was solved rather than picked, and the gate is in
+/// `WEPigmentTests`:
+///
+///   · soft clears 3:1 on warm ink black and deep clears 3:1 on warm cream,
+///     worst case 4.07:1;
+///   · every pair of families is at least CIEDE2000 12 apart, worst case
+///     12.72, so two people's colours are never nearly the same colour;
+///   · four of the twenty eight possible pairs produce a shared blend closer
+///     than CIEDE2000 8 to one of its parents. Those are the pairs where
+///     "yours, theirs, ours" would read as two colours rather than three, and
+///     they are the reason the similar pair rule exists. See `blendIsMuddy`.
 enum FieldSwatch: String, CaseIterable, Codable, Sendable, Identifiable {
     // Warm
-    case clay
+    case burgundy
+    case rose
     case rust
     case amber
-    case rose
     // Cool
-    case slate
+    case sage
+    case moss
     case teal
     case indigo
-    case sage
 
     var id: String { rawValue }
 
     var name: String {
         switch self {
-        case .clay: "Clay"
+        case .burgundy: "Burgundy"
+        case .rose: "Rose"
         case .rust: "Rust"
         case .amber: "Amber"
-        case .rose: "Rose"
-        case .slate: "Slate"
+        case .sage: "Sage"
+        case .moss: "Moss"
         case .teal: "Teal"
         case .indigo: "Indigo"
-        case .sage: "Sage"
         }
     }
 
-    var color: Color {
+    /// Light coming from under the display edge, on the dark canvas.
+    var soft: Color {
         switch self {
-        case .clay: Color(hex: 0xD98E5A)
-        case .rust: Color(hex: 0xC4633C)
-        case .amber: Color(hex: 0xE0A94E)
+        case .burgundy: Color(hex: 0xB4576A)
         case .rose: Color(hex: 0xCF7A70)
-        case .slate: Color(hex: 0x79A6B8)
-        case .teal: Color(hex: 0x4E8A86)
-        case .indigo: Color(hex: 0x6E7FB0)
+        case .rust: Color(hex: 0xBE5A2E)
+        case .amber: Color(hex: 0xD9A05B)
         case .sage: Color(hex: 0x8AA98B)
+        case .moss: Color(hex: 0x6D8B4E)
+        case .teal: Color(hex: 0x5E9A95)
+        case .indigo: Color(hex: 0x7E8DBC)
         }
     }
+
+    /// Ink on paper, on the cream canvas. A soft tone here is not a quiet
+    /// mark, it is an illegible one.
+    var deep: Color {
+        switch self {
+        case .burgundy: Color(hex: 0x7E2F42)
+        case .rose: Color(hex: 0x9C4A45)
+        case .rust: Color(hex: 0x8E4526)
+        case .amber: Color(hex: 0x8A6220)
+        case .sage: Color(hex: 0x4E6B52)
+        case .moss: Color(hex: 0x47603A)
+        case .teal: Color(hex: 0x2F6360)
+        case .indigo: Color(hex: 0x474F80)
+        }
+    }
+
+    func color(on canvas: WECanvas) -> Color {
+        canvas == .cream ? deep : soft
+    }
+
+    /// The dark canvas value.
+    ///
+    /// Kept as a plain property because most of the app is dark and reads
+    /// this in contexts that need a concrete `Color` — gradient stops, the
+    /// colour field, `UIColor` bridging. A surface that can be on either
+    /// ground should call `color(on:)` with the environment's canvas.
+    var color: Color { soft }
 
     var palette: FieldPersonPalette {
         FieldPersonPalette.warm.swatches.contains(self) ? .warm : .cool
+    }
+
+    // MARK: Colours that used to exist
+
+    /// Decoding a swatch that is no longer a swatch.
+    ///
+    /// `FieldSwatch` is `Codable` and persisted, so a removed case is not a
+    /// refactor — it is a stored value somebody chose, on a device, that no
+    /// longer parses. Clay was a lighter rust and slate a lighter indigo, so
+    /// each retired colour lands in the family it was always a variation of
+    /// rather than on a default nobody picked.
+    ///
+    /// Kept as data rather than folded into the initialiser so the mapping
+    /// can be asserted directly, and so this and the SQL migration can be
+    /// checked against each other.
+    static let retired: [String: FieldSwatch] = [
+        "clay": .rust,
+        "slate": .indigo,
+    ]
+
+    /// A swatch as it came back from storage.
+    ///
+    /// The one door for a persisted string, and the reason it exists is that
+    /// `init(rawValue:)` is *not* that door: it returns nil for a retired
+    /// name, and every caller that reached for it had a `?? .something`
+    /// fallback sitting behind it. That fallback silently turned an old clay
+    /// into whatever the default happened to be, which is the migration
+    /// failing quietly on the one path that matters — somebody who has been
+    /// using the app since before the palette changed.
+    ///
+    /// Returns nil only for a string from neither the current set nor the
+    /// retired one, so callers can still tell "corrupt" from "old".
+    init?(stored raw: String) {
+        if let known = FieldSwatch(rawValue: raw) {
+            self = known
+        } else if let moved = FieldSwatch.retired[raw] {
+            self = moved
+        } else {
+            return nil
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        // A value from neither the current set nor the retired one is a
+        // corrupt record rather than an old one. Falling back beats throwing:
+        // refusing to decode an identity would lock somebody out of their own
+        // app over a colour.
+        self = FieldSwatch(stored: raw) ?? .burgundy
+    }
+
+    // MARK: The similar pair rule
+
+    /// Whether these two produce a shared atmosphere that reads as one of
+    /// them rather than as a third thing.
+    ///
+    /// The lesson of the blend is the mechanism: two colours stay distinct
+    /// and produce a third. Difference is the mechanism, not a problem to be
+    /// resolved. A muddy blend breaks that, so WE offers nearby tonal
+    /// variations — and it does so only *after both people commit*, to both
+    /// of them at the same instant, revealing nothing about who chose what or
+    /// when.
+    static func blendIsMuddy(_ a: FieldSwatch, _ b: FieldSwatch) -> Bool {
+        muddyPairs.contains(Set([a, b]))
+    }
+
+    /// Measured, not guessed. Every pair whose linear light blend sits closer
+    /// than CIEDE2000 8 to either parent.
+    private static let muddyPairs: Set<Set<FieldSwatch>> = [
+        [.burgundy, .rose],
+        [.rose, .rust],
+        [.sage, .moss],
+        [.sage, .teal],
+    ]
+
+    /// What to offer when a pair is too close, for one of the two people.
+    ///
+    /// Nearby rather than opposite: somebody who chose sage wanted a green,
+    /// and answering a near collision by offering them burgundy is the app
+    /// overruling a choice rather than helping with one.
+    var neighbours: [FieldSwatch] {
+        switch self {
+        case .burgundy: [.rust, .amber]
+        case .rose: [.amber, .burgundy]
+        case .rust: [.amber, .burgundy]
+        case .amber: [.rust, .rose]
+        case .sage: [.indigo, .moss]
+        case .moss: [.teal, .indigo]
+        case .teal: [.indigo, .moss]
+        case .indigo: [.teal, .sage]
+        }
     }
 }
 
@@ -264,18 +408,36 @@ struct FieldIdentity: Hashable, Codable, Sendable {
     var savingFor: String?
     var looksAfter: String?
 
+    /// Burgundy and sage: the reference pair, and the seeded default.
+    ///
+    /// Not the only colours, and not a recommendation — they are the pair the
+    /// system was measured against, and the one the design was drawn with.
+    /// The clay and slate this replaced were the two colours the retired set
+    /// happened to list first.
     static let seed = FieldIdentity(
-        personA: .clay,
-        personB: .slate,
+        personA: .burgundy,
+        personB: .sage,
         nameA: "Ryan",
         nameB: "Dylan"
     )
 
     func color(for owner: FieldOwner) -> Color {
+        color(for: owner, on: .dark)
+    }
+
+    /// A person's colour, resolved for the ground it is drawn on.
+    ///
+    /// The soft tone is light coming from under a black edge and the deep one
+    /// is ink on paper. Drawing an authorship dot on Life in the soft tone
+    /// puts a pale mark on pale paper, which is not restraint — it is the
+    /// mark being absent.
+    func color(for owner: FieldOwner, on canvas: WECanvas) -> Color {
         switch owner {
-        case .a: personA.color
-        case .b: personB.color
-        case .shared: personA.color // callers use `blend` for shared fills
+        case .a: personA.color(on: canvas)
+        case .b: personB.color(on: canvas)
+        // Callers use `blend` for shared fills; this is the fallback for the
+        // places that need a single colour and have nowhere to put a gradient.
+        case .shared: personA.color(on: canvas)
         }
     }
 
@@ -300,9 +462,12 @@ struct FieldIdentity: Hashable, Codable, Sendable {
     // Forbidden: as a page background, as a tint wash, or to indicate any
     // quantity, balance, or comparison between the partners.
 
-    func blend(_ angle: FieldBlendAngle = .horizontal) -> LinearGradient {
+    func blend(
+        _ angle: FieldBlendAngle = .horizontal,
+        on canvas: WECanvas = .dark
+    ) -> LinearGradient {
         LinearGradient(
-            colors: [personA.color, personB.color],
+            colors: [personA.color(on: canvas), personB.color(on: canvas)],
             startPoint: angle.start,
             endPoint: angle.end
         )
@@ -767,6 +932,7 @@ enum FieldDotSize {
 }
 
 struct FieldDot: View {
+    @Environment(\.weCanvas) private var canvas
     var owner: FieldOwner
     var identity: FieldIdentity
     var size: CGFloat = FieldDotSize.list
@@ -777,9 +943,9 @@ struct FieldDot: View {
     var body: some View {
         Group {
             if owner == .shared {
-                Circle().fill(identity.blend())
+                Circle().fill(identity.blend(on: canvas))
             } else {
-                Circle().fill(identity.color(for: owner))
+                Circle().fill(identity.color(for: owner, on: canvas))
             }
         }
         .frame(width: size, height: size)
@@ -789,76 +955,72 @@ struct FieldDot: View {
     }
 }
 
-/// One partner's row of four 58pt swatches, headed by their name and current
-/// dot. From 6f: "two rows of four 58pt swatches, each row headed by that
-/// partner's name and current dot. The preview updates live on tap."
+/// One partner's choice of colour, as eight names rather than eight boxes.
 ///
-/// Shared by onboarding and the account surface — colour is chosen once, and
-/// changed later in the same gesture, so it must be the same control.
+/// This was two rows of four 58pt filled rectangles with a 2pt selection
+/// border — a colour picker, which is the correct control for choosing a
+/// colour and the wrong one for this. "Type Holds the Room" removes boxed
+/// buttons and card framing, and a grid of swatches is both. It also made the
+/// colour into the thing being chosen rather than the person: eight equal
+/// blocks read as a palette, not as "anything of yours will be this".
+///
+/// So the families are set in the serif, at reading size, each carrying its
+/// own colour as a trace beneath the word. Selection is weight and rule
+/// width, never colour alone — the one state a person choosing a colour is
+/// most likely to be unable to distinguish by hue is which colour is chosen.
+///
+/// Deep and soft do not appear. They are the same family resolved for the
+/// canvas, and offering both would ask somebody to decide something they
+/// cannot see the consequence of.
 struct FieldSwatchRow: View {
+    @Environment(\.weCanvas) private var canvas
     var owner: FieldOwner
     var identity: FieldIdentity
     /// Called with the tapped swatch. The caller persists.
     var choose: (FieldSwatch) -> Void
 
+    /// Which eight to offer.
+    ///
+    /// All of them, to both people. The warm and cool split was a way of
+    /// keeping two colours from being nearly the same colour, and Pigment
+    /// does that by measurement instead — every pair is at least CIEDE2000 12
+    /// apart. Halving somebody's choice to solve a problem that no longer
+    /// exists is the system deciding for them.
+    private var offered: [FieldSwatch] { FieldSwatch.allCases }
+
     var body: some View {
         let current = owner == .a ? identity.personA : identity.personB
-        let palette: FieldPersonPalette = owner == .a ? .warm : .cool
 
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 9) {
-                FieldDot(
-                    owner: owner,
-                    identity: identity,
-                    size: FieldDotSize.prominentList,
-                    baselineNudge: 0
-                )
-                FieldLabel(identity.name(for: owner))
-            }
+        VStack(alignment: .leading, spacing: 18) {
+            Text(identity.name(for: owner))
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.sectionSubtitle))
+                .accessibilityAddTraits(.isHeader)
 
-            HStack(spacing: 10) {
-                ForEach(palette.swatches) { swatch in
-                    Button {
+            // A flowing run rather than a grid. A grid of eight is a swatch
+            // board however it is styled.
+            FieldFlowLayout(spacing: 26, lineSpacing: 20) {
+                ForEach(offered) { swatch in
+                    WEEditorialAction(
+                        swatch.name,
+                        isSelected: swatch == current,
+                        tint: swatch.color(on: canvas)
+                    ) {
                         choose(swatch)
-                    } label: {
-                        Rectangle()
-                            .fill(swatch.color)
-                            .frame(height: 58)
-                            .overlay {
-                                if swatch == current {
-                                    Rectangle()
-                                        .strokeBorder(
-                                            FieldPalette.ink,
-                                            lineWidth: 2
-                                        )
-                                }
-                            }
-                            .clipShape(
-                                RoundedRectangle(
-                                    cornerRadius: FieldMetrics.cardRadius,
-                                    style: .continuous
-                                )
-                            )
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(swatch.name)
-                    .accessibilityAddTraits(
-                        swatch == current ? .isSelected : []
+                    .accessibilityLabel(
+                        swatch == current
+                            ? "\(swatch.name), chosen"
+                            : swatch.name
                     )
-                    .accessibilityIdentifier(
-                        "field.swatch.\(owner.rawValue).\(swatch.rawValue)"
-                    )
+                    .accessibilityIdentifier("field.swatch.\(swatch.rawValue)")
                 }
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("field.swatches.\(owner.rawValue)")
     }
 }
-
-// MARK: - The intelligence mark
-//
-// A blend-filled disc that breathes .34 → .70 → .34 over 7s. It appears
-// anywhere the app speaks in its own voice, and it is the app's avatar for
-// itself. Larger ambient variants run at 9s and 11s.
 
 struct FieldIntelligenceMark: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

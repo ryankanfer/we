@@ -47,23 +47,23 @@ final class WEUITests: XCTestCase {
         }
         let createSpace = app.buttons["pairing.createInvitation"]
         createSpace.tap()
+        // "The invitation is at the threshold" was the register of the
+        // specification document that produced it. The screen names the
+        // person it is for instead, and falls back to "For them." until it
+        // has been told who that is.
         XCTAssertTrue(
             app.staticTexts.matching(
-                NSPredicate(
-                    format: "label CONTAINS %@",
-                    "invitation is at"
-                )
+                NSPredicate(format: "label BEGINSWITH %@", "For ")
             ).firstMatch
                 .waitForExistence(timeout: 3)
         )
 
-        // Hue choice is 6f now — colour, three questions, and a calendar,
-        // drawn in the zones' language rather than the old picker's.
+        // Colour, and nothing else. The three questions that used to follow
+        // the blend are cut, and the step counter with them.
         app.terminate()
         app = launch(scenario: "choosinghue")
         XCTAssertTrue(
-            app.staticTexts["Choose a colour each."]
-                .waitForExistence(timeout: 6)
+            app.staticTexts["Choose yours."].waitForExistence(timeout: 6)
         )
         app.buttons["field.onboarding.finish"].tap()
         XCTAssertTrue(
@@ -318,6 +318,13 @@ final class WEUITests: XCTestCase {
         app.launchEnvironment["WE_SKIP_WALKTHROUGH"] =
             skipsWalkthrough ? "1" : "0"
         app.launchArguments += [
+            // Whether the invitation has left this phone is device-local
+            // state in `@AppStorage`, and it decides whether the waiting
+            // screen shows the invitation or the stillness. It survives a
+            // relaunch, so without resetting it here one test that shares
+            // silently changes which screen the next one opens on.
+            "-we.invitation.sent", "NO",
+            "-we.invitee.name", "",
             "-hasSeenWalkthrough", skipsWalkthrough ? "YES" : "NO",
             "-UIAccessibilityReduceMotionEnabled",
             reduceMotion ? "YES" : "NO"

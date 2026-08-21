@@ -120,7 +120,7 @@ struct WelcomeBloom: View {
                             location: 0.45
                         ),
                         .init(
-                            color: FieldSwatch.clay.color.opacity(0.07),
+                            color: FieldSwatch.burgundy.color.opacity(0.07),
                             location: 0.80
                         ),
                         .init(color: .clear, location: 1)
