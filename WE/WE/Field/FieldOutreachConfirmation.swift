@@ -34,7 +34,7 @@ struct FieldOutreachConfirmation: View {
             FieldPalette.bgDeep.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 20) {
-                FieldLabel(headerLabel, color: .fieldInk(.monoLabelQuiet))
+                FieldLabel(headerLabel, ink: .monoLabelQuiet)
 
                 Text(headline)
                     .font(FieldType.listItemLarge)

@@ -32,7 +32,7 @@ struct FieldItemHelp: View {
 
                 FieldLabel(
                     "Where to look",
-                    color: .fieldInk(.monoLabelQuiet)
+                    ink: .monoLabelQuiet
                 )
                 .padding(.top, 18)
                 .padding(.bottom, 13)

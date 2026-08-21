@@ -18,6 +18,7 @@
 import SwiftUI
 
 struct FieldCategoryPicker: View {
+    @Environment(\.weCanvas) private var canvas
     /// The destinations to offer. A filed item's current destination stays in
     /// this set so the picker can answer "where is it now?" before asking the
     /// person to choose somewhere else.
@@ -56,7 +57,7 @@ struct FieldCategoryPicker: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
             HStack(alignment: .firstTextBaseline) {
-                FieldLabel(title, color: .fieldInk(.monoLabelQuiet))
+                FieldLabel(title, ink: .monoLabelQuiet)
 
                 Spacer()
 
@@ -159,7 +160,7 @@ struct FieldCategoryPicker: View {
             .font(FieldType.receiptReasoning)
             .foregroundStyle(
                 error == nil
-                    ? .fieldInk(.reasoning)
+                    ? FieldInk.reasoning.color(on: canvas)
                     : FieldIdentity.seed.personA.color
             )
             .fieldLineHeight(1.65, size: 13.5)

@@ -302,7 +302,7 @@ struct WalkthroughSaid: View {
                 "\(WalkthroughSeed.identity.name(for: owner)) said",
                 font: FieldType.subLabel,
                 tracking: FieldTracking.subLabel,
-                color: .fieldInk(.monoLabelQuiet),
+                ink: .monoLabelQuiet,
                 isHeader: false
             )
 

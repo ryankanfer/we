@@ -26,6 +26,10 @@ import SwiftUI
 
 struct FieldLifeZone: View {
     @Environment(FieldStore.self) private var store
+    /// Life is the surface headed for the cream canvas, so the few places
+    /// here that need a concrete `Color` rather than a ramp style have to ask
+    /// which ground they are on rather than assume the dark one.
+    @Environment(\.weCanvas) private var canvas
     @State private var isAtTop = true
     /// Which category room is open. Local `@State`, not store state: a
     /// hand-built `Binding` over an `@Observable` property does not drive
@@ -306,7 +310,7 @@ struct FieldLifeZone: View {
                         .foregroundStyle(
                             pressured
                                 ? store.identity.personA.color
-                                : .fieldInk(.dateCount)
+                                : FieldInk.dateCount.color(on: canvas)
                         )
                 }
             }

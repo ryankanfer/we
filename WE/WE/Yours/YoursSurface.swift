@@ -572,7 +572,7 @@ struct YoursSurface: View {
                         YoursMark(
                             style: .micro,
                             presence: .held,
-                            hue: .fieldInk(.headline)
+                            hue: FieldInk.headline.color(on: .dark)
                         )
 
                         Spacer(minLength: 0)
@@ -727,7 +727,7 @@ private struct YoursTeachingRoom: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            YoursMark(style: .display, presence: .living, hue: .fieldInk(.headline))
+            YoursMark(style: .display, presence: .living, hue: FieldInk.headline.color(on: .dark))
 
             Text(YoursCopy.teachingTitle)
                 .font(FieldType.pageHeadline)

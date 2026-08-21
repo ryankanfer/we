@@ -50,6 +50,20 @@ enum FieldZone: Int, CaseIterable, Codable, Sendable, Identifiable {
         }
     }
 
+    /// The ground this zone stands on.
+    ///
+    /// Life is shared, resolved material — things both people have already
+    /// mentioned, sitting where either can find them — so it takes the cream
+    /// canvas. Today and Us hold decisions that are still open, and open
+    /// decisions belong on the dark one. The canvas is a claim about what
+    /// kind of material a zone holds, not a theme.
+    var canvas: WECanvas {
+        switch self {
+        case .life: .cream
+        case .we, .us: .dark
+        }
+    }
+
     /// The nav renders WE as a mark, not a word, so its nav label differs
     /// from its zone label.
     var navLabel: String {

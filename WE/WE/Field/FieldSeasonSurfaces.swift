@@ -165,7 +165,7 @@ struct FieldSeasonClosedView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     FieldLabel(
                         "The one thing that didn't happen",
-                        color: .fieldInk(.monoLabelQuiet)
+                        ink: .monoLabelQuiet
                     )
 
                     Text(text)

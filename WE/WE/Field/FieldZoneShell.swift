@@ -69,11 +69,23 @@ struct FieldZoneShell: View {
 
     var body: some View {
         ZStack {
-            FieldPalette.bg.ignoresSafeArea()
+            // The ground crossfades with the zone. Never a slide: the two
+            // canvases are the same room under different light, and sliding
+            // one away to reveal the other makes them into two places.
+            store.activeZone.canvas.bg
+                .ignoresSafeArea()
+                .animation(.weCanvasCrossing, value: store.activeZone)
+
+            // Person colour on the cream canvas is restricted to authorship
+            // points, fine rules, and the bottom atmosphere. A tinted glow
+            // across the top of the page is none of those, so the ambient
+            // fades out as Life comes forward rather than washing the paper.
             FieldAmbient(
                 identity: store.identity,
                 hour: Calendar.gregorianUS.component(.hour, from: store.now)
             )
+            .opacity(store.activeZone.canvas == .cream ? 0 : 1)
+            .animation(.weCanvasCrossing, value: store.activeZone)
 
             pager
 
@@ -103,7 +115,11 @@ struct FieldZoneShell: View {
                     .zIndex(20)
             }
         }
-        .preferredColorScheme(.dark)
+        // The status bar is the one piece of chrome WE does not draw, so it
+        // has to be told which ground it is sitting on. Left pinned to dark it
+        // paints a white clock onto the cream page, which is the most visible
+        // possible way to look broken.
+        .preferredColorScheme(store.activeZone.canvas == .cream ? .light : .dark)
         .environment(store)
         .animation(.fieldZone(reduceMotion), value: store.activeZone)
         .animation(.fieldZone(reduceMotion), value: store.calendarOpen)
@@ -313,23 +329,45 @@ struct FieldZoneShell: View {
                 zoneLabel(.us)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-
-            indicator
         }
         .padding(.top, 16)
         .padding(.horizontal, FieldMetrics.screenSide)
         .padding(.bottom, 30)
-        .background {
-            LinearGradient(
-                stops: [
-                    .init(color: FieldPalette.bg.opacity(0.96), location: 0),
-                    .init(color: FieldPalette.bg.opacity(0.96), location: 0.45),
-                    .init(color: .clear, location: 1),
-                ],
-                startPoint: .bottom,
-                endPoint: .top
-            )
+        // The bar is chrome over whichever page is showing, so it takes that
+        // page's canvas rather than a scaffold's. Without this the labels stay
+        // cream ink and vanish the moment Life scrolls under them.
+        .environment(\.weCanvas, store.activeZone.canvas)
+        .animation(.weCanvasCrossing, value: store.activeZone)
+        .background(alignment: .bottom) {
+            ZStack(alignment: .bottom) {
+                LinearGradient(
+                    stops: [
+                        .init(color: store.activeZone.canvas.bg.opacity(0.96), location: 0),
+                        .init(color: store.activeZone.canvas.bg.opacity(0.96), location: 0.45),
+                        .init(color: .clear, location: 1),
+                    ],
+                    startPoint: .bottom,
+                    endPoint: .top
+                )
+
+                // Sits *behind* the navigation and below the words, at the
+                // display edge. It replaces the sliding indicator that used to
+                // live here: an indicator tracking the selected zone is a
+                // progress device, and the direction bans those. Selection is
+                // carried by the words themselves, full ink against reduced.
+                //
+                // Both hues, in every zone. The bar is the couple's chrome and
+                // all three zones hold both people's material; `.mine` is for
+                // the genuinely private surfaces — composition, the stillness,
+                // the Promise — which arrive with the ceremony.
+                WEColourField(state: .shared, identity: store.identity)
+            }
             .ignoresSafeArea(edges: .bottom)
+            // The field hides itself, but the stack composing it with the
+            // scrim is its own node, and a decorative node with nothing to
+            // say is exactly what the audit is for. Hide the decoration as a
+            // whole rather than each layer of it.
+            .accessibilityHidden(true)
         }
     }
 
@@ -534,27 +572,14 @@ struct FieldZoneShell: View {
 
     /// A 48 × 1pt track containing a 16pt segment filled with the blend,
     /// translated 0 / 16 / 32pt for zone 0 / 1 / 2.
-    private var indicator: some View {
-        ZStack(alignment: .leading) {
-            Rectangle()
-                .fill(FieldRule.primary)
-                .frame(width: 48, height: 1)
 
-            Rectangle()
-                .fill(store.identity.blend())
-                .frame(width: 16, height: 1)
-                .offset(x: CGFloat(store.activeZone.rawValue) * 16)
-        }
-        .frame(width: 48, height: 1)
-        .accessibilityHidden(true)
-    }
 }
 
 // MARK: - Motion
 
 extension Animation {
-    /// `transform .34s cubic-bezier(.4,0,.2,1)` — the indicator, the zone
-    /// change, and every transition the handoff timed.
+    /// `transform .34s cubic-bezier(.4,0,.2,1)` — the zone change, and every
+    /// transition the handoff timed.
     static func fieldZone(_ reduceMotion: Bool) -> Animation? {
         reduceMotion ? nil : .timingCurve(0.4, 0, 0.2, 1, duration: 0.34)
     }
@@ -575,6 +600,7 @@ extension Animation {
 // three mounted — the scaffold does not track offsets itself, and adding a
 // second source of truth for them would only fight SwiftUI's.
 struct FieldZoneScaffold<Content: View>: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     let zone: FieldZone
     var horizontalPadding: CGFloat = FieldMetrics.screenSide
     /// Us carries a top-centred glow; Life and Today do not.
@@ -582,6 +608,17 @@ struct FieldZoneScaffold<Content: View>: View {
     /// Header-right metadata, at ink 0.32. Only Today carries any — it shows
     /// the date, because it is the one zone whose content is about right now.
     var headerMeta: String?
+    /// Whether the zone announces itself with a tracked uppercase word.
+    ///
+    /// "Type Holds the Room" deletes eyebrow labels: hierarchy comes from type
+    /// scale and space, not from a category header above every section. Us is
+    /// the first zone converted, and turns this off.
+    ///
+    /// Nothing is lost to VoiceOver by doing so. The nav bar already carries
+    /// each zone's name with an `.isSelected` trait, so the zone is announced
+    /// once rather than twice — which is what removing a redundant header
+    /// means for a screen reader as well as for the eye.
+    var showsZoneLabel = true
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -592,31 +629,37 @@ struct FieldZoneScaffold<Content: View>: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    HStack(alignment: .firstTextBaseline) {
-                        FieldLabel(
-                            zone.label,
-                            font: FieldType.zoneLabel,
-                            tracking: FieldTracking.zoneLabel,
-                            color: .fieldInk(.monoLabel)
-                        )
+                    if showsZoneLabel {
+                        HStack(alignment: .firstTextBaseline) {
+                            FieldLabel(
+                                zone.label,
+                                font: FieldType.zoneLabel,
+                                tracking: FieldTracking.zoneLabel,
+                                ink: .monoLabel
+                            )
 
-                        if let headerMeta {
-                            Spacer()
-                            Text(headerMeta)
-                                .font(FieldType.zoneLabel)
-                                .tracking(FieldTracking.zoneLabel)
-                                .foregroundStyle(.fieldInk(.headerMeta))
-                                .accessibilityHidden(true)
+                            if let headerMeta {
+                                Spacer()
+                                Text(headerMeta)
+                                    .font(FieldType.zoneLabel)
+                                    .tracking(FieldTracking.zoneLabel)
+                                    .foregroundStyle(.fieldInk(.headerMeta))
+                                    .accessibilityHidden(true)
+                            }
                         }
+                        .padding(.bottom, 24)
                     }
-                    .padding(.bottom, 24)
 
                     content
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, FieldMetrics.screenTop)
                 .padding(.horizontal, horizontalPadding)
-                .padding(.bottom, FieldMetrics.screenBottom)
+                // The bar grows with the type size, so a constant clearance
+                // is only correct at one setting. At the accessibility sizes
+                // the old 112 left the last row of every zone sitting under
+                // LIFE, WE, and US.
+                .padding(.bottom, FieldMetrics.screenBottom(at: typeSize))
             }
             .scrollBounceBehavior(.basedOnSize)
             // Scrolling away from the capture field puts the keyboard away
@@ -624,15 +667,37 @@ struct FieldZoneScaffold<Content: View>: View {
             // its own toolbar button — and a keyboard that will not leave is
             // the loudest thing this app could possibly do.
             .scrollDismissesKeyboard(.interactively)
+            // "Which zone is showing" used to be answered by the eyebrow at
+            // the top of the page, which meant deleting the eyebrow deleted
+            // the answer. It is a property of the zone, not of a label the
+            // design happens to want, so it lives here now and survives every
+            // later conversion.
+            // A container, and a named one. An identifier on a bare scroll
+            // view promotes it to an accessibility element with nothing to
+            // say, which the audit correctly calls a defect. Naming the
+            // container is not the redundancy the eyebrow was: a container
+            // label is how VoiceOver reports *where you are* when you enter a
+            // region, which is precisely what the deleted eyebrow used to do
+            // for the eye and what the nav bar cannot do for the ear once
+            // focus has moved into the page.
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(zone.label)
+            .accessibilityIdentifier("field.zone.\(zone.navLabel.lowercased())")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The zone declares its ground; every ramp step and hairline inside
+        // resolves against it. The ground itself is painted once at the root
+        // so the crossfade happens behind the pager rather than per page.
+        .environment(\.weCanvas, zone.canvas)
     }
 }
 
 // MARK: - A section rule
 
 struct FieldRuleLine: View {
-    var color: Color = FieldRule.primary
+    /// A rule weight rather than a colour, so the line resolves against
+    /// whichever canvas it is drawn on.
+    var color: FieldRuleStyle = FieldRule.primary
 
     var body: some View {
         Rectangle()

@@ -208,7 +208,7 @@ struct FieldCalendarSurface: View {
         VStack(alignment: .leading, spacing: 14) {
             FieldLabel(
                 DateFormatter.fieldDayMonth.string(from: day).uppercased(),
-                color: .fieldInk(.monoLabelQuiet)
+                ink: .monoLabelQuiet
             )
 
             if items.isEmpty {

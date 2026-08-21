@@ -14,6 +14,16 @@ final class FieldZoneUITests: XCTestCase {
 
     // MARK: Navigation
 
+    /// Us no longer announces itself with an eyebrow, so "which zone is
+    /// showing" is asked of the zone rather than of a word on the page. The
+    /// nav word is inside a button and never backfilled the deleted label.
+    @MainActor
+    private func usZone(_ app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(identifier: "field.zone.us")
+            .firstMatch
+    }
+
     @MainActor
     func testZoneNavigationByLabelAndBySwipe() throws {
         let app = launchZones()
@@ -32,7 +42,7 @@ final class FieldZoneUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["TODAY"].waitForExistence(timeout: 4))
 
         app.buttons["field.nav.us"].tap()
-        XCTAssertTrue(app.staticTexts["US"].waitForExistence(timeout: 4))
+        XCTAssertTrue(usZone(app).waitForExistence(timeout: 4))
 
         // One zone per gesture, always snapped.
         app.swipeRight()
@@ -951,7 +961,7 @@ final class FieldZoneUITests: XCTestCase {
         keepScreenshot(of: app, named: "golden.field.life.seeded")
 
         app.buttons["field.nav.us"].tap()
-        XCTAssertTrue(app.staticTexts["US"].waitForExistence(timeout: 4))
+        XCTAssertTrue(usZone(app).waitForExistence(timeout: 4))
         keepScreenshot(of: app, named: "golden.field.us.seeded")
     }
 

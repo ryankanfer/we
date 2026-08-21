@@ -24,7 +24,8 @@ struct LegacyFieldUsZone: View {
         FieldZoneScaffold(
             zone: .us,
             horizontalPadding: FieldMetrics.usSide,
-            background: AnyView(glow)
+            background: AnyView(glow),
+            showsZoneLabel: false
         ) {
             if store.usIsEmpty {
                 emptyState
@@ -78,9 +79,12 @@ struct LegacyFieldUsZone: View {
         VStack(alignment: .leading, spacing: 10) {
             FieldRuleLine()
 
-            FieldLabel("What I've changed")
+            Text("What I've changed")
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.sectionSubtitle))
                 .padding(.top, 18)
                 .padding(.bottom, 4)
+                .accessibilityAddTraits(.isHeader)
 
             ForEach(store.behaviourChanges.prefix(3)) { change in
                 Text(change.change)
@@ -104,14 +108,7 @@ struct LegacyFieldUsZone: View {
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 0) {
-            FieldLabel("What this becomes")
-                .padding(.bottom, 18)
-
-            Text("This is the long view.")
-                .font(FieldType.pageHeadline)
-                .foregroundStyle(.fieldInk(.headline))
-                .fieldLineHeight(1.16, size: 32)
-                .fixedSize(horizontal: false, vertical: true)
+            WEDisplayText("This is the long view.", role: .majorQuestion)
                 .padding(.bottom, 20)
 
             VStack(alignment: .leading, spacing: 16) {
@@ -176,21 +173,11 @@ struct LegacyFieldUsZone: View {
     private var horizonBlock: some View {
         if let horizon = store.primaryHorizon {
             VStack(spacing: 0) {
-                FieldLabel("Where you're headed")
-                    .padding(.bottom, 22)
-
-                VStack(spacing: 0) {
-                    Text(horizon.title)
-                    if let window = horizon.window {
-                        Text(window)
-                    }
-                }
-                .font(FieldType.horizon)
-                .foregroundStyle(.fieldInk(.headline))
-                .fieldLineHeight(1.06, size: 44)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, 18)
+                // The horizon alone. The window used to sit under the title in
+                // the same size — a second line of display type carrying a
+                // date, competing with the thing the page is about.
+                WEDisplayText(horizon.title, role: .hero, alignment: .center)
+                    .padding(.bottom, 18)
 
                 if let thesis = horizon.thesis {
                     // "This sentence is the thesis of the whole product;
@@ -203,11 +190,6 @@ struct LegacyFieldUsZone: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                Rectangle()
-                    .fill(store.identity.blend())
-                    .frame(width: 56, height: 2)
-                    .padding(.top, 22)
-                    .accessibilityHidden(true)
             }
             .frame(maxWidth: .infinity)
             .accessibilityElement(children: .combine)
@@ -222,8 +204,6 @@ struct LegacyFieldUsZone: View {
 
     private var evidenceBlock: some View {
         VStack(alignment: .leading, spacing: 0) {
-            FieldLabel("What this week did for it")
-                .padding(.bottom, 18)
 
             VStack(alignment: .leading, spacing: 15) {
                 ForEach(store.state.evidence) { item in
@@ -258,16 +238,16 @@ struct LegacyFieldUsZone: View {
         }
     }
 
-    /// The line under the evidence, counted rather than asserted.
+    /// The line under the evidence.
     ///
-    /// This used to print `FieldSampleData.evidenceReasoning` — "Three ordinary
-    /// things" — to every couple, however many things they actually had. The
-    /// sentence is the same shape; the number is now theirs.
-    private var evidenceReasoning: String {
-        let count = store.state.evidence.count
-        return "\(count.spelled.capitalized) ordinary thing"
-            + "\(count == 1 ? "" : "s"). That's what a horizon is made of."
-    }
+    /// It used to open with a count — "Three ordinary things" — spelled out to
+    /// dodge the numeral rule. Spelling a number is still saying it, and a
+    /// tally of interface rows is the decorative kind: it tells the couple how
+    /// many items the app drew, which is telemetry wearing a sentence. The
+    /// evidence is listed directly above, so anyone who wants the number can
+    /// see it without being told.
+    private let evidenceReasoning =
+        "Ordinary things. That's what a horizon is made of."
 
     // MARK: One thing to say
     //
@@ -280,15 +260,8 @@ struct LegacyFieldUsZone: View {
         VStack(alignment: .leading, spacing: 0) {
             FieldRuleLine(color: FieldRule.us)
 
-            FieldLabel("One thing to say")
+            WEDisplayText(question.prompt, role: .majorQuestion)
                 .padding(.top, 20)
-                .padding(.bottom, 14)
-
-            Text(question.prompt)
-                .font(FieldType.synthesis)
-                .foregroundStyle(.fieldInk(.headline))
-                .fieldLineHeight(1.28, size: 25)
-                .fixedSize(horizontal: false, vertical: true)
                 .padding(.bottom, 12)
 
             Text(question.stakes)
@@ -304,19 +277,20 @@ struct LegacyFieldUsZone: View {
             )
             .padding(.bottom, 20)
 
-            HStack(spacing: 11) {
+            // Two sentences, not two boxes. "Choices are plain text with
+            // restrained colour traces, never poll buttons."
+            HStack(spacing: 34) {
                 ForEach(question.choices) { choice in
-                    Button(choice.title) {
+                    WEEditorialAction(
+                        choice.title,
+                        tint: store.identity.color(for: choice.tint)
+                    ) {
                         store.answer(question, with: choice)
                     }
-                    .buttonStyle(
-                        FieldOutlinedButtonStyle(
-                            tint: store.identity.color(for: choice.tint)
-                        )
-                    )
-                    .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("field.us.choice.\(choice.id)")
                 }
+
+                Spacer(minLength: 0)
             }
         }
     }
@@ -331,9 +305,6 @@ struct LegacyFieldUsZone: View {
         VStack(alignment: .leading, spacing: 0) {
             FieldRuleLine(color: FieldRule.us)
 
-            FieldLabel("After that")
-                .padding(.top, 20)
-                .padding(.bottom, 6)
 
             ForEach(store.otherHorizons) { horizon in
                 HStack(alignment: .top, spacing: 11) {
@@ -369,7 +340,7 @@ struct LegacyFieldUsZone: View {
     /// The four rows step down 0.82 → 0.62 → 0.62 → 0.45. A dated shared
     /// horizon leads; the two personal ones sit level with each other; an
     /// undated one is quietest.
-    private func emphasis(for horizon: FieldHorizon) -> Color {
+    private func emphasis(for horizon: FieldHorizon) -> FieldInkStyle {
         if horizon.targetDate == nil { return .fieldInk(.deemphasisedItem) }
         if horizon.owner == .shared { return .fieldInk(.secondaryHeading) }
         return .fieldInk(.reasoning)

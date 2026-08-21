@@ -95,7 +95,7 @@ struct FieldLifeSearch: View {
 
     private var field: some View {
         VStack(alignment: .leading, spacing: 12) {
-            FieldLabel("Find", color: .fieldInk(.monoLabelQuiet))
+            FieldLabel("Find", ink: .monoLabelQuiet)
 
             TextField("", text: $query)
                 .textFieldStyle(.plain)

@@ -176,6 +176,14 @@ struct FieldCaptureField: View {
             // impossible to activate.
             .contentShape(Rectangle())
             .onTapGesture { isFocused = true }
+            // The tap gesture promotes this stack to an interactive
+            // accessibility element in its own right, and it has nothing to
+            // say — the thing worth announcing is the editor inside it. The
+            // broad tap target exists so a finger does not have to find the
+            // editor exactly; assistive technology has no such problem and
+            // should be routed straight to the labelled child.
+            .accessibilityElement(children: .contain)
+            .accessibilityRespondsToUserInteraction(false)
 
             if store.captureDraft.isEmpty {
                 caret
@@ -204,6 +212,11 @@ struct FieldCaptureField: View {
             )
             .stroke(FieldRule.primary, lineWidth: 1)
         }
+        // A drawn border and nothing else. Hairlines became a resolving
+        // `ShapeStyle` when the second canvas arrived, and a shape filled
+        // with one earns its own accessibility node — which then has nothing
+        // to describe, because it is a rectangle.
+        .accessibilityHidden(true)
         .clipShape(
             RoundedRectangle(
                 cornerRadius: FieldMetrics.cardRadius,
@@ -241,7 +254,7 @@ struct FieldCaptureField: View {
                 HStack(alignment: .firstTextBaseline) {
                     FieldLabel(
                         receipt.wasCorrected ? "Moved to" : "Filed to",
-                        color: .fieldInk(.monoLabelQuiet)
+                        ink: .monoLabelQuiet
                     )
 
                     Spacer()

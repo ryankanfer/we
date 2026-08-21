@@ -276,7 +276,7 @@ struct FieldCategoryRoom: View {
                     group.heading,
                     font: FieldType.subLabel,
                     tracking: FieldTracking.subLabel,
-                    color: .fieldInk(.recessive)
+                    ink: .recessive
                 )
                 .padding(.top, FieldMetrics.sectionGap)
                 .padding(.bottom, 4)
@@ -290,7 +290,7 @@ struct FieldCategoryRoom: View {
                 digest.pressing.isEmpty ? "In this room" : "Quiet below here",
                 font: FieldType.subLabel,
                 tracking: FieldTracking.subLabel,
-                color: .fieldInk(.recessive)
+                ink: .recessive
             )
             .padding(.top, FieldMetrics.sectionGap)
             .padding(.bottom, 4)

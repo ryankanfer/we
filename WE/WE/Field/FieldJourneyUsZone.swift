@@ -40,7 +40,8 @@ private struct SharedJourneyUsSurface: View {
         FieldZoneScaffold(
             zone: .us,
             horizontalPadding: FieldMetrics.usSide,
-            background: AnyView(glow)
+            background: AnyView(glow),
+            showsZoneLabel: false
         ) {
             Group {
                 switch presentation {
@@ -114,16 +115,13 @@ private struct SharedJourneyUsSurface: View {
                 .padding(.top, 34)
                 .padding(.bottom, 40)
 
-            FieldLabel("A shared journey")
-                .padding(.bottom, 18)
-                .accessibilityIdentifier("field.us.journey.empty")
-
             Text("This room changes only when something real asks for a shared direction.")
                 .font(FieldType.pageHeadline)
                 .foregroundStyle(.fieldInk(.headline))
                 .fieldLineHeight(1.18, size: 32)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.bottom, 20)
+                .accessibilityIdentifier("field.us.journey.empty")
 
             Text(
                 "WE may bring one question from a plan, a repeated hope, or a rhythm that needs a new shape. You each answer privately. Nothing becomes part of Life until you both choose the direction it creates."
@@ -149,16 +147,9 @@ private struct SharedJourneyUsSurface: View {
                 .padding(.top, 22)
                 .padding(.bottom, 34)
 
-            FieldLabel(scopeLabel(record.insight.journeyScope))
+            WEDisplayText(record.insight.title, role: .majorQuestion)
                 .padding(.bottom, 14)
                 .accessibilityIdentifier("field.us.journey.question")
-
-            Text(record.insight.title)
-                .font(FieldType.synthesis)
-                .foregroundStyle(.fieldInk(.headline))
-                .fieldLineHeight(1.2, size: 28)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, 14)
 
             Text(record.insight.evidence)
                 .font(FieldType.reasoning)
@@ -282,19 +273,20 @@ private struct SharedJourneyUsSurface: View {
                 .padding(.top, 74)
                 .padding(.bottom, 38)
 
-            FieldLabel("Safely held")
-                .padding(.bottom, 16)
-                .accessibilityIdentifier("field.us.journey.held")
-                .accessibilityLabel(
-                    "Safely held. Your selected answer may be processed by "
-                        + "OpenAI with your permission. Your note stays private."
-                )
-
+            // The eyebrow is gone; what it told a screen reader is not. The
+            // consent state has to be announced somewhere, so it is announced
+            // on the sentence that says the same thing to the eye.
             Text("Your answer is here.")
                 .font(FieldType.pageHeadline)
                 .foregroundStyle(.fieldInk(.headline))
                 .multilineTextAlignment(.center)
                 .padding(.bottom, 16)
+                .accessibilityIdentifier("field.us.journey.held")
+                .accessibilityLabel(
+                    "Safely held. Your answer is here. Your selected answer "
+                        + "may be processed by OpenAI with your permission. "
+                        + "Your note stays private."
+                )
 
             Text(
                 "Your private note stays here. With your permission, OpenAI "
@@ -321,16 +313,9 @@ private struct SharedJourneyUsSurface: View {
                 .padding(.top, 24)
                 .padding(.bottom, 32)
 
-            FieldLabel("A direction to choose")
-                .padding(.bottom, 14)
-                .accessibilityIdentifier("field.us.journey.proposal")
-
-            Text(direction.displaySummary)
-                .font(FieldType.pageHeadline)
-                .foregroundStyle(.fieldInk(.headline))
-                .fieldLineHeight(1.18, size: 32)
-                .fixedSize(horizontal: false, vertical: true)
+            WEDisplayText(direction.displaySummary, role: .majorQuestion)
                 .padding(.bottom, 18)
+                .accessibilityIdentifier("field.us.journey.proposal")
 
             Text(direction.displayRationale)
                 .font(FieldType.body)
@@ -342,8 +327,6 @@ private struct SharedJourneyUsSurface: View {
                 FieldRuleLine()
                     .padding(.top, 28)
                     .padding(.bottom, 18)
-                FieldLabel("If you both choose it")
-                    .padding(.bottom, 8)
                 ForEach(direction.proposedActions.prefix(3)) { action in
                     Text(action.title)
                         .font(FieldType.listItem)
@@ -402,16 +385,9 @@ private struct SharedJourneyUsSurface: View {
                 .padding(.top, 30)
                 .padding(.bottom, 34)
 
-            FieldLabel("Your shared journey")
-                .padding(.bottom, 14)
-                .accessibilityIdentifier("field.us.journey.active")
-
-            Text(journey.title)
-                .font(FieldType.horizon)
-                .foregroundStyle(.fieldInk(.headline))
-                .fieldLineHeight(1.06, size: 44)
-                .fixedSize(horizontal: false, vertical: true)
+            WEDisplayText(journey.title, role: .hero)
                 .padding(.bottom, 18)
+                .accessibilityIdentifier("field.us.journey.active")
 
             Text(journey.summary)
                 .font(FieldType.body)
@@ -423,8 +399,6 @@ private struct SharedJourneyUsSurface: View {
                 FieldRuleLine()
                     .padding(.top, 30)
                     .padding(.bottom, 18)
-                FieldLabel("The next useful move")
-                    .padding(.bottom, 12)
                 Text(next)
                     .font(FieldType.synthesis)
                     .foregroundStyle(.fieldInk(.headline))
@@ -496,13 +470,6 @@ private struct SharedJourneyUsSurface: View {
         }
     }
 
-    private func scopeLabel(_ scope: JourneyScope) -> String {
-        switch scope {
-        case .immediate: "A choice close at hand"
-        case .nearTerm: "A direction for what is near"
-        case .longTerm: "A direction for the season ahead"
-        }
-    }
 
     private func resetAnswer() {
         selectedChoice = nil

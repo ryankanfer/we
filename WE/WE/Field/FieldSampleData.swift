@@ -437,7 +437,7 @@ enum FieldSampleData {
             window: "spring 2027",
             owner: .shared,
             isPrimary: true,
-            thesis: "Everything in Life is quietly paying for this.",
+            thesis: "You have both returned to this.",
             targetDate: date(2027, 4, 1),
             linkedLifeItemIDs: ["passport", "tokyostory", "japan-trip"],
             openQuestion: FieldQuestion(

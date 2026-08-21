@@ -118,7 +118,7 @@ struct FieldTextField: View {
                 label,
                 font: FieldType.subLabel,
                 tracking: FieldTracking.subLabel,
-                color: .fieldInk(.monoLabelQuiet),
+                ink: .monoLabelQuiet,
                 isHeader: false
             )
 
@@ -147,7 +147,7 @@ struct FieldTextField: View {
                 .fill(
                     isFocused
                         ? FieldIdentity.seed.personA.color.opacity(0.7)
-                        : FieldRule.row
+                        : FieldRule.row.color(on: .dark)
                 )
                 .frame(height: 1)
         }

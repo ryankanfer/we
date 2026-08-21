@@ -53,9 +53,35 @@ enum FieldPalette {
 // generic `some ShapeStyle`, and implicit member lookup only reaches static
 // members declared on the protocol. `Color.fieldInk(_:)` still works for the
 // places that need a concrete Color.
-extension ShapeStyle where Self == Color {
-    static func fieldInk(_ step: FieldInk) -> Color {
-        FieldPalette.ink.opacity(step.rawValue)
+extension ShapeStyle where Self == FieldInkStyle {
+    static func fieldInk(_ step: FieldInk) -> FieldInkStyle {
+        FieldInkStyle(step: step)
+    }
+}
+
+/// A ramp step, resolved against whichever canvas the subtree is standing on.
+///
+/// This used to be a plain `Color`, which meant the ink was decided at the
+/// call site and every one of the three hundred odd call sites silently
+/// assumed the dark ground. Resolving in the environment instead means a
+/// screen states its *role* — headline, reasoning, recessive — and the canvas
+/// decides the colour, so moving a surface to cream is one modifier rather
+/// than a sweep.
+struct FieldInkStyle: ShapeStyle {
+    let step: FieldInk
+
+    func resolve(in environment: EnvironmentValues) -> Color {
+        let canvas = environment.weCanvas
+        return canvas.ink.opacity(canvas.alpha(for: step))
+    }
+}
+
+extension FieldInk {
+    /// The concrete colour, for the few places that genuinely cannot take a
+    /// `ShapeStyle` — `tint`, gradient stops, `UIColor` bridging. Prefer
+    /// `.fieldInk(_:)` everywhere else so the canvas stays in charge.
+    func color(on canvas: WECanvas) -> Color {
+        canvas.ink.opacity(canvas.alpha(for: self))
     }
 }
 
@@ -94,23 +120,44 @@ enum FieldInk: Double, CaseIterable {
 
 // MARK: - Hairlines
 
+/// Hairlines, as ink at a fixed weight.
+///
+/// These are ramp steps by another name — the same ink at a lower alpha — so
+/// they resolve against the canvas exactly the way `.fieldInk(_:)` does. A
+/// rule drawn in dark ink on the cream page is not a faint rule, it is an
+/// invisible one, which is why these could not stay constants.
 enum FieldRule {
     /// Section dividers, top/bottom of the synthesis block.
-    static let primary = FieldPalette.ink.opacity(0.16)
+    static let primary = FieldRuleStyle(alpha: 0.16)
     /// Rule inside Us sections.
-    static let us = FieldPalette.ink.opacity(0.14)
+    static let us = FieldRuleStyle(alpha: 0.14)
     /// List-row divider.
-    static let row = FieldPalette.ink.opacity(0.13)
+    static let row = FieldRuleStyle(alpha: 0.13)
     /// List-row divider inside a tinted cluster card.
-    static let rowInCluster = FieldPalette.ink.opacity(0.11)
+    static let rowInCluster = FieldRuleStyle(alpha: 0.11)
     /// Divider inside the "what I'm watching" list.
-    static let watching = FieldPalette.ink.opacity(0.09)
+    static let watching = FieldRuleStyle(alpha: 0.09)
     /// Dashed border — the standing-rule card.
-    static let dashed = FieldPalette.ink.opacity(0.20)
+    static let dashed = FieldRuleStyle(alpha: 0.20)
     /// Secondary button border.
-    static let secondaryButton = FieldPalette.ink.opacity(0.25)
+    static let secondaryButton = FieldRuleStyle(alpha: 0.25)
     /// The WE mark's ring.
-    static let mark = FieldPalette.ink.opacity(0.50)
+    static let mark = FieldRuleStyle(alpha: 0.50)
+}
+
+struct FieldRuleStyle: ShapeStyle {
+    let alpha: Double
+
+    func resolve(in environment: EnvironmentValues) -> Color {
+        let canvas = environment.weCanvas
+        return canvas.ink.opacity(canvas.ruleAlpha(alpha))
+    }
+
+    /// For the places that need a concrete `Color` — gradient stops, borders
+    /// taken as a value rather than applied as a style.
+    func color(on canvas: WECanvas) -> Color {
+        canvas.ink.opacity(canvas.ruleAlpha(alpha))
+    }
 }
 
 // MARK: - Person colour
@@ -381,6 +428,34 @@ enum FieldType {
         #endif
     }
 
+    /// The text style a given point size scales *against*.
+    ///
+    /// Every face here used to be built with `fixedSize:`, which opts the
+    /// whole Field surface out of Dynamic Type — the app rendered at exactly
+    /// one size no matter what the person had set. That is the accessibility
+    /// equivalent of ignoring the volume control.
+    ///
+    /// Sizes are still authored as absolute points, because the type ramp is
+    /// a composition and "body plus two" is not a design decision anyone made.
+    /// Anchoring each point size to the nearest style preserves the ramp's
+    /// proportions while letting the whole thing move together.
+    ///
+    /// Display sizes anchor high on purpose: they are already clamped for
+    /// accessibility sizes by `WEDisplayScale`, so the two systems meet rather
+    /// than fight — the ramp scales the type, and the clamp keeps a hero
+    /// thought from becoming a single word per line.
+    private static func textStyle(for size: CGFloat) -> Font.TextStyle {
+        switch size {
+        case 34...: .largeTitle
+        case 26..<34: .title
+        case 20..<26: .title3
+        case 17..<20: .body
+        case 15..<17: .subheadline
+        case 13..<15: .footnote
+        default: .caption2
+        }
+    }
+
     // MARK: Newsreader
 
     private static func serif(
@@ -403,7 +478,7 @@ enum FieldType {
         case (_, true): "\(opsz)-Italic"
         default: "\(opsz)-Regular"
         }
-        return .custom(face, fixedSize: size)
+        return .custom(face, size: size, relativeTo: textStyle(for: size))
     }
 
     /// Hero statement on Today — 300 42/1.12, tracking -0.01em.
@@ -411,7 +486,29 @@ enum FieldType {
     /// Page headline — 300 30–34/1.14–1.18.
     static let pageHeadline = serif(32, .light)
     /// The Us horizon. The largest type in the app — 300 44/1.06.
+    ///
+    /// Retained for surfaces not yet converted. "Type Holds the Room" makes 44
+    /// the *floor* of the display range rather than the ceiling of the app;
+    /// converted surfaces use `display(_:)` below.
     static let horizon = serif(44, .light)
+
+    // MARK: The display range
+    //
+    // "One meaningful thought owns each viewport." The hero thought runs
+    // roughly 64 to 92 points and the major question or horizon 48 to 64 —
+    // starting ranges, not fixed values.
+    //
+    // Phase one ships the two roles Us needs. The rest of the ramp, and the
+    // Dynamic Type conversion that lets these scale, land with the shared
+    // system; until then these are `fixedSize` like every other role here, and
+    // `WEDisplayScale` below is what keeps them from clipping.
+
+    /// The hero thought. One per screen, and never more.
+    static func hero(_ size: CGFloat = 76) -> Font { serif(size, .light) }
+
+    /// A major question or horizon, one step below the hero.
+    static func majorQuestion(_ size: CGFloat = 54) -> Font { serif(size, .light) }
+
     /// A Life category word — 300 38/1.
     static let categoryWord = serif(38, .light)
     /// The takeover cluster title — 300 40/1.1.
@@ -456,7 +553,7 @@ enum FieldType {
         let face = weight == .medium
             ? "IBMPlexMono-Medium"
             : "IBMPlexMono-Regular"
-        return .custom(face, fixedSize: size)
+        return .custom(face, size: size, relativeTo: textStyle(for: size))
     }
 
     /// Zone label — LIFE / TODAY / US. 400 10, tracking 0.22em.
@@ -473,6 +570,75 @@ enum FieldType {
     static let mark = mono(11, .regular)
     /// The status bar clock — 500 13.5.
     static let statusClock = mono(13.5, .medium)
+}
+
+// MARK: - Responsive display sizing
+//
+// "Never shrink important text merely to avoid scrolling" — but a hero is a
+// hero because it owns the viewport, and a forty character sentence set at
+// seventy six points owns rather more than that. So the size is chosen from
+// how much there is to say and how much room there is to say it in, which is
+// what a typesetter would do and what a fixed point size cannot.
+
+enum WEDisplayScale {
+    /// The hero size for `text`, given the width it has to live in.
+    ///
+    /// Long strings step down rather than wrap into a wall. The floor is the
+    /// old `FieldType.horizon` size, so nothing converted ever reads smaller
+    /// than what it replaced.
+    static func hero(
+        _ text: String,
+        width: CGFloat,
+        typeSize: DynamicTypeSize
+    ) -> CGFloat {
+        size(text, width: width, typeSize: typeSize, ceiling: 88, floor: 44)
+    }
+
+    /// The same curve, one step down, for a question or a secondary horizon.
+    static func majorQuestion(
+        _ text: String,
+        width: CGFloat,
+        typeSize: DynamicTypeSize
+    ) -> CGFloat {
+        size(text, width: width, typeSize: typeSize, ceiling: 60, floor: 32)
+    }
+
+    private static func size(
+        _ text: String,
+        width: CGFloat,
+        typeSize: DynamicTypeSize,
+        ceiling: CGFloat,
+        floor: CGFloat
+    ) -> CGFloat {
+        // The longest word cannot be broken, so it sets the hard upper bound:
+        // Newsreader Light averages ~0.46em per character at display sizes.
+        let longest = text
+            .split(whereSeparator: \.isWhitespace)
+            .map(\.count)
+            .max() ?? 1
+        let widthBound = width / (CGFloat(longest) * 0.46)
+
+        // Total length sets the soft bound — three short lines beat six.
+        let lengthBound: CGFloat = switch text.count {
+        case ...14: ceiling
+        case ...28: ceiling * 0.82
+        case ...48: ceiling * 0.66
+        default: ceiling * 0.52
+        }
+
+        // At accessibility sizes the theatrical scale gives way. Reading order
+        // and the scroll are preserved; the drama is not.
+        let accessibilityBound: CGFloat = typeSize.isAccessibilitySize
+            ? ceiling * 0.5
+            : ceiling
+
+        // The floor guards against the length heuristic shrinking type that
+        // had room to be large. It cannot guard against arithmetic: a word
+        // that does not fit does not fit, so the width bound outranks it and
+        // only a hard minimum sits below.
+        let soft = max(floor, min(lengthBound, accessibilityBound))
+        return max(28, min(soft, widthBound))
+    }
 }
 
 // MARK: Letter-spacing
@@ -518,6 +684,25 @@ enum FieldMetrics {
     /// The bottom value clears the nav bar.
     static let screenTop: CGFloat = 62
     static let screenSide: CGFloat = 30
+    /// Clearance under a zone's content, so nothing ends up beneath the bar.
+    ///
+    /// The bar is type, so it grows when the person's type grows. A constant
+    /// here was right at the default size and wrong at every other one: at
+    /// the accessibility sizes the last row of each zone sat underneath the
+    /// navigation, which is the one collision a fixed bottom bar can cause.
+    static func screenBottom(at typeSize: DynamicTypeSize) -> CGFloat {
+        switch typeSize {
+        case .accessibility5: 216
+        case .accessibility4: 196
+        case .accessibility3: 176
+        case .accessibility2: 156
+        case .accessibility1: 140
+        default: 112
+        }
+    }
+
+    /// The default-size clearance, for the places that lay out without an
+    /// environment to ask.
     static let screenBottom: CGFloat = 112
 
     /// Us runs slightly wider margins than the other two zones.
@@ -741,7 +926,7 @@ struct FieldOutlinedButtonStyle: ButtonStyle {
             .font(FieldType.button)
             .tracking(FieldTracking.button)
             .textCase(.uppercase)
-            .foregroundStyle(tint ?? .fieldInk(.legend))
+            .foregroundStyle(tint ?? FieldInk.legend.color(on: .dark))
             .padding(.horizontal, 20)
             .padding(.vertical, 13)
             .background(
@@ -757,7 +942,7 @@ struct FieldOutlinedButtonStyle: ButtonStyle {
                     style: .continuous
                 )
                 .stroke(
-                    tint?.opacity(0.55) ?? FieldRule.secondaryButton,
+                    tint?.opacity(0.55) ?? FieldRule.secondaryButton.color(on: .dark),
                     lineWidth: 1
                 )
             }
@@ -789,20 +974,25 @@ struct FieldLabel: View {
     let text: String
     var font: Font = FieldType.sectionLabel
     var tracking: CGFloat = FieldTracking.sectionLabel
-    var color: Color = .fieldInk(.monoLabel)
+    // A ramp step rather than a colour. The eyebrow is on its way out, but a
+    // component that is merely *retiring* still has to be legible on both
+    // grounds: pinning it to the dark canvas turned every remaining label on
+    // Life into cream ink on cream paper, which reads as a rendering bug
+    // rather than as restraint.
+    var ink: FieldInk = .monoLabel
     var isHeader = true
 
     init(
         _ text: String,
         font: Font = FieldType.sectionLabel,
         tracking: CGFloat = FieldTracking.sectionLabel,
-        color: Color = .fieldInk(.monoLabel),
+        ink: FieldInk = .monoLabel,
         isHeader: Bool = true
     ) {
         self.text = text
         self.font = font
         self.tracking = tracking
-        self.color = color
+        self.ink = ink
         self.isHeader = isHeader
     }
 
@@ -810,7 +1000,7 @@ struct FieldLabel: View {
         Text(text.uppercased())
             .font(font)
             .tracking(tracking)
-            .foregroundStyle(color)
+            .foregroundStyle(.fieldInk(ink))
             .accessibilityAddTraits(isHeader ? .isHeader : [])
     }
 }
@@ -861,7 +1051,7 @@ struct FieldChip: View {
                     Capsule().stroke(
                         isSelected
                             ? (tint ?? FieldPalette.ink).opacity(0.5)
-                            : FieldRule.secondaryButton,
+                            : FieldRule.secondaryButton.color(on: .dark),
                         lineWidth: 1
                     )
                 }
