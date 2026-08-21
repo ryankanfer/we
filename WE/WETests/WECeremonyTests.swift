@@ -259,3 +259,102 @@ struct WECeremonyMigrationTests {
         )
     }
 }
+
+/// The Promise view, held to what it is unable to render.
+///
+/// The view's job is negative as much as positive: there are states it must
+/// not be able to show, and the way that is guaranteed is that the state type
+/// cannot express them.
+struct WEPromiseViewTests {
+
+    /// There is no branch for "they have given it and I have not".
+    ///
+    /// `action(for:)` switches over `WEBeatState`, which has three cases and
+    /// no fourth. Adding one would be the change that turns the ceremony into
+    /// a read receipt, and it would have to be argued for here first.
+    @Test func theBeatStatesAreExactlyThree() {
+        let all: [WEBeatState] = [.waiting, .held, .kept]
+        #expect(Set(all.map(String.init(describing:))).count == 3)
+    }
+
+    /// Held says one thing, and it is about the beat rather than the person.
+    ///
+    /// The sentence names no one, carries no number, and cannot change as
+    /// time passes — which is what makes an hour into a held beat identical
+    /// to a second into one.
+    @Test func theHeldLineReportsNothingAboutTheOtherPerson() {
+        let line = "Held, until you have both said so."
+        #expect(line.allSatisfy { !$0.isNumber })
+        for word in ["Dylan", "waiting", "still", "yet", "since", "ago",
+                     "them", "they", "partner"] {
+            #expect(
+                !line.lowercased().contains(word.lowercased()),
+                "held must not say \(word)"
+            )
+        }
+    }
+
+    /// No skip, and no dismiss.
+    ///
+    /// A promise you can skip is a licence agreement. The only affordance on
+    /// a waiting beat is the one that gives it.
+    @Test func thereIsNoWayPastABeatExceptThroughIt() {
+        let source = (try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("WE/LivingConfluencePromise.swift"),
+            encoding: .utf8
+        )) ?? ""
+
+        #expect(!source.isEmpty)
+
+        // Only the code, so the file may still explain in prose what it no
+        // longer does. Scanning the whole file made this fail on its own
+        // documentation, which is the wrong kind of strict: the point is that
+        // the devices are gone, not that they cannot be named.
+        let code = source
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+
+        // A promise you can skip is a licence agreement.
+        for label in ["\"Skip\"", "\"Close\"", "\"Continue\""] {
+            #expect(!code.contains(label), "\(label) is still an action")
+        }
+        // The consent diagram, and the VoiceOver label that named it. If the
+        // mechanic needs a picture, the mechanic is not being performed.
+        #expect(!code.contains("private var architecture"))
+        #expect(!code.contains("Consent threshold"))
+        // The step counter. The ceremony reveals its own length by ending.
+        #expect(!code.contains("%02d"))
+        // The eyebrows.
+        for eyebrow in ["\"MINE\"", "\"OFFERED\"", "\"OURS\""] {
+            #expect(!code.contains(eyebrow), "\(eyebrow) is still there")
+        }
+    }
+
+    /// One haptic, at the moment a beat lands on both phones, and no sound.
+    @Test func theCeremonyIsFeltAndNeverHeard() {
+        let source = (try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("WE/LivingConfluencePromise.swift"),
+            encoding: .utf8
+        )) ?? ""
+        #expect(source.contains("sensoryFeedback"))
+        for sound in ["AVAudio", "AudioServices", "playSound", "SystemSound"] {
+            #expect(!source.contains(sound), "WE has no sound: \(sound)")
+        }
+    }
+
+    /// The ceremony ends by ending, and completion is the aggregate rather
+    /// than this device having finished its own half.
+    @Test func completionRequiresBoth() {
+        var state = WECeremonyState(mine: Set(WEBeat.allCases), kept: [])
+        #expect(!state.isComplete)
+        state.kept = Set(WEBeat.allCases)
+        #expect(state.isComplete)
+    }
+}

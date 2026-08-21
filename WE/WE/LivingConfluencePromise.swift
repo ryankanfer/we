@@ -1,252 +1,180 @@
 import SwiftUI
 
-/// The trust promise shown after account creation.
+/// The Joining: three beats, on two phones, and no way to finish alone.
 ///
-/// Two people remain visually intact throughout. The final beat creates a
-/// third shared clearing between them; it never depicts one person merging
-/// into the other.
+/// This used to run after account creation and *before* pairing, which meant
+/// the most important moment in the product was performed alone — a person
+/// reading three sentences about mutual consent by themselves, then tapping
+/// Continue. The rule each beat describes is supposed to be the rule
+/// governing the beat, and it was not: one person could complete the whole
+/// thing, and there was a Skip button, and a promise you can skip is a
+/// licence agreement.
+///
+/// What is gone, and why:
+///
+///   · **Skip.** There is no dismiss affordance on any beat.
+///   · **The step counter.** "01", "02". The ceremony reveals its own length
+///     by ending. A counter is the app describing its own process.
+///   · **The `architecture` diagram** — Mine, a vertical line, Theirs, with a
+///     VoiceOver label reading "Consent threshold". If the mechanic needs a
+///     picture, the mechanic is not being performed. The two devices are the
+///     diagram; do not draw two rectangles with a line between them, and do
+///     not draw a diagram of consent.
+///   · **The eyebrows.** MINE, OFFERED, OURS.
+///
+/// HELD IS THE LOAD BEARING FRAME
+///
+/// One person has given the beat and the other has not. It must feel like
+/// patience rather than like waiting for a server, and it must leak nothing
+/// about the other person's timing: no spinner, no "waiting for Dylan", no
+/// timestamp, no checkmark, no elapsed anything. `WECeremonyState` cannot
+/// express "they acted and I have not", so this view cannot render it.
+///
+/// An hour into a held beat is identical to a second into one. That is the
+/// position: any accumulating reassurance converts devotion into anxiety.
 struct LivingConfluencePromise: View {
-    private struct Beat {
-        let eyebrow: String
-        let title: String
-        let detail: String
-        let state: WEJourneyState
-    }
-
     let onComplete: () -> Void
 
-    /// A replay teaches nothing.
+    /// Reading rather than performing.
     ///
-    /// CIRCLE.md §2 allows the word "Yours" to name the personal space exactly
-    /// twice in a person's lifetime — once here and once on first entry — and
-    /// then never again. This screen is replayable from the profile, so
-    /// without this flag "twice" would mean "as many times as somebody rereads
-    /// the privacy promise". A replay is a re-read, not a re-teach: the beat
-    /// that names the space is omitted, and the flag that records the teaching
-    /// is not written.
+    /// CIRCLE.md §2 allows the word "Yours" to name the personal space twice
+    /// in a lifetime, and this screen is replayable from Account — so without
+    /// this, "twice" would mean "as often as somebody rereads the privacy
+    /// promise". A replay is also not a ceremony: nothing is written, nothing
+    /// waits on the other person, and the beats are simply shown.
     var isReplay = false
 
+    /// Where the ceremony has got to. Owned by the caller so the same state
+    /// can be driven by a live backend, a test, or a preview.
+    @Binding var ceremony: WECeremonyState
+
+    /// Called when this person gives the current beat.
+    var keep: (WEBeat) -> Void = { _ in }
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @State private var beat = 0
-    @State private var hapticTrigger = 0
+    @Environment(\.dynamicTypeSize) private var typeSize
 
-    private var beats: [Beat] {
-        isReplay ? sharedBeats : sharedBeats + [namingBeat]
+    @State private var landed = 0
+    @State private var replayBeat = 0
+
+    private var identity: FieldIdentity
+    private var partnerName: String { identity.nameB }
+
+    init(
+        identity: FieldIdentity = .seed,
+        isReplay: Bool = false,
+        ceremony: Binding<WECeremonyState>,
+        keep: @escaping (WEBeat) -> Void = { _ in },
+        onComplete: @escaping () -> Void
+    ) {
+        self.identity = identity
+        self.isReplay = isReplay
+        self._ceremony = ceremony
+        self.keep = keep
+        self.onComplete = onComplete
     }
 
-    /// The one teaching moment that lives on this screen. After it, the mark
-    /// carries the meaning alone — no title, no navigation label, no section
-    /// header, no settings row.
-    private var namingBeat: Beat {
-        Beat(
-            eyebrow: "○",
-            title: YoursCopy.teachingTitle,
-            detail: YoursCopy.teachingBody,
-            state: .privateState
-        )
+    private var beat: WEBeat? {
+        isReplay
+            ? (replayBeat < WEBeat.allCases.count
+                ? WEBeat.allCases[replayBeat]
+                : nil)
+            : ceremony.currentBeat
     }
 
-    private let sharedBeats = [
-        Beat(
-            eyebrow: "MINE",
-            title: "Yours stays yours.",
-            detail: "A thought begins on your side. You decide whether any prepared wording ever leaves it.",
-            state: .privateState
-        ),
-        Beat(
-            eyebrow: "OFFERED",
-            title: "You see what crosses.",
-            detail: "WE shows the exact topic first. Nothing moves past the threshold until you approve it.",
-            state: .offerPreview
-        ),
-        Beat(
-            eyebrow: "OURS",
-            title: "Shared is a new space.",
-            detail: "Your answers remain private. When both of you consent, WE opens a direction between two intact sides.",
-            state: .shared
-        ),
-    ]
+    private var state: WEBeatState {
+        guard let beat else { return .kept }
+        return isReplay ? .waiting : ceremony.state(of: beat)
+    }
 
     var body: some View {
         ZStack {
-            WEJourneyBackdrop(state: current.state)
+            WECanvas.dark.bg.ignoresSafeArea()
 
-            GeometryReader { viewport in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        topBar
-                        Spacer(minLength: 24)
-                        architecture
-                        Spacer(minLength: 28)
-                        copyBlock
-                        action
-                    }
-                    .frame(
-                        maxWidth: .infinity,
-                        minHeight: max(0, viewport.size.height - 40),
-                        alignment: .topLeading
-                    )
-                    .padding(.horizontal, 24)
-                    .padding(.top, 12)
-                    .padding(.bottom, 28)
+            if let beat {
+                VStack(alignment: .leading, spacing: 0) {
+                    Spacer(minLength: 0)
+
+                    WEDisplayText(beat.title, role: .hero)
+                        .padding(.bottom, 18)
+
+                    Text(beat.detail(partner: partnerName))
+                        .font(FieldType.body)
+                        .foregroundStyle(.fieldInk(.sectionSubtitle))
+                        .fieldLineHeight(1.6, size: 14.5)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Spacer(minLength: 0)
+
+                    action(for: beat)
                 }
-                .scrollBounceBehavior(.basedOnSize)
-                .scrollIndicators(.hidden)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, FieldMetrics.usSide)
+                .padding(.bottom, FieldMetrics.screenBottom(at: typeSize))
+                .id(beat)
+                // A crossfade, always. Sliding one beat away to reveal the
+                // next makes the ceremony into a carousel somebody is
+                // advancing rather than something resolving.
+                .transition(.opacity)
             }
+
+            // Both hues from the first beat. The field is the couple, not a
+            // progress bar: it must not brighten as beats are kept, or it
+            // becomes the step counter drawn in colour.
+            WEColourField(
+                state: .shared,
+                identity: identity,
+                height: 168
+            )
+            .frame(maxHeight: .infinity, alignment: .bottom)
+            .ignoresSafeArea(edges: .bottom)
         }
-        .preferredColorScheme(
-            current.state == .privateState ? .dark : .light
-        )
-        .sensoryFeedback(.selection, trigger: hapticTrigger)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: beat)
+        .environment(\.weCanvas, .dark)
+        .preferredColorScheme(.dark)
+        // One shared haptic, at the instant a beat is kept on both phones,
+        // and nothing else in the whole ceremony. WE has no sound.
+        .sensoryFeedback(.success, trigger: landed)
+        .onChange(of: ceremony.kept) { old, new in
+            if new.count > old.count { landed += 1 }
+        }
+        .onChange(of: ceremony.isComplete) { _, complete in
+            if complete, !isReplay { onComplete() }
+        }
+        .accessibilityIdentifier("we.promise")
     }
 
-    private var topBar: some View {
-        let palette = WEJourneyPalette.palette(for: current.state)
-        return HStack {
-            Text(String(format: "%02d", beat + 1))
-            Text(current.eyebrow)
-            Spacer()
-            Button(isLastBeat ? "Close" : "Skip", action: onComplete)
-                .frame(minHeight: 44)
-        }
-        .font(.caption.weight(.semibold))
-        .tracking(1.4)
-        .foregroundStyle(palette.secondaryInk)
-    }
-
-    private var architecture: some View {
-        let palette = WEJourneyPalette.palette(for: current.state)
-        return VStack(spacing: 18) {
-            HStack(spacing: 16) {
-                side(
-                    title: "Mine",
-                    color: .weDuskBlue,
-                    palette: palette
-                )
-
-                if current.state == .shared {
-                    VStack(spacing: 8) {
-                        Text("Ours")
-                            .font(.weMeta)
-                            .tracking(1.2)
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .fill(Color.white.opacity(0.62))
-                            .overlay {
-                                Image(systemName: "arrow.left.and.right")
-                                    .symbolRenderingMode(.hierarchical)
-                                    .foregroundStyle(Color.weSharedOlive)
-                            }
-                    }
-                    .foregroundStyle(palette.secondaryInk)
-                    .frame(maxWidth: 92)
-                    .transition(.opacity)
+    /// The way to give the beat, and what stands in its place once given.
+    ///
+    /// There is deliberately no third branch. `.kept` resolves into the next
+    /// beat rather than rendering, and "they have given it and I have not" is
+    /// not a state this device can be in.
+    @ViewBuilder
+    private func action(for beat: WEBeat) -> some View {
+        switch state {
+        case .waiting:
+            WEEditorialAction(isReplay ? "Next" : "I understand") {
+                if isReplay {
+                    replayBeat += 1
+                    if replayBeat >= WEBeat.allCases.count { onComplete() }
                 } else {
-                    Rectangle()
-                        .fill(
-                            current.state == .offerPreview
-                                ? Color.weChampagne
-                                : palette.secondaryInk.opacity(0.22)
-                        )
-                        .frame(width: 1)
-                        .accessibilityLabel(
-                            current.state == .offerPreview
-                                ? "Consent threshold"
-                                : "Private boundary"
-                        )
-                }
-
-                side(
-                    title: "Theirs",
-                    color: .weChampagne,
-                    palette: palette
-                )
-            }
-            .frame(height: dynamicTypeSize.isAccessibilitySize ? 160 : 250)
-
-            WEContinuityLine(state: current.state)
-                .frame(height: 64)
-        }
-        .animation(
-            reduceMotion ? nil : .weSettle(duration: 0.45),
-            value: beat
-        )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(current.state.accessibilityDescription)
-    }
-
-    private func side(
-        title: String,
-        color: Color,
-        palette: WEJourneyPalette
-    ) -> some View {
-        VStack(spacing: 10) {
-            Text(title)
-                .font(.weMeta)
-                .tracking(1.2)
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(palette.secondaryBackground.opacity(0.28))
-                .overlay(alignment: .leading) {
-                    Rectangle()
-                        .fill(color)
-                        .frame(width: 2)
-                        .padding(.vertical, 24)
-                }
-                .overlay {
-                    Circle()
-                        .fill(color)
-                        .frame(width: 10, height: 10)
-                }
-        }
-        .foregroundStyle(palette.secondaryInk)
-        .frame(maxWidth: .infinity)
-    }
-
-    private var copyBlock: some View {
-        let palette = WEJourneyPalette.palette(for: current.state)
-        return VStack(alignment: .leading, spacing: 10) {
-            Text(current.title)
-                .font(.weLargeTitle)
-                .foregroundStyle(palette.ink)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(current.detail)
-                .font(.weBody)
-                .foregroundStyle(palette.secondaryInk)
-                .frame(maxWidth: 360, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .id(beat)
-        .transition(.opacity)
-    }
-
-    private var action: some View {
-        Button(isLastBeat ? "Enter WE" : "Continue") {
-            if isLastBeat {
-                onComplete()
-            } else {
-                hapticTrigger += 1
-                withAnimation(
-                    reduceMotion
-                        ? nil
-                        : .weSettle(duration: 0.4)
-                ) {
-                    beat += 1
+                    keep(beat)
                 }
             }
+            .accessibilityIdentifier("we.promise.give")
+
+        case .held:
+            // Held. Not "waiting for Dylan", not a spinner, not a checkmark,
+            // and nothing that changes as time passes. The sentence is about
+            // what is true of the beat, never about the other person.
+            Text("Held, until you have both said so.")
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.metadataProse))
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("we.promise.held")
+
+        case .kept:
+            EmptyView()
         }
-        .buttonStyle(WEJourneyPrimaryButtonStyle(state: current.state))
-        .padding(.top, 26)
-        .accessibilityHint(
-            isLastBeat
-                ? "Completes the privacy and consent promise"
-                : "Shows the next privacy and consent promise"
-        )
     }
-
-    private var current: Beat { beats[beat] }
-    private var isLastBeat: Bool { beat == beats.count - 1 }
-}
-
-#Preview {
-    LivingConfluencePromise(onComplete: {})
 }

@@ -179,11 +179,25 @@ struct WEApp: App {
             .allowsHitTesting(!showsPromise)
 
             if showsPromise {
+                // Only ever the replay from Account. `showsPromise` is
+                // `isReplayingPromise` and nothing else — the Promise stopped
+                // owning any launch state when the walkthrough became the
+                // sole first-run explanation, and it is now performed at
+                // arrival rather than after account creation, because the
+                // most important moment in the product cannot be one somebody
+                // completes alone.
+                //
+                // A replay waits on nobody, so it is handed a ceremony that
+                // is already complete and simply reads the beats through.
                 LivingConfluencePromise(
-                    onComplete: {
-                        isReplayingPromise = false
-                    },
-                    isReplay: isReplayingPromise
+                    isReplay: true,
+                    ceremony: .constant(
+                        WECeremonyState(
+                            mine: Set(WEBeat.allCases),
+                            kept: Set(WEBeat.allCases)
+                        )
+                    ),
+                    onComplete: { isReplayingPromise = false }
                 )
                 .transition(.opacity)
                 .zIndex(10)
