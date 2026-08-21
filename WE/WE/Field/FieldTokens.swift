@@ -24,23 +24,35 @@ import UIKit
 
 // MARK: - Palette
 
+/// The dark canvas, by its old name.
+///
+/// This described the single page the app used to have. It now delegates to
+/// `WECanvas.dark` rather than holding its own values: two constants for one
+/// ground drift, and the drift shows up as a screen that is *nearly* the
+/// right black, which is worse than either being wrong.
+///
+/// Surfaces that could be on either canvas should take `.fieldInk(_:)` or
+/// `@Environment(\.weCanvas)` instead. What is left here is the places that
+/// are genuinely dark by nature — the inverted button fill, the ceremonial
+/// screens — plus the ones not yet converted.
 enum FieldPalette {
-    /// The app background. A flat, matte, desaturated deep green.
-    /// Never a gradient fill.
-    static let bg = Color(hex: 0x16211D)
+    /// The app background. Warm ink black. Never a gradient fill.
+    static var bg: Color { WECanvas.dark.bg }
 
     /// Sheets and overlays that sit *above* the page.
-    static let bgElevated = Color(hex: 0x1B2723)
+    static var bgElevated: Color { WECanvas.dark.bgElevated }
 
     /// The Reminders full-screen takeover — *below* the page in perceived
     /// depth, which is why it is darker rather than lighter.
-    static let bgDeep = Color(hex: 0x101A17)
+    static var bgDeep: Color { WECanvas.dark.bgDeep }
 
     /// Primary text. A warm off-white. Also the inverted button fill.
-    static let ink = Color(hex: 0xE8E4D9)
+    static var ink: Color { WECanvas.dark.ink }
 
     /// The ink channel as raw components, so alpha ramps stay one source.
-    static let inkRGB = (r: 232.0 / 255, g: 228.0 / 255, b: 217.0 / 255)
+    static var inkRGB: (r: Double, g: Double, b: Double) {
+        WECanvas.dark.inkRGB
+    }
 }
 
 // MARK: - The ink alpha ramp

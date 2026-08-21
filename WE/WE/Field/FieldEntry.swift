@@ -254,6 +254,7 @@ struct FieldGallery: View {
         case deferral = "09  Deferral, said out loud (6d)"
         case season = "10  A season, closed (6e)"
         case onboarding = "11  Onboarding (6f)"
+        case stillness = "The stillness"
 
         var id: String { rawValue }
     }
@@ -341,6 +342,13 @@ struct FieldGallery: View {
             FieldSeasonClosedView()
         case .onboarding:
             FieldOnboardingView()
+        case .stillness:
+            WEStillness(
+                line: "WE is still until Dylan arrives.",
+                identity: store.identity,
+                withdrawal: "Withdraw the invitation",
+                onWithdraw: {}
+            )
         }
     }
 }

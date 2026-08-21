@@ -453,6 +453,31 @@ private struct PartnerWaitingView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var copied = false
 
+    /// Who the invitation is for, in their own name.
+    ///
+    /// The app never says "your partner" once it has been told, which is why
+    /// it asks here rather than waiting for them to arrive: the stillness is
+    /// the screen most in need of the name, and it is shown before there is
+    /// anybody to ask.
+    ///
+    /// Kept on this device rather than sent. Naming someone who has not
+    /// arrived is a fact about the person doing the inviting, and putting it
+    /// on a server before the named person exists would be storing their name
+    /// somewhere they never agreed to. It travels no further than this phone.
+    @AppStorage("we.invitee.name") private var inviteeName = ""
+
+    /// Whether the invitation has left this phone.
+    ///
+    /// The distinction the screen turns on. Before it, there is something to
+    /// do; after it, there is nothing to do, and the app says so by going
+    /// still rather than by continuing to display the thing already done.
+    @AppStorage("we.invitation.sent") private var invitationSent = false
+
+    private var name: String {
+        let trimmed = inviteeName.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? "they" : trimmed
+    }
+
     private var code: String { session.snapshot?.couple?.joinCode ?? "" }
 
     private var couple: Couple? { session.snapshot?.couple }
@@ -463,18 +488,59 @@ private struct PartnerWaitingView: View {
     private var isLive: Bool { couple?.hasLiveInvitation() ?? false }
 
     var body: some View {
+        if invitationSent, isLive {
+            stillness
+        } else {
+            invitationScreen
+        }
+    }
+
+    /// Nothing to do, so nothing to tap.
+    ///
+    /// The code was sent. Leaving it on screen with a share button beside it
+    /// would be the app asking to be checked on, and checking on it is the
+    /// behaviour the whole position is trying not to produce.
+    private var stillness: some View {
+        WEStillness(
+            line: name == "they"
+                ? "WE is still until they arrive."
+                : "WE is still until \(name) arrives.",
+            identity: FieldIdentity.seed,
+            withdrawal: "Withdraw the invitation",
+            onWithdraw: {
+                invitationSent = false
+                Task { await session.revokeInvitation() }
+            }
+        )
+    }
+
+    private var invitationScreen: some View {
         FieldGateScaffold(label: "Invitation ready") {
             VStack(alignment: .leading, spacing: FieldMetrics.sectionGap) {
                 FieldGateHeadline(
+                    // "The invitation is at the threshold" is the register of
+                    // the specification document that produced it. The word
+                    // "threshold" survives fine as internal geometry naming
+                    // and does not belong in a sentence anybody reads.
                     title: isLive
-                        ? "The invitation is at\nthe threshold."
+                        ? (name == "they" ? "For them." : "For \(name).")
                         : "The invitation has\nbeen withdrawn.",
                     subtitle: isLive
-                        ? "Send the code when you are ready. It contains "
-                            + "no note, proposal, answer, or private context."
+                        ? "Send this when you're ready. "
+                            + (name == "they"
+                                ? "They'll see your name and nothing else."
+                                : "\(name) will see your name and nothing else.")
                         : "This code no longer opens anything. Make a new one "
                             + "when you are ready."
                 )
+
+                if isLive {
+                    FieldTextField(
+                        label: "Who is this for?",
+                        text: $inviteeName,
+                        identifier: "waiting.inviteeName"
+                    )
+                }
 
                 // The code itself, in the app's mono at a size you can read
                 // across a table. Selectable, because somebody will want to
@@ -505,21 +571,10 @@ private struct PartnerWaitingView: View {
                     FieldRuleLine()
                 }
 
-                FieldReasoning(
-                    text: "What crosses is an invitation to create a WE space. "
-                        + "Nothing else.",
-                    accent: FieldIdentity.seed.personB.color
-                )
-
                 window
 
                 invitationActions
                     .sensoryFeedback(.success, trigger: copied)
-
-                Text("WE will stay still until they choose.")
-                    .font(FieldType.body)
-                    .foregroundStyle(.fieldInk(.metadataProse))
-                    .fixedSize(horizontal: false, vertical: true)
 
                 withdrawal
 
@@ -613,6 +668,11 @@ private struct PartnerWaitingView: View {
         .buttonStyle(FieldFilledButtonStyle())
         .accessibilityLabel("Send the invitation")
         .accessibilityIdentifier("waiting.share")
+        // Sharing is the last thing there is to do, so the app goes still
+        // once it is done. Optimistic on purpose: whether the message was
+        // actually sent is between two people and their messaging app, and
+        // WE having an opinion about it would mean watching for an answer.
+        .simultaneousGesture(TapGesture().onEnded { invitationSent = true })
     }
 
     private var invitationShareMessage: String {
@@ -624,6 +684,7 @@ private struct PartnerWaitingView: View {
         Button {
             UIPasteboard.general.string = code
             copied = true
+            invitationSent = true
         } label: {
             Text(copied ? "Copied" : "Copy")
         }

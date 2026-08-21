@@ -40,7 +40,12 @@ enum WECanvas: String, CaseIterable, Sendable {
     /// The page.
     var bg: Color {
         switch self {
-        case .dark: Color(hex: 0x16211D)
+        // Warm ink black rather than the desaturated deep green the app
+        // shipped. The green was a colour, and a colour competes: person hue
+        // at the bottom edge has to sit *on* the ground rather than fight it,
+        // and a warm rust glow against a green page reads as mud. Black with
+        // warmth in it lets both hues be themselves.
+        case .dark: Color(hex: 0x13100D)
         case .cream: Color(hex: 0xF2ECE0)
         }
     }
@@ -48,7 +53,7 @@ enum WECanvas: String, CaseIterable, Sendable {
     /// Sheets and overlays that sit *above* the page.
     var bgElevated: Color {
         switch self {
-        case .dark: Color(hex: 0x1B2723)
+        case .dark: Color(hex: 0x1B1713)
         case .cream: Color(hex: 0xFAF6EE)
         }
     }
@@ -58,7 +63,7 @@ enum WECanvas: String, CaseIterable, Sendable {
     /// lighter. Depth is a direction away from the page, not toward white.
     var bgDeep: Color {
         switch self {
-        case .dark: Color(hex: 0x101A17)
+        case .dark: Color(hex: 0x0B0908)
         case .cream: Color(hex: 0xE7DFD0)
         }
     }
@@ -83,8 +88,8 @@ enum WECanvas: String, CaseIterable, Sendable {
     ///
     /// The ramp is fifteen *roles*, and the first cut of the cream canvas
     /// reused the dark canvas's alphas for all fifteen. Measured, every step
-    /// below the headline lost contrast — `metadataProse` fell from 4.26:1 to
-    /// 3.27:1 and `monoLabel` from 3.22:1 to 2.47:1 — because compositing
+    /// below the headline lost contrast — `metadataProse` fell from 4.43:1 to
+    /// 3.27:1 and `monoLabel` from 3.26:1 to 2.47:1 — because compositing
     /// toward a light ground loses contrast faster than compositing toward a
     /// dark one. It is not a question of picking a darker ink: pure black on
     /// this paper still reaches only about 86 percent of the dark canvas's
@@ -100,21 +105,21 @@ enum WECanvas: String, CaseIterable, Sendable {
             step.rawValue
         case .cream:
             switch step {
-            case .headline: 0.907
-            case .secondaryHeading: 0.795
-            case .quietListItem: 0.751
-            case .legend: 0.732
-            case .cardProse: 0.705
-            case .reasoning: 0.663
-            case .sectionSubtitle: 0.611
-            case .categorySummary: 0.586
-            case .metadataProse: 0.570
-            case .deemphasisedItem: 0.526
-            case .monoLabel: 0.479
-            case .monoLabelQuiet: 0.460
-            case .dateCount: 0.429
-            case .headerMeta: 0.397
-            case .recessive: 0.375
+            case .headline: 0.961
+            case .secondaryHeading: 0.828
+            case .quietListItem: 0.779
+            case .legend: 0.758
+            case .cardProse: 0.729
+            case .reasoning: 0.684
+            case .sectionSubtitle: 0.626
+            case .categorySummary: 0.600
+            case .metadataProse: 0.582
+            case .deemphasisedItem: 0.535
+            case .monoLabel: 0.483
+            case .monoLabelQuiet: 0.462
+            case .dateCount: 0.428
+            case .headerMeta: 0.393
+            case .recessive: 0.368
             }
         }
     }

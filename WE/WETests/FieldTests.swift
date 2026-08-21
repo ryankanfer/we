@@ -102,9 +102,16 @@ struct FieldPaletteTests {
     func personColoursMatchTheHandoff() {
         #expect(FieldSwatch.clay.color.fieldHex == 0xD98E5A)
         #expect(FieldSwatch.slate.color.fieldHex == 0x79A6B8)
-        #expect(FieldPalette.bg.fieldHex == 0x16211D)
-        #expect(FieldPalette.bgElevated.fieldHex == 0x1B2723)
-        #expect(FieldPalette.bgDeep.fieldHex == 0x101A17)
+        // The ground moved, deliberately: "Type Holds the Room" asks for warm
+        // ink black rather than the desaturated deep green the handoff
+        // specified, because green is a colour and a colour competes with the
+        // person hue at the bottom edge. `FieldPalette` now delegates to
+        // `WECanvas.dark`, so this asserts the two agree rather than
+        // asserting a second copy of the same number.
+        #expect(FieldPalette.bg.fieldHex == WECanvas.dark.bg.fieldHex)
+        #expect(FieldPalette.bg.fieldHex == 0x13100D)
+        #expect(FieldPalette.bgElevated.fieldHex == 0x1B1713)
+        #expect(FieldPalette.bgDeep.fieldHex == 0x0B0908)
         #expect(FieldPalette.ink.fieldHex == 0xE8E4D9)
     }
 
@@ -113,9 +120,9 @@ struct FieldPaletteTests {
     /// lighter. Getting this backwards is the single easiest mistake here.
     @Test
     func depthOrderingHolds() {
-        let canvas = Self.luminance((0x16 / 255, 0x21 / 255, 0x1D / 255))
-        let elevated = Self.luminance((0x1B / 255, 0x27 / 255, 0x23 / 255))
-        let deep = Self.luminance((0x10 / 255, 0x1A / 255, 0x17 / 255))
+        let canvas = Self.luminance((0x13 / 255, 0x10 / 255, 0x0D / 255))
+        let elevated = Self.luminance((0x1B / 255, 0x17 / 255, 0x13 / 255))
+        let deep = Self.luminance((0x0B / 255, 0x09 / 255, 0x08 / 255))
 
         #expect(deep < canvas)
         #expect(elevated > canvas)
