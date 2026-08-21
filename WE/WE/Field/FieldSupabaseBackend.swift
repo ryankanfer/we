@@ -215,8 +215,8 @@ private func postgresDay(_ value: String?) -> Date? {
 // MARK: - Backend
 
 final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
-    private let client: SupabaseClient
-    private let coupleID: UUID
+    let client: SupabaseClient
+    let coupleID: UUID
     private let viewerID: UUID
     /// Person A is whoever joined the couple first.
     private let profileA: UUID

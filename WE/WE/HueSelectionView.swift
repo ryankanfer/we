@@ -43,7 +43,7 @@ struct HueOnboardingView: View {
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(
                             phase == .personal
-                                ? "\(selection.name), \(personalName)’s selected color"
+                                ? "\(selection.name), \(personalName)’s selected colour"
                                 : "\(personalName) and \(partnerName)’s shared atmosphere"
                         )
 
@@ -107,7 +107,7 @@ struct HueOnboardingView: View {
 
                 Text(
                     phase == .personal
-                        ? "YOUR COLOR"
+                        ? "YOUR COLOUR"
                         : "OUR ATMOSPHERE"
                 )
                 .foregroundStyle(.white.opacity(0.7))
@@ -141,7 +141,7 @@ struct HueOnboardingView: View {
 
             Text(
                 phase == .personal
-                    ? "A color for your side of WE."
+                    ? "Anything of yours will be this colour."
                     : "This is the atmosphere you create together."
             )
             .font(.system(.subheadline, weight: .regular))
@@ -225,7 +225,7 @@ struct HueOnboardingView: View {
                 if isWorking && phase == .shared {
                     ProgressView()
                         .tint(.white)
-                        .accessibilityLabel("Saving your color")
+                        .accessibilityLabel("Saving your colour")
                 } else {
                     Text(
                         phase == .personal
@@ -339,7 +339,7 @@ struct HueSettingsView: View {
 
             ScrollView {
                 VStack(spacing: 0) {
-                    Text("YOUR COLOR")
+                    Text("YOUR COLOUR")
                         .font(.system(.caption2, weight: .semibold))
                         .tracking(1.5)
                         .foregroundStyle(.white.opacity(0.58))
@@ -358,7 +358,7 @@ struct HueSettingsView: View {
                         "\(personalName) and \(partnerName)’s shared atmosphere"
                     )
 
-                    Text("Your color.")
+                    Text("Your colour.")
                         .font(.weLargeTitle)
                         .foregroundStyle(.white)
                         .padding(.top, -24)
@@ -444,7 +444,7 @@ private struct HueSelector: View {
             HStack(spacing: 14) {
                 arrowButton(
                     symbol: "arrow.left",
-                    label: "Previous color",
+                    label: "Previous colour",
                     offset: -1
                 )
 
@@ -466,7 +466,7 @@ private struct HueSelector: View {
 
                 arrowButton(
                     symbol: "arrow.right",
-                    label: "Next color",
+                    label: "Next colour",
                     offset: 1
                 )
             }
@@ -496,7 +496,7 @@ private struct HueSelector: View {
                     }
                     .buttonStyle(.plain)
                     .weArrival(order: index)
-                    .accessibilityLabel("\(hue.name) color")
+                    .accessibilityLabel("\(hue.name) colour")
                     .accessibilityAddTraits(selection == hue ? [.isSelected] : [])
                 }
             }
@@ -605,6 +605,6 @@ private struct HueAtmosphere: View {
     }
 }
 
-#Preview("First-run color") {
+#Preview("First-run colour") {
     HueOnboardingView { _ in }
 }
