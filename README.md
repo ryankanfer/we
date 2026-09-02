@@ -48,10 +48,14 @@ outsiders and former members from reading or mutating live relationship data.
   relationship-ended/archive states.
 - [x] Keep the frozen web tag for comparison only.
 
-Implementation and automated coverage are present. Before release, the remaining manual gates
-are local pgTAP execution, two authenticated sessions through the full lifecycle, the Supabase
-security-advisor review, small/large iPhone and accessibility passes, and five target-couple
-usability sessions.
+Implementation and automated coverage are present. The pgTAP suites now run in CI on every
+change under `supabase/` and are green: 205 assertions across three files. See
+[`supabase/README.md`](supabase/README.md) for how to run them and for the current
+repository-versus-project drift, which is the outstanding release blocker.
+
+Before release, the remaining manual gates are two authenticated sessions through the full
+lifecycle, the Supabase security-advisor review, small/large iPhone and accessibility passes,
+and five target-couple usability sessions.
 
 ## Running the iPhone app
 

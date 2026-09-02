@@ -13,7 +13,16 @@ If needed, choose **File → Packages → Resolve Package Versions**.
 
 ## 2. Add local credentials
 
-The project does not commit its Supabase publishable key.
+`Config/WE-Info.plist` **does** commit a `SUPABASE_URL` and a
+`SUPABASE_PUBLISHABLE_KEY` for the `we-round1` project, so a fresh clone builds and runs
+without setup. A publishable key is designed to be shipped in a client and is protected by
+row-level security, so this is not a leaked secret — but it does hard-wire one environment
+into the app, which is why the environment variables below take precedence.
+
+Set them to point a build at a different project — a staging or beta project, say — without
+editing the plist. `AppEnvironment` reads the environment first and falls back to the plist.
+
+A service-role key must never appear in the app, the plist, or the repository.
 
 1. In Xcode choose **Product → Scheme → Edit Scheme…**
 2. Select **Run → Arguments**.
@@ -25,7 +34,7 @@ The project does not commit its Supabase publishable key.
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY` → `SUPABASE_PUBLISHABLE_KEY`
 
 The shared local scheme and Supabase temporary directory are ignored by Git. Before every
-commit, confirm no URL, publishable key, service-role key, password, or session token is staged.
+commit, confirm no service-role key, password, or session token is staged.
 
 ## 3. Configure authentication callbacks
 
@@ -140,15 +149,19 @@ decoding, cache fallback, connection transitions, and shared-item behavior. UI t
 Promise, auth/recovery/pairing/hue routes, native tabs, contextual creation, Profile, account
 deletion, resilience states, Insight Detail, and a core accessibility audit.
 
-Database tests live in `supabase/tests/native_product.test.sql` and cover partner/outsider
-access, archived access, pairing concurrency, shared CRUD, realtime publication, account
-deletion, archive sanitization, and private/unrevealed leakage.
+Database tests live in `supabase/tests/` and cover partner/outsider access, archived access,
+pairing concurrency, shared CRUD, realtime publication, account deletion, archive
+sanitization, private/unrevealed leakage, and the client write boundary. They run in CI on
+every change under `supabase/` and are green at 205 assertions. See
+[`../supabase/README.md`](../supabase/README.md) to run them locally, and note that a suite
+reporting zero assertions is a failure rather than a pass.
 
 Run before release:
 
 ```bash
 supabase test db
 supabase db lint --linked
+supabase/scripts/check-drift.sh
 xcodebuild -project WE/WE.xcodeproj -scheme WE build
 ```
 
@@ -162,6 +175,10 @@ Also complete these hands-on gates:
 6. Test small and large iPhones, largest Dynamic Type, VoiceOver, and Reduce Motion.
 7. Review Supabase security advisors and confirm callback URLs.
 8. Validate Private / Shared / Mutual and navigation with five target couples.
+9. Reconcile repository-versus-project drift (`supabase/scripts/check-drift.sh`) and confirm
+   every RPC the app calls resolves against the project it is pointed at. Two currently do
+   not: `submit_response` gained a required `p_ai_processing_consent` argument the app does
+   not send, and `join_couple` now redeems a row in `invitations`.
 
-Do not mark the milestone release-ready until all gates pass and local scheme credentials remain
-uncommitted.
+Do not mark the milestone release-ready until all gates pass and no service-role key is
+committed.

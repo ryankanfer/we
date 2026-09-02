@@ -1,0 +1,108 @@
+name: Database
+
+# The pgTAP suites are WE's only automated proof that the trust model holds at
+# the database boundary. They shipped broken and silently never ran, so this
+# workflow exists to make "the suite passes" a fact rather than an assumption.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/**'
+      - '.github/workflows/database.yml'
+  pull_request:
+    paths:
+      - 'supabase/**'
+      - '.github/workflows/database.yml'
+  workflow_dispatch:
+
+jobs:
+  pgtap:
+    name: Migrations and pgTAP
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: we_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: we_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql and pgTAP
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16 postgresql-16-pgtap
+
+      # pgTAP has to exist in the server's own library directory. The service
+      # container is a stock postgres:16, so install the extension files into it.
+      - name: Install pgTAP into the service container
+        run: |
+          CONTAINER=$(docker ps --filter "ancestor=postgres:16" --format '{{.ID}}' | head -1)
+          echo "container=$CONTAINER"
+          docker exec "$CONTAINER" bash -c "
+            apt-get update -qq &&
+            apt-get install -y -qq postgresql-16-pgtap
+          "
+
+      - name: Create the Supabase-managed objects
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/harness/00_supabase_shim.sql
+
+      - name: Apply migrations in order
+        run: |
+          for file in supabase/migrations/*.sql; do
+            echo "--- $file"
+            psql -v ON_ERROR_STOP=1 -q -f "$file"
+          done
+
+      - name: Run pgTAP suites
+        run: |
+          status=0
+          for suite in supabase/tests/*.test.sql; do
+            echo "::group::$suite"
+            output=$(psql -q -At -f "$suite" 2>&1) || status=1
+            echo "$output"
+            echo "::endgroup::"
+
+            failed=$(printf '%s\n' "$output" | grep -c '^not ok ' || true)
+            passed=$(printf '%s\n' "$output" | grep -c '^ok ' || true)
+            echo "$suite: $passed passed, $failed failed"
+
+            if [ "$failed" -ne 0 ] || [ "$passed" -eq 0 ]; then
+              echo "::error file=$suite::$suite failed ($passed passed, $failed failed)"
+              status=1
+            fi
+          done
+          exit $status
+
+      - name: Check for uncommitted schema drift markers
+        run: |
+          # A migration must never be edited after it has been applied anywhere.
+          # Only additions are expected in supabase/migrations on a PR.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+            changed=$(git diff --diff-filter=M --name-only \
+              "origin/${{ github.base_ref }}" -- supabase/migrations || true)
+            if [ -n "$changed" ]; then
+              echo "::error::Existing migrations were modified in place:"
+              echo "$changed"
+              echo "Add a new forward migration instead."
+              exit 1
+            fi
+          fi
