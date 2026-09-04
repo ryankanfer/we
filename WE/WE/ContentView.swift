@@ -5,7 +5,7 @@ struct ContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsProfile = false
     @State private var showsPartnerArrival = false
-    var onReplayPromise: () -> Void = {}
+    var onReplayWalkthrough: () -> Void = {}
 
     var body: some View {
         ZStack {
@@ -31,7 +31,7 @@ struct ContentView: View {
                 case .choosingHue:
                     hueOnboarding
                 case .ready:
-                    AppShell(onReplayPromise: onReplayPromise)
+                    AppShell(onReplayWalkthrough: onReplayWalkthrough)
                 case .failed(let message):
                     BackendStateView(
                         title: "WE could not load.",
@@ -78,11 +78,17 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showsProfile) {
-            ProfileView(onReplayPromise: onReplayPromise)
+            ProfileView(onReplayWalkthrough: onReplayWalkthrough)
         }
         .onChange(of: session.state) { oldState, newState in
             if oldState == .waitingForPartner, newState == .ready {
                 showsPartnerArrival = true
+            }
+            if newState == .ready {
+                // What the walkthrough collected before an account existed is
+                // written now, and only now: the private line becomes the first
+                // reflection, the signal choices become signal consent.
+                Task { await ThresholdIntent.deliverPending(to: session) }
             }
         }
     }

@@ -40,7 +40,7 @@ final class WEUITests: XCTestCase {
             app.navigationBars["Profile"].waitForExistence(timeout: 2)
         )
         XCTAssertTrue(
-            app.buttons["Replay the Living Confluence Promise"].exists
+            app.buttons["Replay the walkthrough"].exists
         )
     }
 
@@ -189,26 +189,56 @@ final class WEUITests: XCTestCase {
     }
 
     @MainActor
-    func testLivingConfluencePromiseSupportsReducedMotion() throws {
+    func testThresholdWalkthroughSupportsReducedMotion() throws {
         let app = launch(
             scenario: "ready",
-            skipsPromise: false,
+            skipsWalkthrough: false,
             reduceMotion: true
         )
 
         XCTAssertTrue(
-            app.staticTexts["Yours stays yours."]
+            app.staticTexts["WE keeps out of your way."]
                 .waitForExistence(timeout: 4)
         )
-        app.buttons["Continue"].tap()
-        XCTAssertTrue(
-            app.staticTexts["Nothing crosses without both."].exists
+        app.buttons["Show me"].tap()
+
+        XCTAssertTrue(app.staticTexts["Write one private thing."].exists)
+        // A vertical-axis TextField reports as a text view on some OS builds.
+        let line = app.textViews["thresholdPrivateLine"].exists
+            ? app.textViews["thresholdPrivateLine"]
+            : app.textFields["thresholdPrivateLine"]
+        XCTAssertTrue(line.waitForExistence(timeout: 2))
+        line.tap()
+        line.typeText("The kitchen tap again")
+        app.buttons["Keep it"].tap()
+
+        XCTAssertTrue(app.staticTexts["Now try to send it to them."].exists)
+        app.buttons["I felt that"].tap()
+
+        XCTAssertTrue(app.staticTexts["One tap is never enough."].exists)
+        XCTAssertFalse(
+            app.buttons["Your partner's consent, which only they can give"]
+                .isEnabled
         )
-        app.buttons["Continue"].tap()
+        app.buttons["Understood"].tap()
+
+        XCTAssertTrue(app.staticTexts["You decide what it may notice."].exists)
+        app.buttons["Save these"].tap()
+
+        XCTAssertTrue(app.staticTexts["You are ready to cross."].exists)
+        app.buttons["thresholdCross"].press(forDuration: 0.5)
+        XCTAssertTrue(app.tabBars.buttons["WE"].waitForExistence(timeout: 4))
+    }
+
+    @MainActor
+    func testThresholdWalkthroughCanBeSkipped() throws {
+        let app = launch(scenario: "ready", skipsWalkthrough: false)
+
         XCTAssertTrue(
-            app.staticTexts["What opens, opens together."].exists
+            app.staticTexts["WE keeps out of your way."]
+                .waitForExistence(timeout: 4)
         )
-        app.buttons["Hold to join"].press(forDuration: 0.5)
+        app.buttons["Skip"].tap()
         XCTAssertTrue(app.tabBars.buttons["WE"].waitForExistence(timeout: 4))
     }
 
@@ -266,7 +296,7 @@ final class WEUITests: XCTestCase {
     @MainActor
     private func launch(
         scenario: String,
-        skipsPromise: Bool = true,
+        skipsWalkthrough: Bool = true,
         reduceMotion: Bool = false
     ) -> XCUIApplication {
         let app = XCUIApplication()
@@ -275,9 +305,9 @@ final class WEUITests: XCTestCase {
         app.launchEnvironment["WE_PREVIEW_DELETION_PASSWORD"] =
             "correct-password"
         app.launchEnvironment["WE_DISABLE_CREDENTIAL_PROMPTS"] = "1"
-        app.launchEnvironment["WE_SKIP_PROMISE"] = skipsPromise ? "1" : "0"
+        app.launchEnvironment["WE_SKIP_WALKTHROUGH"] = skipsWalkthrough ? "1" : "0"
         app.launchArguments += [
-            "-hasSeenLivingConfluencePromise", skipsPromise ? "YES" : "NO",
+            "-hasCrossedThreshold", skipsWalkthrough ? "YES" : "NO",
             "-UIAccessibilityReduceMotionEnabled",
             reduceMotion ? "YES" : "NO"
         ]
