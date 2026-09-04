@@ -4,9 +4,9 @@ import SwiftUI
 struct WEApp: App {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var host: SessionHost
-    @AppStorage("hasSeenLivingConfluencePromise")
-    private var hasSeenPromise = false
-    @State private var isReplayingPromise = false
+    @AppStorage("hasCrossedThreshold")
+    private var hasCrossedThreshold = false
+    @State private var isReplayingWalkthrough = false
 
     init() {
         _host = StateObject(wrappedValue: SessionHost())
@@ -16,17 +16,19 @@ struct WEApp: App {
         WindowGroup {
             ZStack {
                 ContentView {
-                    isReplayingPromise = true
+                    isReplayingWalkthrough = true
                 }
                 .environmentObject(host.session)
                 .environmentObject(host)
-                .accessibilityHidden(showsPromise)
-                .allowsHitTesting(!showsPromise)
+                .accessibilityHidden(showsWalkthrough)
+                .allowsHitTesting(!showsWalkthrough)
 
-                if showsPromise {
-                    LivingConfluencePromise {
-                        hasSeenPromise = true
-                        isReplayingPromise = false
+                if showsWalkthrough {
+                    ThresholdWalkthrough(
+                        mode: isReplayingWalkthrough ? .replay : .firstRun
+                    ) {
+                        hasCrossedThreshold = true
+                        isReplayingWalkthrough = false
                     }
                     .transition(.opacity)
                     .zIndex(10)
@@ -34,7 +36,7 @@ struct WEApp: App {
             }
             .animation(
                 .weSettle(duration: 0.45, reduceMotion: reduceMotion),
-                value: showsPromise
+                value: showsWalkthrough
             )
             .task {
                 await host.restore()
@@ -45,10 +47,10 @@ struct WEApp: App {
         }
     }
 
-    private var showsPromise: Bool {
-        if ProcessInfo.processInfo.environment["WE_SKIP_PROMISE"] == "1" {
+    private var showsWalkthrough: Bool {
+        if ProcessInfo.processInfo.environment["WE_SKIP_WALKTHROUGH"] == "1" {
             return false
         }
-        return !hasSeenPromise || isReplayingPromise
+        return !hasCrossedThreshold || isReplayingWalkthrough
     }
 }

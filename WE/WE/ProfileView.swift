@@ -8,7 +8,7 @@ struct ProfileView: View {
     @State private var selectedArchive: RelationshipArchive?
     @State private var showsDelete = false
     @State private var didSaveName = false
-    let onReplayPromise: () -> Void
+    let onReplayWalkthrough: () -> Void
 
     var body: some View {
         NavigationStack {
@@ -65,9 +65,9 @@ struct ProfileView: View {
                             )
                         }
                     }
-                    Button("Replay the Living Confluence Promise") {
+                    Button("Replay the walkthrough") {
                         dismiss()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { onReplayPromise() }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { onReplayWalkthrough() }
                     }
                     if let code = session.snapshot?.couple?.joinCode {
                         ShareLink(item: "Join me in WE with code \(code)") {
@@ -352,7 +352,7 @@ private extension ResolutionType {
 }
 
 #Preview {
-    ProfileView(onReplayPromise: {})
+    ProfileView(onReplayWalkthrough: {})
         .environmentObject(AppSession(repository: PreviewRepository()))
         .environmentObject(
             SessionHost(

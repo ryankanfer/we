@@ -14,16 +14,25 @@ The iPhone app has three primary destinations:
 - **WE** — shared intelligence, private reflection, consent, and mutual reveal.
 - **Life** — responsibilities owned by Me, Partner, or Together.
 - **Ahead** — scheduled and unscheduled plans.
-- **Profile** — account, appearance, archives, privacy, and Promise replay, opened from the
-  avatar rather than a tab.
+- **Profile** — account, appearance, archives, privacy, and walkthrough replay, opened from
+  the avatar rather than a tab.
 
 First use follows:
 
-> Living Confluence Promise → create account or sign in → pair → choose personal hue → enter WE
+> The Threshold → create account or sign in → pair → choose personal hue → enter WE
 
-The Promise introduces three commitments: yours stays yours, nothing crosses without both, and
-what opens opens together. It is skippable, shown only on first use, replayable from Profile,
-linear under VoiceOver, and uses crossfades when Reduce Motion is enabled.
+The Threshold is a six-beat walkthrough that demonstrates the trust model rather than narrating
+it. WE names what it refuses to be; the person writes one private line, held on the device; they
+try to push it across and feel the boundary refuse; they meet a second consent pad that is not
+theirs to press; they set the four signals the shared field may notice; they hold to cross. The
+partner's side of the field stays dark throughout, because it is — it resolves only when the
+partner actually arrives.
+
+The private line and the signal choices are held on the device and delivered once the two people
+are paired: the line becomes the first private reflection, the choices become signal consent.
+Nothing leaves the phone before pairing. The walkthrough is skippable, shown only on first use,
+replayable from Profile, linear under VoiceOver, and uses crossfades when Reduce Motion is
+enabled.
 
 ## Trust model
 
@@ -42,16 +51,23 @@ outsiders and former members from reading or mutating live relationship data.
 
 ## Native milestone status
 
-- [x] Build Ahead, Life, Profile, complete Auth, Promise, Pairing, WE, and Insight Detail.
+- [x] Build Ahead, Life, Profile, complete Auth, the Threshold walkthrough, Pairing, WE, and
+  Insight Detail.
 - [ ] Adapt information density for Mac — **deferred / N/A for this iPhone-first milestone**.
 - [x] Add loading, empty, offline, inline error/retry, partner-waiting, and
   relationship-ended/archive states.
 - [x] Keep the frozen web tag for comparison only.
 
-Implementation and automated coverage are present. Before release, the remaining manual gates
-are local pgTAP execution, two authenticated sessions through the full lifecycle, the Supabase
-security-advisor review, small/large iPhone and accessibility passes, and five target-couple
-usability sessions.
+Implementation and automated coverage are present. Two authenticated sessions through the full
+lifecycle now run locally and in CI-able form:
+
+```bash
+./supabase/tests/local/run_dual_sided.sh
+```
+
+See [`supabase/tests/local/README.md`](supabase/tests/local/README.md). Before release, the
+remaining manual gates are local pgTAP execution, the Supabase security-advisor review,
+small/large iPhone and accessibility passes, and five target-couple usability sessions.
 
 ## Running the iPhone app
 

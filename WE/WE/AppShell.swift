@@ -37,7 +37,7 @@ struct AppShell: View {
         ProcessInfo.processInfo.environment[
             "WE_START_DESTINATION"
         ] == "thread"
-    let onReplayPromise: () -> Void
+    let onReplayWalkthrough: () -> Void
 
     var body: some View {
         TabView(selection: $selection) {
@@ -89,7 +89,7 @@ struct AppShell: View {
             }
         }
         .sheet(isPresented: $showsProfile) {
-            ProfileView(onReplayPromise: onReplayPromise)
+            ProfileView(onReplayWalkthrough: onReplayWalkthrough)
         }
         .fullScreenCover(isPresented: $showsThread) {
             NavigationStack {
