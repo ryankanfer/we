@@ -20,6 +20,7 @@ final class WEUITestsLaunchTests: XCTestCase {
         app.launchEnvironment["WE_REPOSITORY"] = "preview"
         app.launchEnvironment["WE_PREVIEW_SCENARIO"] = "ready"
         app.launchEnvironment["WE_SKIP_PROMISE"] = "1"
+        app.launchEnvironment["WE_SKIP_WALKTHROUGH"] = "1"
         app.launch()
 
         XCTAssertTrue(
