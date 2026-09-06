@@ -165,7 +165,7 @@ struct FieldSeasonClosedView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     FieldLabel(
                         "The one thing that didn't happen",
-                        ink: .monoLabelQuiet
+                        ink: .labelQuiet
                     )
 
                     Text(text)
@@ -242,7 +242,7 @@ struct FieldOnboardingView: View {
 
     var body: some View {
         ZStack {
-            WECanvas.dark.bg.ignoresSafeArea()
+            WECanvas.ground.bg.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -288,7 +288,7 @@ struct FieldOnboardingView: View {
             .frame(maxHeight: .infinity, alignment: .bottom)
             .ignoresSafeArea(edges: .bottom)
         }
-        .environment(\.weCanvas, .dark)
+        .environment(\.weCanvas, .ground)
         .preferredColorScheme(.dark)
         .accessibilityIdentifier("field.onboarding")
     }
@@ -334,6 +334,12 @@ struct FieldOnboardingView: View {
         // Asked for here and nowhere else. Not at launch: the app is supposed
         // to earn this, and a permission sheet on first run is the opposite of
         // earning it.
-        Task { await FieldMomentDelivery.requestAuthorization() }
+        Task {
+            // If they say yes, the same yes covers the arrival. If they say
+            // no, `registerIfPermitted` returns and nothing anywhere changes:
+            // permission denial is a path, not an error.
+            await FieldMomentDelivery.requestAuthorization()
+            await WEArrivalNotifications.registerIfPermitted()
+        }
     }
 }

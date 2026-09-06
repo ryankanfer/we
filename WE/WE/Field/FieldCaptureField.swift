@@ -157,7 +157,7 @@ struct FieldCaptureField: View {
                     // without putting words in somebody's mouth.
                     Text(store.captureSuggestions.first ?? Self.coldPlaceholder)
                         .font(FieldType.captureInput)
-                        .foregroundStyle(.fieldInk(.monoLabel))
+                        .foregroundStyle(.fieldInk(.label))
                 }
 
                 TextEditor(text: $store.captureDraft)
@@ -211,12 +211,16 @@ struct FieldCaptureField: View {
                 style: .continuous
             )
             .stroke(FieldRule.primary, lineWidth: 1)
+            // A drawn border and nothing else. Hairlines became a resolving
+            // `ShapeStyle` when the second canvas arrived, and a shape filled
+            // with one earns its own accessibility node — which then has
+            // nothing to describe, because it is a rectangle.
+            //
+            // This belongs to the border, not to the field. Chained onto the
+            // outer stack instead, it hid the whole capture surface — editor
+            // included — from assistive technology.
+            .accessibilityHidden(true)
         }
-        // A drawn border and nothing else. Hairlines became a resolving
-        // `ShapeStyle` when the second canvas arrived, and a shape filled
-        // with one earns its own accessibility node — which then has nothing
-        // to describe, because it is a rectangle.
-        .accessibilityHidden(true)
         .clipShape(
             RoundedRectangle(
                 cornerRadius: FieldMetrics.cardRadius,
@@ -254,7 +258,7 @@ struct FieldCaptureField: View {
                 HStack(alignment: .firstTextBaseline) {
                     FieldLabel(
                         receipt.wasCorrected ? "Moved to" : "Filed to",
-                        ink: .monoLabelQuiet
+                        ink: .labelQuiet
                     )
 
                     Spacer()
@@ -449,7 +453,7 @@ struct FieldCaptureField: View {
                     Text(phrase)
                         .font(FieldType.button)
                         .tracking(FieldTracking.button)
-                        .foregroundStyle(.fieldInk(.monoLabel))
+                        .foregroundStyle(.fieldInk(.label))
                         .padding(.horizontal, 11)
                         .padding(.vertical, 7)
                         .overlay {

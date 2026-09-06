@@ -39,16 +39,23 @@ enum WEColourFieldState: Equatable, Sendable {
     /// A shared surface. Both hues, with a quiet shared atmosphere between.
     case shared
 
-    /// One person has acted. Their hue strengthens briefly and then settles;
-    /// the other hue is untouched.
+    /// The local person has acted. Their own hue strengthens briefly and then
+    /// settles; the other hue is untouched.
     ///
-    /// Deliberately unimplemented until the ceremony exists. It renders as
-    /// `.shared`, which is the honest answer while nothing can produce the
-    /// event: a surface that cannot know one person acted must not imply it.
+    /// The owner here is **always the viewer**. There is no honest way to draw
+    /// "they acted and I have not": `WEBeatState` has no case for it, because
+    /// from this device it is indistinguishable from nothing having happened.
+    /// Passing the partner here would be the one thing the field must never
+    /// do, so the ceremony passes its own `viewerOwner` and nothing else.
     case oneActed(FieldOwner)
 
-    /// Both actions landed. The fields converge and the shared atmosphere
-    /// appears. Also unimplemented until the ceremony exists.
+    /// Both acknowledgements landed. The two fields draw toward the centre and
+    /// the shared atmosphere appears, over about eight hundred milliseconds.
+    ///
+    /// The moment is transient by construction: the field relaxes back to
+    /// `shared` on its own, so nothing accumulates across the three beats. A
+    /// field that brightened beat by beat would be the step counter drawn in
+    /// colour, which is the thing this whole surface exists to avoid.
     case bothLanded
 
     /// Stillness. An almost motionless trace, and no pulsing reassurance.
@@ -56,10 +63,13 @@ enum WEColourFieldState: Equatable, Sendable {
 }
 
 extension WEColourFieldState {
-    /// The states phase one can actually produce. `oneActed` and `bothLanded`
-    /// need a second device, so they resolve to `shared` rather than
-    /// pretending to a transition nothing can trigger yet.
-    var resolved: WEColourFieldState {
+    /// The resting state a transient one returns to.
+    ///
+    /// `oneActed` and `bothLanded` are moments rather than conditions: each
+    /// plays once and settles back into the shared field. Everything that
+    /// describes the *resting* appearance reads through here, so a held beat
+    /// an hour old looks exactly like a held beat a second old.
+    var settled: WEColourFieldState {
         switch self {
         case .oneActed, .bothLanded: .shared
         default: self
@@ -67,14 +77,23 @@ extension WEColourFieldState {
     }
 
     var showsBothHues: Bool {
-        switch resolved {
+        switch settled {
         case .mine: false
         default: true
         }
     }
 
     /// Stillness breathes so faintly it reads as stopped.
-    var isStill: Bool { resolved == .still }
+    var isStill: Bool { settled == .still }
+
+    /// Whose hue strengthens, when someone's does. Never the partner's.
+    var strengthens: FieldOwner? {
+        if case .oneActed(let owner) = self { return owner }
+        return nil
+    }
+
+    /// Whether the two fields draw toward one another.
+    var converges: Bool { self == .bothLanded }
 }
 
 struct WEColourField: View {
@@ -91,6 +110,12 @@ struct WEColourField: View {
 
     @State private var breathing = false
 
+    /// The two transient moments. Both play once and come back down, and both
+    /// are held here rather than in the caller so that a state which persists
+    /// — a beat can sit `held` for an hour — cannot leave a mark on screen.
+    @State private var strengthening = false
+    @State private var converging = false
+
     /// Eight to twelve seconds. Stillness runs slower still, which is the only
     /// way a trace can move at all without reading as a pulse.
     private var period: Double { state.isStill ? 16 : 10 }
@@ -98,11 +123,15 @@ struct WEColourField: View {
     /// Low Power Mode permits a static field, and a backgrounded app has
     /// nothing to animate for.
     private var animates: Bool {
-        guard !reduceMotion, !isLowPower, scenePhase == .active else {
-            return false
-        }
+        guard !reduceMotion, isAwake else { return false }
         return true
     }
+
+    /// A moment may still be *marked* under Reduce Motion — as a change in
+    /// light rather than a change in position. What it may not do is happen
+    /// while the app is in the background or the battery is being conserved,
+    /// where there is nobody to mark it for.
+    private var isAwake: Bool { !isLowPower && scenePhase == .active }
 
     private var isLowPower: Bool {
         #if canImport(UIKit)
@@ -117,18 +146,15 @@ struct WEColourField: View {
     // under the edge. A glow you can name the shape of is a graphic, and the
     // brief asks for atmosphere.
     //
-    // Cream sits lower still. Person colour on the paper canvas is limited to
-    // authorship points, fine rules, and this atmosphere, and the same alpha
-    // that reads as a glow against warm ink black reads as a printed stripe
-    // against paper.
+    // These used to split per canvas, because the alpha that reads as a glow
+    // against warm ink black reads as a printed stripe against paper. There
+    // is no paper any more, so the paper values went with it.
     private var baseOpacity: Double {
-        if state.isStill { return canvas == .cream ? 0.12 : 0.16 }
-        return canvas == .cream ? 0.26 : 0.42
+        state.isStill ? 0.16 : 0.42
     }
 
     private var breathOpacity: Double {
-        if state.isStill { return canvas == .cream ? 0.16 : 0.21 }
-        return canvas == .cream ? 0.34 : 0.58
+        state.isStill ? 0.21 : 0.58
     }
     private var drift: CGFloat { state.isStill ? 1 : 3 }
 
@@ -145,9 +171,17 @@ struct WEColourField: View {
         .allowsHitTesting(false)
         // Decorative in the strictest sense: it carries no information a
         // VoiceOver user could be missing, because it carries no information.
-        .accessibilityHidden(true)
+        //
+        // Which is why it is not marked hidden. Colour and shapes are not
+        // accessibility elements to begin with, and `accessibilityHidden`
+        // promotes a view into one in order to flag it — leaving a node that
+        // carries nothing but the flag, which the audit reports as a node
+        // with no description. Nothing here reaches VoiceOver either way.
         .onAppear { breathing = animates }
         .onChange(of: animates) { _, now in breathing = now }
+        // Keyed on the state, so arriving in a moment plays it and leaving
+        // mid way cancels it cleanly rather than stranding a flag on.
+        .task(id: state) { await playTheMoment() }
     }
 
     // MARK: The blurred fields
@@ -155,11 +189,17 @@ struct WEColourField: View {
     private var atmosphere: some View {
         ZStack {
             field(for: leadingHue, alignment: .leading)
+                .offset(x: convergence)
+                .overlay { strengthened(.a) }
 
             if state.showsBothHues {
                 field(for: trailingHue, alignment: .trailing)
+                    .offset(x: -convergence)
+                    .overlay { strengthened(.b) }
 
                 // The shared atmosphere, and only in genuinely shared states.
+                // It deepens as the fields meet, which is the whole of what
+                // "both landed" is allowed to say.
                 sharedAtmosphere
             }
         }
@@ -216,17 +256,83 @@ struct WEColourField: View {
         }
     }
 
+    /// The strengthening, drawn as a second copy of that person's own field
+    /// rather than by dimming the other one.
+    ///
+    /// Dimming would be a statement about the partner, and there is nothing to
+    /// state: their hue is untouched here, at every point in the moment.
+    @ViewBuilder
+    private func strengthened(_ side: FieldOwner) -> some View {
+        if state.strengthens == side {
+            field(
+                for: side == .a ? leadingHue : trailingHue,
+                alignment: side == .a ? .leading : .trailing
+            )
+            .opacity(strengthening ? 0.55 : 0)
+            .allowsHitTesting(false)
+        }
+    }
+
+    /// How far each field travels toward the other. Motion, so Reduce Motion
+    /// keeps it at zero and the moment is carried by light alone.
+    private var convergence: CGFloat {
+        guard converging, !reduceMotion else { return 0 }
+        return 38
+    }
+
     private var sharedAtmosphere: some View {
         GeometryReader { proxy in
             let w = proxy.size.width
             RadialGradient(
-                colors: [blendCentre.opacity(0.55), .clear],
+                colors: [blendCentre.opacity(converging ? 0.82 : 0.55), .clear],
                 center: UnitPoint(x: 0.5, y: 1.3),
                 startRadius: 0,
-                endRadius: max(w * 0.34, 1)
+                endRadius: max(w * (converging ? 0.44 : 0.34), 1)
             )
             .blur(radius: 26)
         }
+    }
+
+    // MARK: The two moments
+
+    /// Plays whichever transient the current state names, then puts it away.
+    ///
+    /// Both end where they started. The relaxation is deliberately slower than
+    /// the arrival in each case: something appearing quickly and leaving slowly
+    /// reads as a breath being taken, and the reverse reads as a flash.
+    private func playTheMoment() async {
+        strengthening = false
+        converging = false
+        guard isAwake else { return }
+
+        if state.strengthens != nil {
+            animate(.easeOut(duration: 0.5)) { strengthening = true }
+            guard await pause(for: 1.2) else { return }
+            animate(.easeInOut(duration: 1.8)) { strengthening = false }
+        } else if state.converges {
+            // The eight hundred milliseconds the direction asks for, and then
+            // the field lets go of the moment rather than keeping it.
+            animate(.easeInOut(duration: 0.8)) { converging = true }
+            guard await pause(for: 1.3) else { return }
+            animate(.easeInOut(duration: 1.6)) { converging = false }
+        }
+    }
+
+    /// Under Reduce Motion the change still happens, without being eased into
+    /// place: a crossfade of the same length, which is a change in light.
+    private func animate(_ curve: Animation, _ change: () -> Void) {
+        withAnimation(reduceMotion ? curve.speed(1.4) : curve, change)
+    }
+
+    /// `false` if the moment was interrupted, which is the caller's cue to
+    /// leave the flags exactly as the next state found them.
+    private func pause(for seconds: Double) async -> Bool {
+        do {
+            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+        } catch {
+            return false
+        }
+        return !Task.isCancelled
     }
 
     // MARK: Reduce Transparency
@@ -235,19 +341,27 @@ struct WEColourField: View {
     /// same information, which is to say none, at a hard edge.
     private var crispEdge: some View {
         HStack(spacing: 0) {
-            Rectangle().fill(leadingHue.opacity(0.55))
+            Rectangle().fill(edgeHue(leadingHue, side: .a))
             if state.showsBothHues {
-                Rectangle().fill(trailingHue.opacity(0.55))
+                Rectangle().fill(edgeHue(trailingHue, side: .b))
             }
         }
         .frame(height: 2)
         .frame(maxHeight: .infinity, alignment: .bottom)
     }
 
+    /// The same two moments at a hard edge: the acting person's own segment
+    /// takes on more of its colour, and both segments move toward the blend as
+    /// the acknowledgements land. No width changes, so nothing slides.
+    private func edgeHue(_ hue: Color, side: FieldOwner) -> Color {
+        if converging { return hue.mix(with: blendCentre, by: 0.6).opacity(0.72) }
+        return hue.opacity(strengthening && state.strengthens == side ? 0.8 : 0.55)
+    }
+
     // MARK: Hues
 
     private var leadingHue: Color {
-        switch state.resolved {
+        switch state.settled {
         case .mine(let owner): identity.color(for: owner)
         default: identity.personA.color
         }

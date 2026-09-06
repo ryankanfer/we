@@ -302,6 +302,45 @@ struct FieldState: Codable, Hashable, Sendable {
         dailyMoment: FieldDemoData.dailyMoment,
         learningSince: FieldDemoData.learningSince
     )
+
+    /// The same couple in their first week — `WE_FIELD=sparse`.
+    ///
+    /// It exists for one screen. Life's strata collapse under about five open
+    /// items (§16a, "the app's main adaptive behaviour"), and no other fixture
+    /// can reach that state: `seed` carries twenty-odd items and `empty`
+    /// carries none, so the banded page and the blank page were both
+    /// reviewable and the sparse page in between was not.
+    ///
+    /// Four items rather than five, and deliberately spread across bands —
+    /// one dated, one waiting on somebody, two quiet — so that the collapse is
+    /// shown doing the thing that makes it worth having: flattening a page
+    /// that *would* have had headings on it.
+    static let sparse = FieldState(
+        identity: FieldSampleData.identity,
+        partners: FieldSampleData.partners,
+        lifeItems: FieldSampleData.sparseLifeItems,
+        clusters: [],
+        horizons: [],
+        rhythms: [],
+        anchors: [],
+        threads: [],
+        evidence: [],
+        seasons: [],
+        heldTopics: [],
+        standingRules: [],
+        corrections: [],
+        captures: [],
+        // The same first guess `blank` makes: nothing has been learned yet.
+        dailyMoment: FieldDailyMoment(
+            sendMinute: 8 * 60 + 12,
+            queuedCount: 0,
+            hourRationale: "I haven't learned your hour yet.",
+            replyRateBefore: 0,
+            replyRateAfter: 0,
+            lastSentOn: nil
+        ),
+        learningSince: FieldSampleData.learningSince
+    )
 }
 
 // MARK: - Store
@@ -799,6 +838,19 @@ final class FieldStore {
 
     func openItems(in category: LifeCategory) -> [LifeItem] {
         state.lifeItems.filter { $0.category == category && !$0.isDone }
+    }
+
+    /// Life's four bands (§15b), sorted from everything open.
+    ///
+    /// Deliberately the *unfiltered* items, for the same reason
+    /// `FieldCategoryDigest` and `FieldGrouping` read the unfiltered context:
+    /// this orders and annotates things the viewer is already entitled to
+    /// see, and it brings nothing new into existence for the other person.
+    /// Filtering on `isSharedPresence` here would delete a person's own
+    /// solo-era items out of their own Life page — see
+    /// `sharedSelectorContext` for the narrower line and why it is narrower.
+    var lifeStrata: FieldStrata.Result {
+        FieldStrata.sort(state.lifeItems, now: now, calendar: calendar)
     }
 
     /// The count beside a category word. Warm when something in it is

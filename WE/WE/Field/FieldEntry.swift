@@ -17,6 +17,8 @@
 //    WE_FIELD=demo       the zones on the same fictional couple, renamed
 //                        User 1 / User 2 and three months further along —
 //                        for showing the product as a matured demo account
+//    WE_FIELD=sparse     the same couple in their first week — four items,
+//                        which is the only way to see Life's strata collapse
 //
 //  What still runs the old way is everything *before* a couple exists — sign
 //  in, verification, password recovery, pairing, hue choice. Those are setup,
@@ -33,6 +35,9 @@ enum FieldEntry {
         case seeded
         /// The real app on a demo couple three months in — no network.
         case demo
+        /// The same couple in their first week, four items — no network.
+        /// Exists so Life's collapse (§16a) is reviewable.
+        case sparse
         /// The review surface.
         case gallery
 
@@ -40,6 +45,7 @@ enum FieldEntry {
             switch ProcessInfo.processInfo.environment["WE_FIELD"] {
             case "seeded", "1": .seeded
             case "demo": .demo
+            case "sparse": .sparse
             case "gallery": .gallery
             default: .live
             }
@@ -62,14 +68,32 @@ struct FieldRoot: View {
     let snapshot: RelationshipSnapshot
     @State private var store: FieldStore?
 
+    /// Kept so the ceremony can reach the server directly. The field's own
+    /// writes go through the outbox; an acknowledgement may not.
+    @State private var ceremonyBackend: FieldSupabaseBackend?
+
     var body: some View {
-        Group {
-            if let store {
-                FieldZoneShell(store: store)
-            } else {
-                // Not an empty state, a held one. The canvas is already the
-                // right colour, so the handoff never flashes.
-                FieldPalette.bg.ignoresSafeArea()
+        ZStack {
+            Group {
+                if let store {
+                    FieldZoneShell(store: store)
+                } else {
+                    // Not an empty state, a held one. The canvas is already
+                    // the right colour, so the handoff never flashes.
+                    FieldPalette.bg.ignoresSafeArea()
+                }
+            }
+
+            // Above the zones, and only ever for a couple who has not
+            // performed it. A couple that predates the ceremony, or has
+            // finished it, never sees this — and neither does anybody whose
+            // first read has not come back yet. See `WECeremonyPhase`.
+            if let ceremonyBackend, let store {
+                WECeremonyHost(
+                    backend: ceremonyBackend,
+                    identity: store.identity
+                )
+                .zIndex(10)
             }
         }
         .task(id: snapshot.membership?.coupleID) {
@@ -103,6 +127,7 @@ struct FieldRoot: View {
                 // rather than as an empty relationship.
                 lastLoadedAt: cached?.savedAt
             )
+            ceremonyBackend = durable?.remote
         }
     }
 }
@@ -115,6 +140,15 @@ struct FieldRoot: View {
 
 @MainActor
 struct FieldDurableBackend {
+    /// The same backend the outbox wraps, kept rather than discarded.
+    ///
+    /// The ceremony's calls are `WECeremonyBackend` conformance on
+    /// `FieldSupabaseBackend` itself, and they are deliberately not queued:
+    /// an acknowledgement sitting in an outbox would let one phone believe a
+    /// beat was given while the other cannot see it. Everything the field
+    /// writes goes through `outbox`; the ceremony talks to the server or it
+    /// waits.
+    let remote: FieldSupabaseBackend
     let outbox: FieldOutbox
 
     static func live(for snapshot: RelationshipSnapshot) -> Self? {
@@ -131,6 +165,7 @@ struct FieldDurableBackend {
         ) else { return nil }
 
         return Self(
+            remote: remote,
             outbox: FieldOutbox(
                 wrapping: remote,
                 // Both halves: a queue must not survive into another account,

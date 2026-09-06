@@ -548,7 +548,7 @@ struct ShareInboxView: View {
     private var content: some View {
         if model.isLoading {
             ProgressView()
-                .tint(FieldInk.headline.color(on: .dark))
+                .tint(FieldInk.headline.color(on: .ground))
                 .frame(maxWidth: .infinity, minHeight: 180)
                 .accessibilityLabel("Opening private drafts")
         } else if let message = model.message {
@@ -644,7 +644,7 @@ private struct ShareReviewView: View {
                 }
                 .padding(FieldMetrics.screenSide)
             } else {
-                ProgressView().tint(FieldInk.headline.color(on: .dark))
+                ProgressView().tint(FieldInk.headline.color(on: .ground))
             }
         }
         .preferredColorScheme(.dark)
@@ -1006,7 +1006,7 @@ private struct ShareReviewView: View {
                 .padding(.vertical, 12)
         } else if model.isPublishing {
             ProgressView()
-                .tint(FieldInk.headline.color(on: .dark))
+                .tint(FieldInk.headline.color(on: .ground))
                 .frame(minHeight: 72)
                 .accessibilityLabel("Releasing the reviewed version")
         } else {

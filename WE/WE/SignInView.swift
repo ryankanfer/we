@@ -25,7 +25,7 @@ struct SignInView: View {
         case create = "Create account"
         var id: String { rawValue }
 
-        /// The chip, which is mono and uppercase like every other label in the
+        /// The chip, which is uppercase and tracked like every other label in the
         /// app. The raw value stays sentence case because it is also the
         /// submit button's title.
         var chip: String {
@@ -46,7 +46,7 @@ struct SignInView: View {
     }
 
     var body: some View {
-        FieldGateScaffold(label: "Account") {
+        FieldGateScaffold {
             VStack(alignment: .leading, spacing: 30) {
                 FieldGateHeadline(
                     title: mode == .signIn
@@ -209,7 +209,7 @@ private struct PasswordResetView: View {
 
     var body: some View {
         ZStack {
-            FieldGateScaffold(label: "Password reset") {
+            FieldGateScaffold {
                 VStack(alignment: .leading, spacing: 30) {
                     FieldGateHeadline(
                         title: "We'll send a link.",
@@ -258,7 +258,7 @@ struct NewPasswordView: View {
     @State private var confirmation = ""
 
     var body: some View {
-        FieldGateScaffold(label: "Password recovery") {
+        FieldGateScaffold {
             VStack(alignment: .leading, spacing: 30) {
                 FieldGateHeadline(
                     title: "Choose a new password.",

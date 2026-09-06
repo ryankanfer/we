@@ -264,3 +264,101 @@ struct InvitationTests {
         #expect(WEDeepLinkRouter.handle(URL(string: "we://today")!) == true)
     }
 }
+
+/// The two invitation reads and writes that run without a session.
+///
+/// Both are SQL, and both are the security model rather than a convenience, so
+/// their shape is asserted here rather than reviewed once. The pattern follows
+/// `WECeremonyMigrationTests`: what makes these safe is a handful of clauses
+/// that no Swift test would otherwise ever look at.
+struct WEInvitationBoundaryMigrationTests {
+    private static func sql(_ name: String) -> String {
+        // WETests/InvitationTests.swift -> repository root.
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let path = root
+            .appendingPathComponent("supabase/migrations")
+            .appendingPathComponent(name)
+        return (try? String(contentsOf: path, encoding: .utf8)) ?? ""
+    }
+
+    private static let greeting = sql("20260824120000_invitation_greeting.sql")
+    private static let decline = sql("20260824130000_invitation_decline.sql")
+
+    @Test func bothMigrationsAreWhereTheySayTheyAre() {
+        #expect(!Self.greeting.isEmpty)
+        #expect(!Self.decline.isEmpty)
+    }
+
+    /// A name and a hue. Nothing else may be selected, and in particular no id
+    /// of any kind: an answer carrying one could be joined to something else,
+    /// and this one is handed to anybody holding a code.
+    @Test func theGreetingReturnsOnlyANameAndAHue() {
+        let body = Self.greeting.components(separatedBy: "json_build_object")
+        #expect(body.count == 2, "expected exactly one projection")
+        // Everything between the call and the `from`, which is the whole of
+        // what a caller receives. The clauses after it name ids freely — that
+        // is a join, and a join is not a disclosure.
+        let projection = String(
+            (body.last ?? "").prefix(while: { $0 != "\n" })
+        )
+        #expect(projection.contains("'name', p.name"))
+        #expect(projection.contains("'hue', cm.hue"))
+        for leaked in ["_id", "created_at", "expires_at", "consumed", "revoked"] {
+            #expect(!projection.contains(leaked), "\(leaked) reaches the greeting")
+        }
+    }
+
+    /// Live invitations only, and matched whole. A spent, withdrawn or expired
+    /// code answers exactly as a code that never existed does, which is why
+    /// this returns null rather than raising.
+    @Test func theGreetingAnswersForLiveInvitationsOnly() {
+        for clause in [
+            "i.consumed_at is null",
+            "i.revoked_at is null",
+            "i.expires_at > now()",
+            "i.code = upper(trim(p_code))",
+        ] {
+            #expect(Self.greeting.contains(clause), "missing \(clause)")
+        }
+        #expect(!Self.greeting.contains("raise exception"))
+        #expect(!Self.greeting.contains("like"), "no partial code matching")
+    }
+
+    /// Declining revokes, and does nothing else.
+    ///
+    /// No new table, no column recording that a decline happened, and no
+    /// consumption: a spent code must not be revocable by whoever still holds
+    /// a copy of it, because the couple it opened is two people by then.
+    @Test func decliningOnlyEverRevokesALiveInvitation() {
+        #expect(Self.decline.contains("set revoked_at = now()"))
+        for clause in [
+            "consumed_at is null",
+            "revoked_at is null",
+            "expires_at > now()",
+            "code = upper(trim(p_code))",
+        ] {
+            #expect(Self.decline.contains(clause), "missing \(clause)")
+        }
+        #expect(!Self.decline.contains("create table"))
+        #expect(!Self.decline.contains("declined_at"))
+        #expect(!Self.decline.contains("consumed_at = now()"))
+        #expect(!Self.decline.contains("couple_members"))
+        #expect(Self.decline.contains("returns void"), "it reports nothing")
+    }
+
+    /// Both are granted to `anon`, deliberately and identically.
+    ///
+    /// The person on the other end of both has no account: they are reading
+    /// the line that comes before they make one, and requiring one in order to
+    /// say no would be the worst possible reading of what an invitation is.
+    @Test func bothAreReachableWithoutAnAccount() {
+        for migration in [Self.greeting, Self.decline] {
+            #expect(migration.contains("to anon, authenticated;"))
+            #expect(migration.contains("security definer"))
+            #expect(migration.contains("set search_path = ''"))
+        }
+    }
+}

@@ -54,7 +54,6 @@ struct YoursSurface: View {
     /// exit cannot start a second one — two overlapping `dismiss()` calls pop
     /// whatever is underneath as well.
     @State private var isClosing = false
-    @State private var markIsVisible = false
     @State private var contentIsVisible = false
     @State private var savedWords: String?
     @State private var wordsAreSettling = false
@@ -70,6 +69,10 @@ struct YoursSurface: View {
 
     var body: some View {
         room
+            // 14f, the room. The one intentional warm deviation from the
+            // ground — §3 — and the warmth is the whole signal: this is the
+            // surface with no strip, no mark, and nothing filed or learned.
+            .environment(\.weCanvas, .room)
             .onAppear { open() }
         // Every explicit exit is `close()`, so the room never simply vanishes.
         .interactiveDismissDisabled()
@@ -142,27 +145,22 @@ struct YoursSurface: View {
             .opacity(contentIsVisible ? 1 : 0)
             .offset(y: reduceMotion || contentIsVisible ? 0 : 10)
         }
+        // §4: "never indexed, never learned from, carries no mark." The room
+        // used to carry two — one in this bar and one beside the writing
+        // prompt — which is the loudest possible way to describe somewhere
+        // private, and a direct contradiction of the note at the top of this
+        // file. What is left is a close, and nothing else.
+        //
+        // No background on the bar either. Painting it opaque cut a hard
+        // rectangle across the arrival field, so the one warm surface in the
+        // app announced itself with a seam.
         .safeAreaInset(edge: .top, spacing: 0) {
             HStack {
-                YoursMark(
-                    style: .micro,
-                    presence: .living,
-                    hue: hue
-                )
-                .opacity(markIsVisible ? 0.78 : 0)
-                .offset(y: reduceMotion || markIsVisible ? 0 : 8)
-                .accessibilityHidden(!markIsVisible)
-
                 Spacer(minLength: 0)
                 closeButton
             }
             .frame(minHeight: 52)
             .padding(.horizontal, 12)
-            .background(
-                reduceTransparency
-                    ? FieldPalette.bg
-                    : FieldPalette.bg.opacity(0.96)
-            )
         }
         // The receipt goes when the next thing is being written.
         //
@@ -211,10 +209,10 @@ struct YoursSurface: View {
     @ViewBuilder
     private var personalField: some View {
         if reduceTransparency {
-            FieldPalette.bg.ignoresSafeArea()
+            WECanvas.room.bg.ignoresSafeArea()
         } else {
             ZStack {
-                FieldPalette.bg
+                WECanvas.room.bg
                 RadialGradient(
                     colors: [
                         hue.opacity(0.18),
@@ -233,29 +231,53 @@ struct YoursSurface: View {
     // MARK: Writing
 
     private var compose: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center, spacing: 18) {
-                Text(YoursCopy.compose)
-                    .font(FieldType.pageHeadline)
-                    .foregroundStyle(.fieldInk(.headline))
+        VStack(alignment: .leading, spacing: 20) {
+            Text(YoursCopy.compose)
+                .font(FieldType.pageHeadline)
+                .foregroundStyle(.fieldInk(.headline))
+                .fieldLineHeight(1.16, size: 32)
+                .fixedSize(horizontal: false, vertical: true)
 
-                Spacer(minLength: 0)
-
-                YoursMark(
-                    style: .compact,
-                    presence: .living,
-                    hue: hue
-                )
-            }
-
+            // The room is for writing, and until now it did not look like it.
+            // A `TextEditor` with a hidden background and no border renders as
+            // nothing at all on an empty draft: the screen was a sentence
+            // floating over a void, with the one thing you came here to do
+            // invisible. The rule underneath is the whole affordance — a line
+            // to write on, which is the oldest possible way to say "here".
+            //
+            // Warm rather than grey, because this ground is warm and a neutral
+            // hairline on it reads as a misprint.
             TextEditor(text: $store.draft)
                 .font(FieldType.body)
                 .foregroundStyle(.fieldInk(.headline))
+                .fieldLineHeight(1.55, size: 14.5)
                 .scrollContentBackground(.hidden)
-                .frame(minHeight: 168)
+                .frame(minHeight: 132)
                 .padding(.horizontal, -5)
                 .focused($composeIsFocused)
                 .accessibilityIdentifier("yours.compose")
+                .background(alignment: .topLeading) {
+                    // Not a `TextField` prompt: `TextEditor` has none, and an
+                    // overlay that swallowed taps would make the room look
+                    // writable and refuse to be written in.
+                    if store.draft.isEmpty, savedWords == nil {
+                        Text(YoursCopy.composePlaceholder)
+                            .font(FieldType.body)
+                            .foregroundStyle(.fieldInk(.metadataProse))
+                            .allowsHitTesting(false)
+                            .padding(.top, 8)
+                    }
+                }
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(hue.opacity(composeIsFocused ? 0.42 : 0.20))
+                        .frame(height: 1)
+                        .animation(
+                            reduceMotion ? nil : .weSettle(duration: 0.28),
+                            value: composeIsFocused
+                        )
+                        .accessibilityHidden(true)
+                }
                 .overlay(alignment: .topLeading) {
                     if let savedWords {
                         Text(savedWords)
@@ -522,7 +544,7 @@ struct YoursSurface: View {
                 } label: {
                     Text(YoursCopy.heldDrawer)
                         .font(FieldType.sectionLabel)
-                        .foregroundStyle(.fieldInk(.monoLabel))
+                        .foregroundStyle(.fieldInk(.label))
                 }
                 .buttonStyle(.plain)
                 // §4: owner-initiated, never a prompt and never a scheduled
@@ -572,7 +594,7 @@ struct YoursSurface: View {
                         YoursMark(
                             style: .micro,
                             presence: .held,
-                            hue: FieldInk.headline.color(on: .dark)
+                            hue: FieldInk.headline.color(on: .room)
                         )
 
                         Spacer(minLength: 0)
@@ -605,19 +627,18 @@ struct YoursSurface: View {
 
     // MARK: - Arrival and departure
     //
-    // The personal field exists on the first frame. The mark and the room then
-    // resolve with only a short translation and opacity change. This preserves
-    // the personal-circle grammar without turning entry into a large wipe.
+    // The personal field exists on the first frame; the room then resolves
+    // with only a short translation and opacity change, so entry is a settling
+    // rather than a wipe. The mark used to resolve alongside it and no longer
+    // does — see the chrome above, and §4.
 
     private func open() {
         if reduceMotion {
             withAnimation(.linear(duration: 0.16)) {
-                markIsVisible = true
                 contentIsVisible = true
             }
         } else {
             withAnimation(.weSettle(duration: 0.52)) {
-                markIsVisible = true
                 contentIsVisible = true
             }
         }
@@ -635,7 +656,6 @@ struct YoursSurface: View {
                 ? .linear(duration: duration)
                 : .weSettle(duration: duration)
         ) {
-            markIsVisible = false
             contentIsVisible = false
         }
         Task {
@@ -657,7 +677,7 @@ struct YoursSurface: View {
         } label: {
             Image(systemName: "xmark")
                 .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(.fieldInk(.monoLabel))
+                .foregroundStyle(.fieldInk(.label))
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }
@@ -727,7 +747,7 @@ private struct YoursTeachingRoom: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            YoursMark(style: .display, presence: .living, hue: FieldInk.headline.color(on: .dark))
+            YoursMark(style: .display, presence: .living, hue: FieldInk.headline.color(on: .room))
 
             Text(YoursCopy.teachingTitle)
                 .font(FieldType.pageHeadline)
@@ -804,7 +824,7 @@ private struct YoursOfferComposer: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label)
                 .font(FieldType.sectionLabel)
-                .foregroundStyle(.fieldInk(.monoLabel))
+                .foregroundStyle(.fieldInk(.label))
             TextField("", text: text)
                 .font(FieldType.body)
                 .foregroundStyle(.fieldInk(.headline))

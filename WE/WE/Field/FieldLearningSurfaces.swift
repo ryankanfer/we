@@ -147,7 +147,7 @@ struct FieldDeferralView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         FieldLabel(
                             "A standing rule you gave me",
-                            ink: .monoLabelQuiet
+                            ink: .labelQuiet
                         )
 
                         Text("“\(rule.text)”")

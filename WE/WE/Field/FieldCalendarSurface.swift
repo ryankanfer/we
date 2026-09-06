@@ -208,7 +208,7 @@ struct FieldCalendarSurface: View {
         VStack(alignment: .leading, spacing: 14) {
             FieldLabel(
                 DateFormatter.fieldDayMonth.string(from: day).uppercased(),
-                ink: .monoLabelQuiet
+                ink: .labelQuiet
             )
 
             if items.isEmpty {
@@ -219,7 +219,7 @@ struct FieldCalendarSurface: View {
                         : "Nothing that day."
                 )
                 .font(FieldType.body)
-                .foregroundStyle(.fieldInk(.monoLabel))
+                .foregroundStyle(.fieldInk(.label))
             } else {
                 ForEach(items) { item in
                     // Tapping opens the thing itself. The calendar borrows
@@ -279,7 +279,15 @@ struct FieldCalendarSurface: View {
                     .overlay(alignment: .top) {
                         FieldRuleLine(color: FieldRule.row)
                     }
-                    .accessibilityElement(children: .combine)
+                    // Deliberately not `.accessibilityElement(children: .combine)`: the
+                    // row is already an accessibility element, because it is a Button.
+                    // Combining *after* `.buttonStyle` wraps that element in a second
+                    // one rather than merging it, leaving a button inside a button —
+                    // VoiceOver reads the row twice, and a query by label matches two.
+                    // A Button already merges its label's children into one element
+                    // and reads them in order, which is what this row wants. See
+                    // `FieldLifeZone.categoryRow`, which combines the *content*
+                    // inside the label closure instead.
                     .accessibilityHint("Opens this, to move it or take it off")
                     .accessibilityIdentifier("field.calendar.row")
                 }

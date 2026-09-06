@@ -2,140 +2,95 @@
 //  WECanvas.swift
 //  WE
 //
-//  Two canvases, one ink ramp.
+//  One ground, two deviations, one ink ramp.
 //
-//  `FieldPalette` described a single dark green page, so every surface that
-//  wanted a colour reached for a global. The direction now asks for two
-//  grounds with different meanings — warm ink dark for private and ceremonial
-//  moments, warm cream for shared and resolved ones — and the shift between
-//  them is supposed to be *felt*. A global cannot carry that, so the canvas
-//  moved into the environment and a surface now declares which ground it is
-//  standing on rather than naming a colour.
+//  The V2 handoff (§3) is unambiguous: near-black #0A0A09 everywhere, ink
+//  #F0EBDD, and "there is no light mode in v1 — an earlier light treatment for
+//  Life was cut so that geometry alone carries differentiation." So the cream
+//  canvas is gone, and with it the idea that the ground tells you which zone
+//  you are in. Structure does that now; see §2, the law of geometry.
+//
+//  What survives is the environment seam, and it earns its keep twice over.
+//  V2 names exactly two intentional deviations from the ground — the private
+//  room warms, the Sunday read cools — plus one elevated value for sheets. A
+//  surface still declares which ground it stands on rather than naming a
+//  colour, so those three remain one modifier rather than three hand-painted
+//  backgrounds.
 //
 //  The fifteen-step ink ramp in `FieldTokens.swift` is unchanged and is not
-//  duplicated here. A step is a *role* at a given prominence; what changes
-//  between canvases is only which ink the role is drawn in. That is why
-//  `.fieldInk(_:)` resolves through the environment instead of returning a
-//  fixed colour: one ramp, two grounds, and no screen has to know which.
+//  duplicated here. A step is a *role* at a given prominence. With every
+//  ground now near-black and the ink common to all three, a role resolves to
+//  the same alpha everywhere — which is why `alpha(for:)` no longer carries a
+//  per-canvas table. The seam stays; the divergence it was solving is gone.
 //
 
 import SwiftUI
 
-// MARK: - The two grounds
+// MARK: - The ground, and its two deviations
 
 enum WECanvas: String, CaseIterable, Sendable {
-    /// Warm ink black rather than neutral digital black. Today, Us, the
-    /// Promise, pairing and arrival, stillness, private composition, and
-    /// sensitive decisions.
-    case dark
-
-    /// Warm uncoated paper rather than bright white. Life, shared resolved
-    /// material, archives, account and privacy documents, longer forms.
+    /// Near-black, everywhere. Today, Life, Us, entry, and every surface that
+    /// has not been given a reason to differ.
     ///
-    /// Deliberately not beige: the wellness register is a real failure mode
-    /// for a cream page, and the guard against it is a ground that stays
-    /// close to paper while the *ink* carries the warmth.
-    case cream
+    /// Warm-shifted rather than neutral digital black: person hue at the
+    /// bottom edge has to sit *on* the ground rather than fight it, and a warm
+    /// rust glow against a neutral page reads as soot.
+    case ground
+
+    /// The private room — Yours (14f). Warmer than the ground, and the warmth
+    /// is the whole signal: this is the one surface with no strip, no mark,
+    /// and nothing filed or learned. §4: "never indexed, never learned from,
+    /// carries no mark."
+    case room
+
+    /// The Sunday read (16e). Cooler and deeper than the ground, because it is
+    /// the only prose in the app and the only thing WE writes on its own.
+    case page
 
     /// The page.
     var bg: Color {
         switch self {
-        // Warm ink black rather than the desaturated deep green the app
-        // shipped. The green was a colour, and a colour competes: person hue
-        // at the bottom edge has to sit *on* the ground rather than fight it,
-        // and a warm rust glow against a green page reads as mud. Black with
-        // warmth in it lets both hues be themselves.
-        case .dark: Color(hex: 0x13100D)
-        case .cream: Color(hex: 0xF2ECE0)
+        case .ground: Color(hex: 0x0A0A09)
+        case .room: Color(hex: 0x15100D)
+        case .page: Color(hex: 0x100E0C)
         }
     }
 
     /// Sheets and overlays that sit *above* the page.
-    var bgElevated: Color {
-        switch self {
-        case .dark: Color(hex: 0x1B1713)
-        case .cream: Color(hex: 0xFAF6EE)
-        }
-    }
+    ///
+    /// One value across all three grounds, per §3: sheets sit on #17140F "so
+    /// they read as a layer above the page." A sheet that took its elevation
+    /// from whatever it happened to be covering would read as a layer above
+    /// the room and a layer *below* the Sunday read.
+    var bgElevated: Color { Color(hex: 0x17140F) }
 
-    /// Below the page in perceived depth, which is why the dark canvas goes
-    /// darker and the cream one goes *deeper into the paper* rather than
-    /// lighter. Depth is a direction away from the page, not toward white.
-    var bgDeep: Color {
-        switch self {
-        case .dark: Color(hex: 0x0B0908)
-        case .cream: Color(hex: 0xE7DFD0)
-        }
-    }
+    /// Below the page in perceived depth. Depth is a direction away from the
+    /// page, and from a ground this near black there is very little room left
+    /// — which is the honest answer, not a reason to invent one.
+    var bgDeep: Color { Color(hex: 0x050505) }
 
     /// Primary text at full prominence.
-    var ink: Color {
-        switch self {
-        case .dark: Color(hex: 0xE8E4D9)
-        case .cream: Color(hex: 0x14100C)
-        }
-    }
+    var ink: Color { Color(hex: 0xF0EBDD) }
 
     /// The ink channel as raw components, so alpha ramps stay one source.
     var inkRGB: (r: Double, g: Double, b: Double) {
-        switch self {
-        case .dark: (232.0 / 255, 228.0 / 255, 217.0 / 255)
-        case .cream: (20.0 / 255, 16.0 / 255, 12.0 / 255)
-        }
+        (240.0 / 255, 235.0 / 255, 221.0 / 255)
     }
 
-    /// What a ramp step is actually worth on this ground.
+    /// What a ramp step is worth on this ground.
     ///
-    /// The ramp is fifteen *roles*, and the first cut of the cream canvas
-    /// reused the dark canvas's alphas for all fifteen. Measured, every step
-    /// below the headline lost contrast — `metadataProse` fell from 4.43:1 to
-    /// 3.27:1 and `monoLabel` from 3.26:1 to 2.47:1 — because compositing
-    /// toward a light ground loses contrast faster than compositing toward a
-    /// dark one. It is not a question of picking a darker ink: pure black on
-    /// this paper still reaches only about 86 percent of the dark canvas's
-    /// contrast at the worst step.
-    ///
-    /// So cream carries its own alphas, solved per role to land on the dark
-    /// canvas's measured ratio. A role means the same thing on both grounds,
-    /// which is the point — and it could only mean the same thing if the
-    /// number underneath it were allowed to differ.
-    func alpha(for step: FieldInk) -> Double {
-        switch self {
-        case .dark:
-            step.rawValue
-        case .cream:
-            switch step {
-            case .headline: 0.961
-            case .secondaryHeading: 0.828
-            case .quietListItem: 0.779
-            case .legend: 0.758
-            case .cardProse: 0.729
-            case .reasoning: 0.684
-            case .sectionSubtitle: 0.626
-            case .categorySummary: 0.600
-            case .metadataProse: 0.582
-            case .deemphasisedItem: 0.535
-            case .monoLabel: 0.483
-            case .monoLabelQuiet: 0.462
-            case .dateCount: 0.428
-            case .headerMeta: 0.393
-            case .recessive: 0.368
-            }
-        }
-    }
+    /// Kept as a method rather than collapsed into `step.rawValue` at the call
+    /// sites. The cream canvas needed a solved table here because compositing
+    /// toward a light ground loses contrast faster than toward a dark one;
+    /// three near-black grounds do not, and the widest spread between them
+    /// (#0A0A09 to #15100D) moves the worst step by well under a tenth of a
+    /// ratio point. If a fourth ground ever arrives with a different problem,
+    /// this is where it says so.
+    func alpha(for step: FieldInk) -> Double { step.rawValue }
 
-    /// The same solve, for hairlines. Rules are ink at a weight rather than a
-    /// named role, so they scale by the ratio between the two grounds at the
-    /// quiet end rather than by a table.
-    func ruleAlpha(_ weight: Double) -> Double {
-        self == .cream ? min(weight * 1.25, 1) : weight
-    }
-
-    /// The other one. Used by the crossfade and by contrast assertions that
-    /// want to walk both grounds without hard-coding the pair.
-    var opposite: WECanvas {
-        self == .dark ? .cream : .dark
-    }
+    /// The same, for hairlines. Rules are ink at a weight rather than a named
+    /// role, so they pass straight through for the same reason.
+    func ruleAlpha(_ weight: Double) -> Double { weight }
 }
 
 // MARK: - Declaring a canvas
@@ -143,20 +98,18 @@ enum WECanvas: String, CaseIterable, Sendable {
 extension EnvironmentValues {
     /// The ground the current subtree is standing on.
     ///
-    /// Dark is the default because it is what the app shipped and what every
-    /// unconverted surface still assumes. A cream surface opts in; nothing
-    /// opts in by accident.
-    @Entry var weCanvas: WECanvas = .dark
+    /// `.ground` is the default because it is what almost every surface wants.
+    /// A room or a page opts in; nothing opts in by accident.
+    @Entry var weCanvas: WECanvas = .ground
 }
 
 extension View {
     /// Stand this subtree on a canvas: paint the ground and tell every
     /// descendant which ink it is drawing in.
     ///
-    /// Both halves matter. Setting the environment without painting leaves
-    /// cream ink on a dark page; painting without setting the environment
-    /// leaves dark ink on a cream page. They are one decision, so they are
-    /// one modifier.
+    /// Both halves still matter, even now that the ink is common. The ground
+    /// is what changes, and a surface that sets the environment without
+    /// painting sits on whatever it was dropped onto.
     func weCanvas(_ canvas: WECanvas, ignoringSafeArea: Bool = true) -> some View {
         modifier(WECanvasModifier(canvas: canvas, ignoringSafeArea: ignoringSafeArea))
     }
@@ -182,11 +135,11 @@ private struct WECanvasModifier: ViewModifier {
 // MARK: - Crossing between them
 
 extension AnyTransition {
-    /// "Never slide a dark page away to reveal a cream one."
+    /// "Never slide one ground away to reveal another."
     ///
-    /// A slide makes the two grounds into two places and the move into
-    /// travel. They are the same room under different light, so the only
-    /// honest transition is the light changing.
+    /// A slide makes two grounds into two places and the move into travel.
+    /// They are the same room under different light, so the only honest
+    /// transition is the light changing.
     static var weCanvasCrossing: AnyTransition {
         .opacity
     }

@@ -282,6 +282,12 @@ final class AppSession: ObservableObject {
         // any scheduled notification.
         localData.purge()
 
+        // Before the sign out, while there is still a session to authorise
+        // the delete. Failure is ignored on purpose: it must not stand between
+        // somebody and leaving.
+        try? await repository.forgetDeviceTokens()
+        WEDeviceTokenStore.shared.forget()
+
         do {
             try await repository.signOut()
         } catch {
@@ -338,6 +344,47 @@ final class AppSession: ObservableObject {
 
     func joinCouple(code: String) async {
         await perform { try await self.repository.joinCouple(code: code) }
+    }
+
+    // MARK: The device
+
+    /// Takes whatever token the delegate is holding and writes it down.
+    ///
+    /// Called on every authenticated route in, and idempotent on the server,
+    /// because iOS reissues tokens whenever it likes and the only wrong answer
+    /// is a stale one. Failure is silent: a device that could not be written
+    /// down is a device that will not be woken, and being woken was never what
+    /// made the ceremony work.
+    func listenForDeviceToken() {
+        WEDeviceTokenStore.shared.onToken = { [weak self] token in
+            guard let self else { return }
+            Task { [weak self] in
+                try? await self?.repository.registerDeviceToken(token)
+            }
+        }
+        Task { await WEArrivalNotifications.registerIfPermitted() }
+    }
+
+    /// Who is waiting, for the person holding a code.
+    ///
+    /// Deliberately not routed through `perform`. That reloads the snapshot
+    /// and publishes failures into the session message, and this call happens
+    /// before there is an account, a snapshot, or anything a failure could be
+    /// reported about. A code that answers nothing is simply a code that
+    /// answers nothing: the screen says less, and never says something is
+    /// wrong with an invitation somebody else made.
+    func invitationGreeting(for code: String) async -> InvitationGreeting? {
+        try? await repository.invitationGreeting(code: code)
+    }
+
+    /// Declines, from the side that was invited.
+    ///
+    /// Not routed through `perform` and deliberately indifferent to failure,
+    /// for the same reason the greeting is: there is no account here to report
+    /// anything to, and somebody who has said no is owed a screen that closes,
+    /// not an error about the state of somebody else's invitation.
+    func declineInvitation(code: String) async {
+        try? await repository.declineInvitation(code: code)
     }
 
     func createInvitation() async {
@@ -765,6 +812,9 @@ final class AppSession: ObservableObject {
             )
             route(loaded)
             observeRelationshipIfNeeded()
+            // Every authenticated route in, because a token can arrive before
+            // there is a session and iOS reissues them without warning.
+            listenForDeviceToken()
         } catch {
             if let expectedGeneration,
                expectedGeneration != authRoutingGeneration {

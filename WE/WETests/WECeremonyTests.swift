@@ -260,6 +260,77 @@ struct WECeremonyMigrationTests {
     }
 }
 
+/// Eligibility, which is a fact of its own rather than one read out of the
+/// acknowledgements.
+///
+/// See `WECeremonySessionTests` for the behaviour these guarantees exist to
+/// support; this suite holds the migration to the shape that makes it true.
+struct WECeremonyEligibilityMigrationTests {
+    private static var sql: String {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let path = root
+            .appendingPathComponent("supabase/migrations")
+            .appendingPathComponent("20260821120000_ceremony_eligibility.sql")
+        return (try? String(contentsOf: path, encoding: .utf8)) ?? ""
+    }
+
+    @Test func theMigrationIsWhereItSaysItIs() {
+        #expect(!Self.sql.isEmpty)
+    }
+
+    /// The column arrives as `false` and only then defaults to `true`.
+    ///
+    /// This ordering *is* the backfill: adding the column is what marks every
+    /// existing couple as not performing the ceremony. Written the other way
+    /// round — `default true` plus an `update ... set false` — it would be
+    /// correct exactly once and would silently un-require the ceremony for
+    /// genuinely new couples on any replay.
+    @Test func existingCouplesAreBackfilledByTheAddItself() {
+        #expect(
+            Self.sql.contains(
+                "add column if not exists ceremony_required boolean not null default false"
+            )
+        )
+        #expect(
+            Self.sql.contains(
+                "alter column ceremony_required set default true"
+            )
+        )
+        #expect(
+            !Self.sql.contains("set ceremony_required = false"),
+            "the backfill is the add, not a separate update that can replay"
+        )
+    }
+
+    /// One boolean, for the caller's own couple, with no couple id to guess.
+    @Test func theEligibilityReadTakesNoArgument() {
+        #expect(Self.sql.contains("returns boolean"))
+        #expect(!Self.sql.contains("ceremony_is_required(p_couple"))
+        #expect(Self.sql.contains("public.my_couple_id()"))
+        #expect(
+            Self.sql.contains(
+                "grant execute on function public.ceremony_is_required() to authenticated"
+            )
+        )
+        #expect(
+            Self.sql.contains(
+                "revoke all on function public.ceremony_is_required() from public"
+            )
+        )
+    }
+
+    /// Nothing in this migration writes an acknowledgement.
+    ///
+    /// Backfilling rows would make the aggregate report a promise nobody made,
+    /// which is the one thing the ceremony cannot afford to fake.
+    @Test func noAcknowledgementIsEverForged() {
+        #expect(!Self.sql.contains("insert into public.ceremony_acknowledgements"))
+    }
+}
+
 /// The Promise view, held to what it is unable to render.
 ///
 /// The view's job is negative as much as positive: there are states it must

@@ -103,6 +103,14 @@ final class FieldTwoSimulatorContractTests: XCTestCase {
         let spoken_by: UUID
     }
 
+    /// Deliberately selects `profile_id`, which is the column the RLS policy
+    /// exists to keep on one side of the couple. A test that only ever asked
+    /// for its own rows could not tell a working policy from a missing one.
+    private struct CeremonyRow: Decodable {
+        let profile_id: UUID
+        let beat: String
+    }
+
     func testPartnerAWitnessesPartnerBCaptureOverRealtime() async throws {
         let configuration = try RoleConfiguration.partnerA()
         let provider = SupabaseClientProvider(
@@ -163,6 +171,34 @@ final class FieldTwoSimulatorContractTests: XCTestCase {
             return
         }
 
+        // MARK: The ceremony, from A's side
+        //
+        // Deliberately before the readiness row, which is the coordinator's
+        // barrier: B has not signed in yet, so "the aggregate is still false"
+        // is a fact rather than a race. This is the assertion the hermetic
+        // suite can only make against a fake — one phone cannot advance a beat
+        // alone, and here the refusing party is the real RPC.
+        let beat = WEBeat.yoursStaysYours
+        try await backend.keepBeat(beat)
+
+        let mine: Set<WEBeat> = try await backend.myAcknowledgements()
+        XCTAssertTrue(
+            mine.contains(beat),
+            "A's own acknowledgement did not come back to A"
+        )
+        let keptAlone = try await backend.keptBeats()
+        XCTAssertFalse(
+            keptAlone.contains(beat),
+            "the aggregate resolved on one acknowledgement"
+        )
+
+        // Idempotent, against the live `on conflict do nothing`. A phone that
+        // loses its connection mid beat says the same thing again, and must
+        // not be told it already did.
+        try await backend.keepBeat(beat)
+        let mineAgain = try await backend.myAcknowledgements()
+        XCTAssertEqual(mineAgain, mine)
+
         // The coordinator polls for this exact row before it launches the B
         // process. Seeing it proves this process reached the subscribed state;
         // no guessed sleep sits between subscription and the partner write.
@@ -183,6 +219,37 @@ final class FieldTwoSimulatorContractTests: XCTestCase {
             }
         }
         XCTAssertEqual(observed.owner, .b)
+
+        // MARK: The beat resolving, on the other phone's acknowledgement
+        //
+        // Through the aggregate, and only through the aggregate. There is no
+        // row event to wait on here by design: `ceremony_acknowledgements` is
+        // absent from `observedTables`, because a realtime row event carries
+        // its own arrival time, which is the partner's timing wearing a
+        // different hat. Polling a bare boolean is the whole mechanism.
+        let resolved: Bool = try await eventually(timeout: .seconds(90)) {
+            let kept = try await backend.keptBeats()
+            return kept.contains(beat) ? true : nil
+        }
+        XCTAssertTrue(resolved)
+
+        // MARK: What A can read of B's side, which is nothing
+        //
+        // Owner only RLS on select, exercised against the live policy rather
+        // than against a fake that was written to honour it. Asking for every
+        // row of the couple's table returns A's own and stops there — even
+        // though both people have now acknowledged the same beat.
+        let client = try XCTUnwrap(provider.client)
+        let rows: [CeremonyRow] = try await client
+            .from("ceremony_acknowledgements")
+            .select("profile_id,beat")
+            .execute()
+            .value
+        XCTAssertFalse(rows.isEmpty, "A cannot see its own acknowledgement")
+        XCTAssertTrue(
+            rows.allSatisfy { $0.profile_id == UUID(uuidString: signedIn.id) },
+            "a partner's acknowledgement row reached the other phone"
+        )
     }
 
     func testPartnerBWritesCaptureAsPartnerB() async throws {
@@ -234,6 +301,37 @@ final class FieldTwoSimulatorContractTests: XCTestCase {
             }
         }
         XCTAssertEqual(reloaded.owner, .b)
+
+        // MARK: The ceremony, from B's side
+        //
+        // A kept this beat before the readiness barrier, so the aggregate is
+        // waiting on this acknowledgement and nothing else. It flips here, on
+        // B's write, which is what "neither screen advances until both people
+        // have acknowledged" means when the two screens are on two devices.
+        let beat = WEBeat.yoursStaysYours
+        let keptBeforeB = try await backend.keptBeats()
+        XCTAssertFalse(
+            keptBeforeB.contains(beat),
+            "the aggregate resolved before B acknowledged"
+        )
+        try await backend.keepBeat(beat)
+
+        let kept: Bool = try await eventually(timeout: .seconds(30)) {
+            let beats = try await backend.keptBeats()
+            return beats.contains(beat) ? true : nil
+        }
+        XCTAssertTrue(kept)
+
+        // B's own row is B's, and B sees no more of the table than A does.
+        let rows: [CeremonyRow] = try await client
+            .from("ceremony_acknowledgements")
+            .select("profile_id,beat")
+            .execute()
+            .value
+        XCTAssertTrue(
+            rows.allSatisfy { $0.profile_id == UUID(uuidString: signedIn.id) },
+            "a partner's acknowledgement row reached the other phone"
+        )
     }
 
     private func makeBackend(

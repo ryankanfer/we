@@ -23,7 +23,7 @@
 import SwiftUI
 
 struct FieldGateScaffold<Content: View>: View {
-    /// The mono label above the headline. Optional: the loading gate has
+    /// The tracked label above the headline. Optional: the loading gate has
     /// nothing to say and should not invent a heading to fill the space.
     var label: String?
     /// Centred vertically rather than pinned to the top. The gates are short
@@ -36,10 +36,11 @@ struct FieldGateScaffold<Content: View>: View {
         ZStack {
             FieldPalette.bg.ignoresSafeArea()
 
-            FieldAmbient(
-                identity: .seed,
-                hour: Calendar.gregorianUS.component(.hour, from: Date())
-            )
+            // The gates are entry surfaces — §2 calls entry "a poster" — so
+            // they take the warm top-anchored statement rather than a zone's.
+            // There is nowhere to get lost here and no zone to be oriented
+            // toward yet.
+            FieldGlow(identity: .seed, statement: .warmTop)
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -118,7 +119,7 @@ struct FieldTextField: View {
                 label,
                 font: FieldType.subLabel,
                 tracking: FieldTracking.subLabel,
-                ink: .monoLabelQuiet,
+                ink: .labelQuiet,
                 isHeader: false
             )
 
@@ -147,7 +148,7 @@ struct FieldTextField: View {
                 .fill(
                     isFocused
                         ? FieldIdentity.seed.personA.color.opacity(0.7)
-                        : FieldRule.row.color(on: .dark)
+                        : FieldRule.row.color(on: .ground)
                 )
                 .frame(height: 1)
         }

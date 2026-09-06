@@ -132,6 +132,15 @@ protocol WECeremonyBackend: Sendable {
     /// Idempotent. A phone that loses its connection mid-beat can say the
     /// same thing again without being told it already did.
     func keepBeat(_ beat: WEBeat) async throws
+
+    /// Whether this couple performs the ceremony at all.
+    ///
+    /// Deliberately not derived from the acknowledgements. A couple who
+    /// arrived before the ceremony existed has no rows, and so does a couple
+    /// who arrived a moment ago — reading "no rows" as "not started" walks
+    /// every existing couple into The Joining months into a relationship.
+    /// Absence of rows means nothing was written, and that is all it means.
+    func ceremonyIsRequired() async throws -> Bool
 }
 
 /// Reads both halves and combines them.

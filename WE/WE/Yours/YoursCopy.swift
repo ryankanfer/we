@@ -29,6 +29,14 @@ enum YoursCopy {
     /// The invitation, and the whole thesis in six words.
     static let compose = "Write without deciding what it becomes."
 
+    /// The line inside the empty writing surface.
+    ///
+    /// Deliberately not "What's on your mind?" or any other question. §7's
+    /// whole argument is that this space does not ask for anything, and a
+    /// prompt phrased as a question is a request for an answer. This names
+    /// the one guarantee instead, which is what makes the space usable.
+    static let composePlaceholder = "Nobody else will see this."
+
     /// The reassurance under the dated receipt.
     ///
     /// It used to be "This will return in six weeks." — which the dated

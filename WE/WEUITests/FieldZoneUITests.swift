@@ -942,17 +942,6 @@ final class FieldZoneUITests: XCTestCase {
         XCTAssertTrue(finish.isEnabled)
     }
 
-    @MainActor
-    func testOnboardingOffersTheCalendarWithoutRequiringIt() throws {
-        let app = launchOnboarding()
-        XCTAssertTrue(
-            app.buttons["field.onboarding.calendar.connect"]
-                .waitForExistence(timeout: 8)
-        )
-        // The offer exists and finishing does not depend on taking it.
-        XCTAssertTrue(app.buttons["field.onboarding.finish"].isEnabled)
-    }
-
     // MARK: Rendered contracts
 
     /// Stable attachment names are part of the CI contract: the visual-diff

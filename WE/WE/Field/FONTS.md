@@ -1,34 +1,30 @@
 # Fonts
 
-The handoff specifies two families and no others:
+V2 §3 specifies two faces and no others:
 
-- **Newsreader** — 300, 400, italic 400. All content.
-- **IBM Plex Mono** — 400, 500. Labels, dates, counts, buttons. Always
-  uppercase, always letter-spaced.
+- **Newsreader** — 300 for display, 400 for text, 400 italic for WE's own
+  voice. Carries "everything human".
+- **DM Sans** — 400, at 9–11pt with 1.8–2.4pt tracking, always uppercase.
+  Carries labels and actions.
 
 Both are Google Fonts and both are **bundled with the app, not loaded at
 runtime**. The design uses almost no icons — coloured dots, hairlines, and
 typography carry the meaning — so the faces are load-bearing in a way they
 usually are not.
 
-## What is already wired
+## The monospace is gone
 
-`FieldType` in `FieldTokens.swift` resolves every role to a concrete face and
-size. It checks availability once at launch:
+V1 used IBM Plex Mono for labels, dates, counts and buttons. §3 cuts it: "There
+is no monospace in the product — an earlier typewriter treatment was cut for
+reading too retro against the serif."
 
-```swift
-private static let hasSerif: Bool = isAvailable(serifFamily)
-```
-
-Until the files are added it falls back to the system serif and the system
-monospaced face, so every screen still lays out and every size, tracking, and
-line height is already correct. The fallback is visibly wrong — the system
-serif is heavier at 300 and its italic is not Newsreader's — but nothing
-breaks, and no layout has to change when the real faces land.
+The roles it carried kept their names and changed face, so `FieldType.zoneLabel`
+and friends still exist and still mean the same thing. What changed underneath
+is the family and the tracking notation — see below.
 
 ## What actually shipped
 
-Ten faces in `WE/WE/Field/FONTS/`, listed under `UIAppFonts` in
+Nine faces in `WE/WE/Field/FONTS/`, listed under `UIAppFonts` in
 `WE/Config/WE-Info.plist`. The target uses a file system synchronized group, so
 the files needed no project edit.
 
@@ -37,7 +33,7 @@ Newsreader_14pt-Light.ttf        Newsreader_36pt-Light.ttf
 Newsreader_14pt-LightItalic.ttf  Newsreader_36pt-LightItalic.ttf
 Newsreader_14pt-Regular.ttf      Newsreader_36pt-Regular.ttf
 Newsreader_14pt-Italic.ttf       Newsreader_36pt-Italic.ttf
-IBMPlexMono-Regular.ttf          IBMPlexMono-Medium.ttf
+DMSans-9pt.ttf
 ```
 
 **There is no plain "Newsreader" family.** Google ships it as optical-size cuts
@@ -49,19 +45,52 @@ picks the cut by size:
 let opsz = size >= 20 ? "Newsreader36pt" : "Newsreader14pt"
 ```
 
-which is what `font-optical-sizing: auto` did in the browser the handoff was
-drawn in. The 42pt hero and 44pt horizon get the display cut and stay thin at
-weight 300; labels get the text cut.
+which is what `font-optical-sizing: auto` did in the browser the design was
+drawn in. The display sizes get the 36pt cut and stay thin at weight 300;
+labels get the text cut.
 
-Two traps, both of which cost a build here:
+**DM Sans ships only as a variable font.** `ofl/dmsans/` in google/fonts holds
+`DMSans[opsz,wght].ttf` and an italic, and no static cuts — the `static/`
+directory the older layout had is gone, so fetching `DMSans-Regular.ttf` from
+it returns a 404 page that `file` will happily tell you is HTML.
 
-- **The availability probe needs the exact family name.**
-  `UIFont.fontNames(forFamilyName:)` returns empty for `"IBMPlexMono"` — the
-  real family is `"IBM Plex Mono"`, with spaces. Get it wrong and every screen
-  silently renders the system fallback with no error anywhere.
-- **Two `OFL.txt` files collide.** Resources flatten into the bundle root, so
-  Newsreader's and Plex's licences cannot both keep the name. They ship as
-  `Newsreader-OFL.txt` and `IBMPlexMono-OFL.txt`.
+The bundled cut is instantiated from the variable font with fontTools:
+
+```python
+instancer.instantiateVariableFont(f, {"wght": 400, "opsz": 9}, updateFontNames=True)
+```
+
+Pinned to the **9pt optical design** on purpose: §3 uses this face at 9–11pt and
+nowhere else, and the display cuts are drawn with a tighter fit than a 9pt
+label wants. `updateFontNames` writes the optical size into the *subfamily* — name ID 17 —
+and leaves the typographic family, name ID 16, as plain **`DM Sans`**. Core
+Text indexes by the typographic family, so that is what
+`FieldType.sansFamily` holds, and the face `.custom` asks for is the
+PostScript name **`DMSans-9pt`**.
+
+Newsreader is the other way round: its typographic family is
+`Newsreader 36pt` and its subfamily is `Light`. Two Google families, two
+conventions, and no way to tell from the outside — which is why
+`bothFacesRegisterUnderTheNamesFieldTypeProbes` asserts both rather than
+either being reasoned about.
+
+Only weight 400 is bundled, because §3 gives this face one weight for both of
+its roles. `FieldType.sans` takes no weight argument, so a second weight has to
+arrive as a second bundled cut and a change to the spec rather than by someone
+passing `.medium` at a call site.
+
+Three traps, all of which have cost a build here:
+
+- **The availability probe needs the exact typographic family name.**
+  `UIFont.fontNames(forFamilyName:)` returns empty for `"DMSans"` and for
+  `"DM Sans 9pt"` — the family is `"DM Sans"`. Get it wrong and every screen
+  silently renders the system fallback with no error anywhere. This cost a
+  build here; the test now catches it.
+- **The face name is not the family name.** The family is `DM Sans`; the face
+  passed to `.custom` is `DMSans-9pt`.
+- **`OFL.txt` files collide.** Resources flatten into the bundle root, so two
+  licences cannot both keep the name. They ship as `Newsreader-OFL.txt` and
+  `DMSans-OFL.txt`.
 
 `WEWidgets-Info.plist` deliberately does **not** list them. Nothing in
 `WEWidgets/` or `WEShared/` references `FieldType` or `FieldPalette` — the
@@ -71,7 +100,18 @@ To verify registration rather than assuming it:
 
 ```swift
 UIFont.fontNames(forFamilyName: "Newsreader 36pt")
+UIFont.fontNames(forFamilyName: "DM Sans")
 ```
+
+## Tracking is in points, not em
+
+§3 specifies DM Sans tracking absolutely — "1.8–2.4px" — where V1 specified
+everything in em. `FieldTracking` carries both: `em(_:at:)` for Newsreader's
+one tracked role, and `px(_:)` for DM Sans.
+
+Deliberately not converted. At this size the two notations disagree by enough
+to matter — +2.2 at 9.5pt is 0.232em, which nobody would have written — and
+copying the spec's own units is what makes a hand edit visible in review.
 
 ## Licensing
 
@@ -80,13 +120,16 @@ permitted; the licence text should ship in the app's acknowledgements.
 
 ## Dynamic Type
 
-`FieldType` uses `.custom(_:fixedSize:)` deliberately. The design is drawn
-against a fixed 393 × 852pt frame and its hierarchy depends on exact ratios
-between 44pt, 42pt, 38pt, and 25pt — scaling them independently collapses the
-distinction between a horizon and a headline.
+`FieldType` uses `.custom(_:size:relativeTo:)`, anchoring each absolute point
+size to the nearest text style. Sizes stay authored as absolute points, because
+the ramp is a composition and "body plus two" is not a design decision anyone
+made — but the whole thing moves together with the reader's setting.
 
-Accessibility is served instead by the alpha ramp (every step clears contrast
-on `#16211D`), by VoiceOver labels on every composed element, and by honouring
-Reduce Motion and Reduce Transparency throughout. If Dynamic Type support is
-added later, it should scale the whole canvas rather than individual roles —
-`.custom(_:size:relativeTo:)` per role will break the layout.
+Display sizes anchor high on purpose: they are already clamped for
+accessibility sizes by `WEDisplayScale`, so the two systems meet rather than
+fight — the ramp scales the type, and the clamp keeps one thought from becoming
+a single word per line.
+
+Accessibility is also served by the alpha ramp (every step is measured against
+every ground in `WECanvasTests`), by VoiceOver labels on every composed
+element, and by honouring Reduce Motion and Reduce Transparency throughout.

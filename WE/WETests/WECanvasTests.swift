@@ -3,13 +3,16 @@ import SwiftUI
 import Testing
 @testable import WE
 
-/// The two canvases, held to the same standard as each other.
+/// The three grounds, held to the same standard as each other.
 ///
-/// A second ground is the easiest place in a design system for contrast to
-/// quietly rot: the dark canvas was measured when it was the only one, and
-/// nothing about adding cream re-checks it. So every assertion here runs
-/// across `WECanvas.allCases` rather than naming a canvas, which means a third
-/// ground could not be added without being measured too.
+/// V2 §3 cuts the light mode and leaves near-black everywhere, with two
+/// intentional deviations: the private room warms to #15100D and the Sunday
+/// read cools to #100E0C. That is a much smaller spread than the cream canvas
+/// this suite was written for — which makes it *easier* to let a deviation
+/// drift, not harder, because nothing looks obviously wrong at a glance.
+///
+/// So every assertion still runs across `WECanvas.allCases` rather than naming
+/// a ground: a fourth could not be added without being measured too.
 struct WECanvasTests {
 
     // MARK: Colour maths
@@ -65,12 +68,8 @@ struct WECanvasTests {
 
     // MARK: The grounds
 
-    /// Full-strength ink must clear AA on both grounds.
-    ///
-    /// This is the assertion that would have caught the cream canvas shipping
-    /// with the dark canvas's near-white ink, which is not a contrast failure
-    /// so much as an invisibility one.
-    @Test func primaryInkClearsAAOnBothCanvases() {
+    /// Full-strength ink must clear AA on every ground.
+    @Test func primaryInkClearsAAOnEveryGround() {
         for canvas in WECanvas.allCases {
             let ratio = Self.contrast(
                 Self.composite(.headline, on: canvas),
@@ -83,7 +82,7 @@ struct WECanvasTests {
         }
     }
 
-    /// The steps that carry running prose clear AA on both grounds.
+    /// The steps that carry running prose clear AA on every ground.
     ///
     /// The line sits at `.sectionSubtitle` because that is where the ramp
     /// actually stops being body copy — below it are summaries, tracked mono
@@ -91,7 +90,7 @@ struct WECanvasTests {
     /// paragraphs. Pinning the assertion here rather than at the bottom of
     /// the ramp keeps it a real floor: it fails if anyone quietly reassigns a
     /// quiet step to a sentence.
-    @Test func proseStepsClearAAOnBothCanvases() {
+    @Test func proseStepsClearAAOnEveryGround() {
         let prose: [FieldInk] = [
             .headline, .secondaryHeading, .quietListItem, .legend,
             .cardProse, .reasoning, .sectionSubtitle,
@@ -110,37 +109,49 @@ struct WECanvasTests {
         }
     }
 
-    /// Adding a ground may not cost contrast anywhere.
+    /// A deviation may cost a little contrast, and only a little.
     ///
-    /// This is the assertion the cream canvas actually needed. The first cut
-    /// reused the dark canvas's alphas and lost contrast at every step below
-    /// the headline — `metadataProse` 4.26:1 to 3.27:1, `monoLabel` 3.22:1 to
-    /// 2.47:1 — which no absolute threshold would have caught, because the
-    /// dark ramp does not clear AA down there either. What was wrong was not
-    /// the number, it was that the same role got quieter on the second
-    /// ground while claiming to mean the same thing.
+    /// This is the assertion the cream canvas needed, kept and re-aimed. Cream
+    /// reused the dark alphas and lost contrast at every step below the
+    /// headline — `metadataProse` 4.26:1 to 3.27:1 — which no absolute
+    /// threshold catches, because the ramp does not clear AA down there
+    /// either. What was wrong was that a role got quieter on a second ground
+    /// while claiming to mean the same thing.
     ///
-    /// The tolerance is one percent for rounding: the cream alphas are solved
-    /// to four figures against these exact ratios.
-    @Test func creamMatchesDarkAtEveryStep() {
-        for step in FieldInk.allCases {
-            let dark = Self.contrast(
-                Self.composite(step, on: .dark),
-                Self.components(WECanvas.dark.bg)
-            )
-            let cream = Self.contrast(
-                Self.composite(step, on: .cream),
-                Self.components(WECanvas.cream.bg)
-            )
-            #expect(
-                cream >= dark * 0.99,
-                "\(step): dark \(dark), cream \(cream)"
-            )
+    /// The room and the page are *lighter* than the ground — #15100D and
+    /// #100E0C against #0A0A09 — so the same ink at the same alpha reaches the
+    /// eye with slightly less contrast on them. That is physics, not a design
+    /// error, and it is not something a per-ground alpha table should be
+    /// invented to correct: §3 asks for two warmer surfaces, and the loss is
+    /// what warmer means.
+    ///
+    /// So the bound is proportional rather than exact. Measured worst case is
+    /// the headline step on the room, at 4.6 percent — 15.86:1 against
+    /// 16.63:1, both of them enormous. Six percent leaves that room and still
+    /// fails the moment anyone warms a deviation appreciably further, which is
+    /// the drift worth catching. The absolute floor is guarded separately, by
+    /// `proseStepsClearAAOnEveryGround`.
+    @Test func everyDeviationStaysCloseToTheGroundAtEveryStep() {
+        for canvas in WECanvas.allCases where canvas != .ground {
+            for step in FieldInk.allCases {
+                let onGround = Self.contrast(
+                    Self.composite(step, on: .ground),
+                    Self.components(WECanvas.ground.bg)
+                )
+                let onDeviation = Self.contrast(
+                    Self.composite(step, on: canvas),
+                    Self.components(canvas.bg)
+                )
+                #expect(
+                    onDeviation >= onGround * 0.94,
+                    "\(step): ground \(onGround), \(canvas.rawValue) \(onDeviation)"
+                )
+            }
         }
     }
 
-    /// The ramp only means anything if it descends, on both grounds.
-    @Test func theRampIsMonotonicOnBothCanvases() {
+    /// The ramp only means anything if it descends, on every ground.
+    @Test func theRampIsMonotonicOnEveryGround() {
         for canvas in WECanvas.allCases {
             let ratios = FieldInk.allCases.map { step in
                 Self.contrast(
@@ -154,55 +165,98 @@ struct WECanvasTests {
         }
     }
 
-    /// Depth reads as a direction away from the page, in both directions.
+    /// Depth reads as a direction away from the page.
     ///
-    /// The dark canvas goes darker to recede and lighter to lift. Cream has to
-    /// do the opposite on one of those and the same on neither, which is
-    /// exactly the kind of thing that gets copied wrong from the dark values.
-    @Test func depthOrderingHoldsOnBothCanvases() {
+    /// Every ground is near-black now, so lifting means catching more light
+    /// and receding means going darker — on all three. The cream canvas was
+    /// the case that made this interesting, and it is gone; what is left is a
+    /// guard against a deviation being given an elevated value that sits
+    /// below its own page, which is what would happen if `bgElevated` were
+    /// ever derived from the ground it covers rather than being one value.
+    @Test func depthOrderingHoldsOnEveryGround() {
         for canvas in WECanvas.allCases {
             let page = Self.luminance(Self.components(canvas.bg))
             let lifted = Self.luminance(Self.components(canvas.bgElevated))
             let deep = Self.luminance(Self.components(canvas.bgDeep))
 
-            switch canvas {
-            case .dark:
-                #expect(lifted > page)
-                #expect(deep < page)
-            case .cream:
-                // Lifting a sheet off paper means catching more light;
-                // receding means going further into the stock, not toward
-                // white, which would read as a hole rather than as depth.
-                #expect(lifted > page)
-                #expect(deep < page)
-            }
+            #expect(lifted > page, "\(canvas.rawValue) sheet did not lift")
+            #expect(deep < page, "\(canvas.rawValue) deep did not recede")
         }
     }
 
-    /// The two grounds must actually be two grounds.
-    @Test func theCanvasesAreFarApart() {
-        let ratio = Self.contrast(
-            Self.components(WECanvas.dark.bg),
-            Self.components(WECanvas.cream.bg)
-        )
-        #expect(ratio >= 10, "the canvases scored \(ratio) against each other")
-    }
+    /// A deviation must be perceptible, and must stay subordinate.
+    ///
+    /// The cream canvas was asserted to be *far* from the dark one — ratio 10
+    /// or better — because they were two places. The room and the page are
+    /// not two places; they are the same ground under a different warmth, and
+    /// §3 calls them deviations rather than canvases for that reason.
+    ///
+    /// So the assertion inverts. A deviation has to differ from the ground at
+    /// all, or the modifier is a lie and someone will delete it as dead code.
+    /// And it has to stay far closer to the ground than to the ink, or it has
+    /// stopped being a deviation and become a light mode by increments —
+    /// which is the specific thing V2 cut.
+    @Test func deviationsArePerceptibleAndSubordinate() {
+        let ground = Self.components(WECanvas.ground.bg)
+        let ink = Self.components(WECanvas.ground.ink)
 
-    /// `opposite` is the crossfade's only way to name the other ground.
-    @Test func oppositeRoundTrips() {
-        for canvas in WECanvas.allCases {
-            #expect(canvas.opposite.opposite == canvas)
-            #expect(canvas.opposite != canvas)
+        for canvas in WECanvas.allCases where canvas != .ground {
+            let bg = Self.components(canvas.bg)
+
+            #expect(
+                Self.components(canvas.bg) != ground,
+                "\(canvas.rawValue) is the ground wearing another name"
+            )
+
+            let fromGround = Self.contrast(bg, ground)
+            let fromInk = Self.contrast(bg, ink)
+            #expect(
+                fromGround < fromInk,
+                "\(canvas.rawValue) sits closer to the ink than to the ground"
+            )
+            #expect(
+                fromGround < 1.5,
+                "\(canvas.rawValue) has drifted \(fromGround) from the ground"
+            )
         }
     }
 
     // MARK: Which zone stands where
 
-    /// Life is the shared, resolved zone and takes the paper. Today and Us
-    /// hold decisions that are still open, and those stay on the dark ground.
-    @Test func zonesDeclareTheirCanvas() {
-        #expect(FieldZone.life.canvas == .cream)
-        #expect(FieldZone.we.canvas == .dark)
-        #expect(FieldZone.us.canvas == .dark)
+    /// Every zone stands on the same ground, and the glow is what differs.
+    ///
+    /// This used to assert that Life took the paper. V2 §3 cut the light
+    /// treatment "so that geometry alone carries differentiation" — so the
+    /// test that once proved the grounds were distinct now has to prove they
+    /// are not, and that the orientation moved somewhere else rather than
+    /// being dropped.
+    @Test func everyZoneStandsOnTheGround() {
+        for zone in FieldZone.allCases {
+            #expect(zone.canvas == .ground, "\(zone.label) left the ground")
+        }
+    }
+
+    /// One glow statement per zone, and no two zones share one.
+    ///
+    /// §3 gives each zone a corner and gives Today both. If two zones ever
+    /// resolved to the same statement, the glow would have stopped doing the
+    /// orientation work and the app would have no chrome that says where you
+    /// are at all.
+    @Test func eachZoneIsLitDifferently() {
+        let statements = FieldZone.allCases.map(\.glow)
+        #expect(Set(statements).count == FieldZone.allCases.count)
+        #expect(FieldZone.life.glow == .warmBottomLeft)
+        #expect(FieldZone.we.glow == .splitBottom)
+        #expect(FieldZone.us.glow == .coolBottomRight)
+    }
+
+    /// Today is the only zone lit from both sides.
+    ///
+    /// Not decoration: §3 reserves the split for the surface that belongs to
+    /// the two of you at once, and the blend means "this belongs to both of
+    /// you" everywhere else in the system. A second split would spend that.
+    @Test func onlyTodayIsLitFromBothSides() {
+        let split = FieldZone.allCases.filter { $0.glow == .splitBottom }
+        #expect(split == [.we])
     }
 }

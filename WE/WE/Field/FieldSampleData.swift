@@ -112,6 +112,67 @@ enum FieldSampleData {
 
     // MARK: Life
 
+    /// A first week: four things, across three of Life's four bands.
+    ///
+    /// Only ever read by `FieldState.sparse`, which exists so §16a's collapse
+    /// can be seen. Kept beside the full fixture rather than in the test
+    /// target because it is a *design* state — the page a real couple sees for
+    /// their first fortnight — and it should be reviewable in the simulator.
+    static let sparseLifeItems: [LifeItem] = [
+        LifeItem(
+            id: "sparse-grocery",
+            title: "Send the grocery list",
+            category: .food,
+            owner: .a,
+            dueOn: date(2025, 8, 13),
+            closesAt: nil,
+            clusterID: nil,
+            source: .captured,
+            detail: "window closes 9pm tonight",
+            isTimeCritical: true,
+            isDone: false
+        ),
+        LifeItem(
+            id: "sparse-vet",
+            title: "Call the vet",
+            category: .care,
+            owner: .b,
+            dueOn: nil,
+            closesAt: nil,
+            clusterID: nil,
+            source: .captured,
+            detail: nil,
+            isTimeCritical: false,
+            isDone: false
+        ),
+        LifeItem(
+            id: "sparse-filters",
+            title: "Air filters",
+            category: .buys,
+            owner: .shared,
+            dueOn: nil,
+            closesAt: nil,
+            clusterID: nil,
+            source: .captured,
+            detail: nil,
+            isTimeCritical: false,
+            isDone: false
+        ),
+        LifeItem(
+            id: "sparse-japan",
+            title: "Japan in the fall",
+            category: .trips,
+            owner: .shared,
+            dueOn: nil,
+            closesAt: nil,
+            clusterID: nil,
+            source: .captured,
+            detail: nil,
+            isTimeCritical: false,
+            isDone: false
+        ),
+    ]
+
     static let lifeItems: [LifeItem] = [
         // Before your dad lands
         LifeItem(

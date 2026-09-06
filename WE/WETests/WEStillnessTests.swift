@@ -76,18 +76,15 @@ struct WEStillnessTests {
 /// door; the gate screens had no constraint test and drifted into the register
 /// of the specification documents that produced them.
 struct WEGateCopyTests {
-    /// Everything the invitation and stillness screens can now say.
-    /// Hand-maintained, so adding a string means deciding it belongs.
-    private static let everything = [
-        "For Dylan.",
-        "For them.",
-        "Send this when you're ready. Dylan will see your name and nothing else.",
-        "Send this when you're ready. They'll see your name and nothing else.",
-        "Who is this for?",
-        "WE is still until Dylan arrives.",
-        "WE is still until they arrive.",
-        "Withdraw the invitation",
-    ]
+    /// Every gate string, read from the source the views read.
+    ///
+    /// This used to be a hand copied array of literals kept right here, which
+    /// meant the rules below governed a transcript rather than the product: a
+    /// view could be reworded into a violation and every test would still
+    /// pass, because none of them had ever seen a view. `WEGateCopy` is now
+    /// the single home for these strings, and both the screens and these rules
+    /// read it.
+    private static let everything = WEGateCopy.everything
 
     /// The word "threshold" does not appear on any surface anybody reads.
     ///
@@ -136,6 +133,28 @@ struct WEGateCopyTests {
     @Test func theNamedFormNeverSaysPartner() {
         for line in Self.everything where line.contains("Dylan") {
             #expect(!line.lowercased().contains("partner"), "\(line)")
+        }
+    }
+
+    /// The rules are worth nothing if the list they run over is empty or has
+    /// quietly stopped being the list the screens use.
+    @Test func theRulesHaveSomethingToGovern() {
+        #expect(Self.everything.count > 15)
+        #expect(Self.everything.allSatisfy { !$0.isEmpty })
+        #expect(Self.everything.contains(WEGateCopy.welcome))
+        #expect(Self.everything.contains(WEGateCopy.waitingUnnamed))
+    }
+
+    /// The invited person is told, never asked, and never told off.
+    ///
+    /// The screen that greets them cannot report on the state of an
+    /// invitation somebody else made: a code that answers nothing is a
+    /// quieter sentence, never an error.
+    @Test func theInvitedPersonIsNeverToldSomethingIsWrong() {
+        for line in [WEGateCopy.waiting(for: "Ryan"), WEGateCopy.waitingUnnamed] {
+            for word in ["invalid", "expired", "wrong", "try again", "sorry"] {
+                #expect(!line.lowercased().contains(word), "\(word) in \(line)")
+            }
         }
     }
 }

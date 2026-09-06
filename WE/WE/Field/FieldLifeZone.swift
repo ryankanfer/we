@@ -2,39 +2,52 @@
 //  FieldLifeZone.swift
 //  WE
 //
-//  Life — "run life". Option 3a.
+//  Life — strata. Options 15b and 16a.
 //
-//  Everything that keeps the week moving, and never the first thing you see.
+//  The page used to open on eight category words, which is a filing cabinet
+//  with the drawers labelled. V2 §2 forbids that outright — "never subject
+//  categories as the top-level sort" — and replaces it with four bands that
+//  answer a different question: not *what kind of thing is this* but *how much
+//  is it asking of us right now*.
 //
-//  "Life must stay this calm. An early version put the full Reminders list
-//  inline and it swamped the page." Nothing on this screen enumerates a
-//  category. It carries two things: **this week**, which is the handful of
-//  dated things grouped by occasion, and **the categories**, which are single
-//  large words.
+//  The bands are fixed and their order never changes. What changes is how much
+//  of each is on screen, because **each band is a different kind of object**:
+//  rows in full, then rows tightened, then a run of subject words, then a bare
+//  count. That progression is the page's whole argument. A thing does not get
+//  quieter here by being written in fainter ink — it gets quieter by being
+//  described in less detail, until at the bottom the app will tell you how
+//  many there are and nothing else.
 //
-//  Two rooms sit behind it, and neither is a category. The calendar is every
-//  dated thing at once, whatever list it came from. Search is everything
-//  written down at all, which is the only way to find a thing without first
-//  remembering where it went.
+//  It has to work that way. §3 asked for the bands to separate by ink as well
+//  — 100 / 72 / 40 / 24 — and on the near-black ground those bottom two score
+//  3.35:1 and 1.91:1, both under WCAG AA, in 9pt labels where the large-text
+//  allowance does not apply. `FieldInk` now floors at AA, so the ink barely
+//  moves across the bottom half of this page and the structure carries it
+//  instead. See `FieldStrata` for the sorting rule and the measurements.
 //
-//  Both have a word in the corner. The calendar also answers to a second tap
-//  on LIFE in the bar; search also answers to pulling this screen down, the
-//  way every other list on the phone does.
+//  Under about five open items the bands disappear altogether and the page
+//  becomes a plain list at 30px — §16a's "main adaptive behaviour", driven by
+//  count rather than by any screen size. A couple with four things to do
+//  should not be handed a filing system with four drawers, three of them
+//  empty.
+//
+//  Two rooms still sit behind the page and neither is a band. The calendar is
+//  every dated thing at once; search is everything written down at all. Both
+//  say so in words, for the reason the way into Yours already taught: a room
+//  reachable only by a gesture is a room most people never open.
 //
 
 import SwiftUI
 
 struct FieldLifeZone: View {
     @Environment(FieldStore.self) private var store
-    /// Life is the surface headed for the cream canvas, so the few places
-    /// here that need a concrete `Color` rather than a ramp style have to ask
-    /// which ground they are on rather than assume the dark one.
-    @Environment(\.weCanvas) private var canvas
     @State private var isAtTop = true
     /// Which category room is open. Local `@State`, not store state: a
     /// hand-built `Binding` over an `@Observable` property does not drive
     /// `.sheet(item:)` reliably, and this is ephemeral to the screen anyway.
     @State private var openCategory: LifeCategory?
+    /// Which item is open, to move it or take it off.
+    @State private var openItem: FieldItemReference?
     /// Whether the list of groups the couple has set down is open.
     @State private var putAwayIsOpen = false
     /// Private Share Sheet drafts. Feature-gated until the full local and
@@ -42,14 +55,20 @@ struct FieldLifeZone: View {
     @State private var shareInboxIsOpen = false
 
     var body: some View {
+        let strata = store.lifeStrata
+
         FieldZoneScaffold(zone: .life) {
             VStack(alignment: .leading, spacing: 0) {
-                thisWeek
-                    .padding(.bottom, FieldMetrics.sectionGapLoose)
+                if strata.isEmpty {
+                    emptyState
+                } else if strata.isCollapsed {
+                    sparseList(strata)
+                } else {
+                    bands(strata)
+                }
 
                 fromElsewhere
-
-                categories
+                    .padding(.top, FieldMetrics.sectionGapLoose)
 
                 putAwayRow
             }
@@ -66,16 +85,9 @@ struct FieldLifeZone: View {
         } action: { _, atTop in
             isAtTop = atTop
         }
-        // Pull down anywhere on Life. The gesture is simultaneous so it never
-        // fights the vertical scroll — it only fires from the top.
-        //
-        // It does not fight the category buttons either: a drag of 24pt or
-        // more is not a tap, so the two cannot both fire.
-        //
-        // This used to open the calendar. The calendar is now behind a second
-        // tap on the LIFE word in the bar, where it is visible and reachable
-        // without a gesture at all, and the pull that everyone already knows
-        // from Mail and the Home Screen means here what it means there.
+        // Pull down anywhere on Life. Simultaneous so it never fights the
+        // vertical scroll, and a drag of 24pt or more is not a tap, so it
+        // cannot fire together with a row.
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)
                 .onEnded { value in
@@ -88,6 +100,10 @@ struct FieldLifeZone: View {
         )
         .sheet(item: $openCategory) { category in
             FieldCategoryRoom(category: category)
+                .environment(store)
+        }
+        .sheet(item: $openItem) { reference in
+            FieldItemSheet(itemID: reference.id)
                 .environment(store)
         }
         .sheet(isPresented: $putAwayIsOpen) {
@@ -105,121 +121,258 @@ struct FieldLifeZone: View {
         }
     }
 
-    // MARK: This week
+    // MARK: - Nothing at all
     //
-    // Grouped by occasion, never by category or date: "categories are a filing
-    // system; occasions are how people actually think." This is where the
-    // Reminders takeover's content went when the pull-down became the
-    // calendar.
+    // A real state, not a failure — and the app does not suggest filling it.
+
+    private var emptyState: some View {
+        Text("Nothing is asking for you.")
+            .font(FieldType.pageHeadline)
+            .foregroundStyle(.fieldInk(.headline))
+            .fieldLineHeight(1.16, size: 32)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, FieldMetrics.sectionGap)
+    }
+
+    // MARK: - The sparse page (16a)
     //
-    // It renders nothing at all when nothing is dated. An empty heading over
-    // an empty week is the app talking to fill the silence.
+    // Five things or fewer and the page stops organising itself. No headings,
+    // no bands, no rules between the rows — just the things, large, with air
+    // around them. The 38pt gap is most of what makes this read as calm rather
+    // than as a page that failed to load.
+
+    private func sparseList(_ strata: FieldStrata.Result) -> some View {
+        VStack(alignment: .leading, spacing: 38) {
+            ForEach(strata.all) { item in
+                Button {
+                    openItem = FieldItemReference(id: item.id)
+                } label: {
+                    HStack(alignment: .top, spacing: 14) {
+                        FieldDot(
+                            owner: item.owner,
+                            identity: store.identity,
+                            size: FieldDotSize.prominentList,
+                            baselineNudge: 13
+                        )
+
+                        Text(item.title)
+                            .font(FieldType.listItemSparse)
+                            .foregroundStyle(.fieldInk(.headline))
+                            .fieldLineHeight(1.12, size: 30)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(item.title)
+                .accessibilityHint("Opens this, to move it or take it off")
+                .accessibilityIdentifier("field.life.item")
+            }
+        }
+        .padding(.top, FieldMetrics.sectionGap)
+    }
+
+    // MARK: - The four bands (15b)
 
     @ViewBuilder
-    private var thisWeek: some View {
-        let nudges = store.thisWeek
+    private func bands(_ strata: FieldStrata.Result) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(FieldStrata.Band.allCases, id: \.self) { band in
+                let items = strata.items(in: band)
 
-        if !nudges.isEmpty {
-            VStack(alignment: .leading, spacing: 0) {
-                FieldRuleLine()
+                // A heading over an empty band is the app talking to fill the
+                // silence. Absent bands are simply absent.
+                if !items.isEmpty {
+                    bandHeader(band)
 
-                FieldLabel("This week")
-                    .padding(.top, 18)
-                    .padding(.bottom, 16)
-
-                VStack(alignment: .leading, spacing: 15) {
-                    ForEach(nudges) { nudge in
-                        nudgeRow(nudge)
+                    switch band {
+                    case .thisWeek:
+                        rows(items, prominent: true)
+                    case .waitingOnSomeoneElse:
+                        rows(items, prominent: false)
+                    case .noHurry:
+                        subjectRun(items)
+                    case .fading:
+                        fadingCount(items)
                     }
                 }
-                .padding(.bottom, 20)
-
-                FieldRuleLine()
             }
         }
     }
 
-    private func nudgeRow(_ nudge: FieldTimely.Nudge) -> some View {
-        HStack(alignment: .top, spacing: 11) {
-            FieldDot(
-                owner: nudge.tint,
-                identity: store.identity,
-                size: FieldDotSize.list,
-                baselineNudge: 7
-            )
+    private func bandHeader(_ band: FieldStrata.Band) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldRuleLine(color: rule(for: band))
 
-            VStack(alignment: .leading, spacing: 5) {
-                Text(nudge.occasion)
-                    .font(FieldType.listItemLarge)
-                    .foregroundStyle(.fieldInk(.headline))
-                    .fieldLineHeight(1.25, size: 18)
-                    .fixedSize(horizontal: false, vertical: true)
+            FieldLabel(band.heading, ink: ink(for: band))
+                .padding(.top, 18)
+                .padding(.bottom, 16)
+        }
+        .padding(.top, band == .thisWeek ? 0 : FieldMetrics.sectionGapLoose)
+    }
 
-                // The thing the occasion is waiting on, in its own words. The
-                // app does not invent an errand — it repeats the one somebody
-                // already wrote down.
-                if let ask = nudge.ask {
-                    Text(ask)
-                        .font(FieldType.reasoning)
-                        .foregroundStyle(.fieldInk(.reasoning))
-                        .fixedSize(horizontal: false, vertical: true)
+    /// The rule thins with each band — half of what separates them now that
+    /// the ink cannot.
+    private func rule(for band: FieldStrata.Band) -> FieldRuleStyle {
+        switch band {
+        case .thisWeek: FieldRule.strataThisWeek
+        case .waitingOnSomeoneElse: FieldRule.strataWaiting
+        case .noHurry: FieldRule.strataNoHurry
+        case .fading: FieldRule.strataFading
+        }
+    }
+
+    /// What is left of §3's ink ramp after the AA floor. The top two bands
+    /// still separate; the bottom two are within a few thousandths and lean on
+    /// structure instead.
+    private func ink(for band: FieldStrata.Band) -> FieldInk {
+        switch band {
+        case .thisWeek: .headline
+        case .waitingOnSomeoneElse: .legend
+        case .noHurry: .metadataProse
+        case .fading: .recessive
+        }
+    }
+
+    // MARK: Bands one and two — rows
+
+    private func rows(
+        _ items: [LifeItem],
+        prominent: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: prominent ? 15 : 11) {
+            ForEach(items) { item in
+                Button {
+                    openItem = FieldItemReference(id: item.id)
+                } label: {
+                    HStack(alignment: .top, spacing: 11) {
+                        FieldDot(
+                            owner: item.owner,
+                            identity: store.identity,
+                            size: FieldDotSize.list,
+                            baselineNudge: prominent ? 7 : 6
+                        )
+
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(item.title)
+                                .font(
+                                    prominent
+                                        ? FieldType.listItemLarge
+                                        : FieldType.listItem
+                                )
+                                .foregroundStyle(
+                                    .fieldInk(
+                                        prominent ? .headline : .legend
+                                    )
+                                )
+                                .fieldLineHeight(1.25, size: prominent ? 18 : 15.5)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            // Only the top band explains itself. Repeating a
+                            // reason down every row turns the page into an
+                            // argument, and the lower bands are not arguing.
+                            if prominent, let detail = item.detail {
+                                Text(detail)
+                                    .font(FieldType.reasoning)
+                                    .foregroundStyle(.fieldInk(.reasoning))
+                                    .fixedSize(
+                                        horizontal: false,
+                                        vertical: true
+                                    )
+                            }
+                        }
+
+                        Spacer(minLength: 8)
+
+                        if let dueOn = item.dueOn {
+                            Text(dayLabel(dueOn))
+                                .font(FieldType.dateCount)
+                                .tracking(FieldTracking.dateCount)
+                                .foregroundStyle(.fieldInk(.dateCount))
+                        }
+                    }
+                    .contentShape(Rectangle())
                 }
-            }
-
-            Spacer(minLength: 8)
-
-            if let dueOn = nudge.dueOn {
-                Text(dayLabel(dueOn))
-                    .font(FieldType.dateCount)
-                    .tracking(FieldTracking.dateCount)
-                    .foregroundStyle(.fieldInk(.dateCount))
+                .buttonStyle(.plain)
+                // Not `.accessibilityElement(children: .combine)`. A Button is
+                // already an accessibility element, and combining after
+                // `.buttonStyle` wraps it in a second one — a button inside a
+                // button, read twice. See `FieldCategoryRoom` for the same
+                // note and the tree that showed it.
+                .accessibilityLabel(
+                    [item.title, prominent ? item.detail : nil]
+                        .compactMap { $0 }
+                        .joined(separator: ". ")
+                )
+                .accessibilityHint("Opens this, to move it or take it off")
+                .accessibilityIdentifier("field.life.item")
             }
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            [nudge.occasion, nudge.ask].compactMap { $0 }
-                .joined(separator: ". ")
-        )
+        .padding(.bottom, 20)
     }
 
-    /// One name for the two routes in — the control above and the pull — so
-    /// that anything either of them ever has to do is written once.
-    private func openSearch() {
-        store.openSearch()
-    }
-
-    /// "TODAY", "TOMORROW", then the weekday, then the date. Nothing in this
-    /// section is more than ten days out, so it never needs a year.
-    private func dayLabel(_ date: Date) -> String {
-        let calendar = Calendar.gregorianUS
-        let days = calendar.dateComponents(
-            [.day],
-            from: calendar.startOfDay(for: store.now),
-            to: calendar.startOfDay(for: date)
-        ).day ?? 0
-
-        switch days {
-        case ..<0: return "OVERDUE"
-        case 0: return "TODAY"
-        case 1: return "TOMORROW"
-        case 2...6: return DateFormatter.fieldWeekday
-            .string(from: date).uppercased()
-        default: return DateFormatter.fieldDayMonth
-            .string(from: date).uppercased()
-        }
-    }
-
-    // MARK: The categories
+    // MARK: Band three — a run of subjects
     //
-    // Ordered by attention needed, not alphabetically or by a fixed taxonomy.
+    // Not rows. The things in this band are not asking for anything, so
+    // listing them one per line would give each the same weight as something
+    // that is. What the page says instead is which *subjects* have quiet
+    // things in them, run together as a line of words.
+    //
+    // This is also the one place a category still appears on Life, and it is
+    // deliberately inside a band rather than above one: a subject is how you
+    // reach a room, not how the page is sorted.
 
-    private var categories: some View {
-        VStack(alignment: .leading, spacing: FieldMetrics.sectionGap) {
-            ForEach(store.categoryOrder) { category in
-                categoryRow(category)
+    private func subjectRun(_ items: [LifeItem]) -> some View {
+        let subjects = FieldStrata.subjects(in: items)
+
+        return FieldFlowLayout(spacing: 0, lineSpacing: 8) {
+            ForEach(Array(subjects.enumerated()), id: \.element) { index, subject in
+                Button {
+                    openCategory = subject
+                } label: {
+                    (
+                        Text(subject.word)
+                            .foregroundStyle(.fieldInk(.metadataProse))
+                            + Text(
+                                index == subjects.count - 1 ? "" : "  ·  "
+                            )
+                            .foregroundStyle(.fieldInk(.recessive))
+                    )
+                    .font(FieldType.listItem)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(subject.word)
+                .accessibilityHint("Opens \(subject.word)")
+                .accessibilityIdentifier("field.life.\(subject.rawValue)")
             }
         }
+        .padding(.bottom, 20)
     }
+
+    // MARK: Band four — a count, and nothing else
+    //
+    // No titles. Naming them would be the app pointing at things it has just
+    // finished deciding not to ask about, which is the shape of a guilt list.
+    // The count is honest and the sentence stops there.
+
+    private func fadingCount(_ items: [LifeItem]) -> some View {
+        Text(
+            items.count == 1
+                ? "One thing has gone quiet."
+                : "\(items.count.spelled.capitalized) things have gone quiet."
+        )
+        .font(FieldType.body)
+        .foregroundStyle(.fieldInk(.recessive))
+        .fieldLineHeight(1.5, size: 14.5)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.bottom, 20)
+        .accessibilityIdentifier("field.life.fading")
+    }
+
+    // MARK: - The rest of the page
 
     @ViewBuilder
     private var fromElsewhere: some View {
@@ -246,7 +399,6 @@ struct FieldLifeZone: View {
             .overlay(alignment: .top) {
                 FieldRuleLine(color: FieldRule.row)
             }
-            .padding(.bottom, FieldMetrics.sectionGap)
             .accessibilityHint(
                 "Opens private drafts kept from the Share Sheet"
             )
@@ -254,98 +406,40 @@ struct FieldLifeZone: View {
         }
     }
 
-    /// Tapping a category word opens its room.
-    ///
-    /// A plain `Button` so the row looks exactly as it did — no highlight, no
-    /// chevron, nothing added to the page. Life stays a set of words; the
-    /// detail is behind them.
-    ///
-    /// The long press is an accelerator and never the only route: the same
-    /// menu is a visible `•••` in the room one tap behind this word. That is
-    /// the rule the SEARCH and CALENDAR words next door were added to keep —
-    /// a thing reachable only by a gesture is a thing most people never find.
-    private func categoryRow(_ category: LifeCategory) -> some View {
-        Button {
-            openCategory = category
-        } label: {
-            categoryLabel(category)
-        }
-        .buttonStyle(.plain)
-        .accessibilityHint("Opens \(category.word)")
-        .contextMenu {
-            Button("Open \(category.word)") { openCategory = category }
-
-            // No "Rename" or "Move everything" here. Both open a sheet, and a
-            // sheet raised from a context menu on the page underneath has
-            // nowhere honest to put the room this group lives in — so the menu
-            // that can change a group stays in the room, where the count it
-            // is about is on screen.
-            if category.isBuiltIn, store.openItems(in: category).isEmpty {
-                Button("Put \(category.word) away") {
-                    store.putAway(category)
-                }
-            }
-        }
+    /// One name for the two routes in — the control above and the pull — so
+    /// that anything either of them ever has to do is written once.
+    private func openSearch() {
+        store.openSearch()
     }
 
-    private func categoryLabel(_ category: LifeCategory) -> some View {
-        let count = store.openItems(in: category).count
-        let pressured = store.isPressured(category)
-        let hasNothingPressing = !pressured && count == 0
+    /// "TODAY", "TOMORROW", then the weekday, then the date. Nothing in the
+    /// banded rows is more than ten days out, so it never needs a year.
+    private func dayLabel(_ date: Date) -> String {
+        let calendar = Calendar.gregorianUS
+        let days = calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: store.now),
+            to: calendar.startOfDay(for: date)
+        ).day ?? 0
 
-        return VStack(alignment: .leading, spacing: 7) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(category.word)
-                    .font(FieldType.categoryWord)
-                    .foregroundStyle(
-                        pressured || count > 0
-                            ? .fieldInk(.headline)
-                            : .fieldInk(.reasoning)
-                    )
-
-                if count > 0 {
-                    Text("\(count)")
-                        .font(FieldType.zoneLabel)
-                        .tracking(FieldTracking.dateCount)
-                        .foregroundStyle(
-                            pressured
-                                ? store.identity.personA.color
-                                : FieldInk.dateCount.color(on: canvas)
-                        )
-                }
-            }
-
-            Text(store.subtitle(for: category))
-                .font(FieldType.body)
-                .foregroundStyle(
-                    hasNothingPressing
-                        ? .fieldInk(.monoLabel)
-                        : .fieldInk(.categorySummary)
-                )
-                .fieldLineHeight(1.5, size: 14)
-                .fixedSize(horizontal: false, vertical: true)
+        switch days {
+        case ..<0: return "OVERDUE"
+        case 0: return "TODAY"
+        case 1: return "TOMORROW"
+        case 2...6: return DateFormatter.fieldWeekday
+            .string(from: date).uppercased()
+        default: return DateFormatter.fieldDayMonth
+            .string(from: date).uppercased()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            count > 0
-                ? "\(category.word), \(count) items. \(store.summary(for: category))"
-                : "\(category.word). \(store.summary(for: category))"
-        )
-        .accessibilityIdentifier("field.life.\(category.rawValue)")
     }
 
     // MARK: What has been set down
     //
     // Renders nothing at all until something is put away, which is almost
-    // always. A permanent "0 groups put away" would be a heading over nothing
-    // — the same fault `thisWeek` above guards against.
+    // always. A permanent "0 groups put away" would be a heading over nothing.
     //
     // It exists so that nothing on this page is ever simply gone. A group the
-    // couple set down is still theirs and still findable, and a design where
-    // the only way back was to wait for the app to decide would make a
-    // mis-tap unrecoverable.
+    // couple set down is still theirs and still findable.
 
     @ViewBuilder
     private var putAwayRow: some View {
@@ -366,7 +460,7 @@ struct FieldLifeZone: View {
 
                     Text("›")
                         .font(FieldType.body)
-                        .foregroundStyle(.fieldInk(.monoLabel))
+                        .foregroundStyle(.fieldInk(.label))
 
                     Spacer(minLength: 0)
                 }
@@ -388,16 +482,9 @@ struct FieldLifeZone: View {
 
     // MARK: The entry affordances
     //
-    // Two rooms behind this screen, and both say so in words.
-    //
-    // An earlier version put the calendar here and left search to the pull
-    // alone, mentioned once by a line that then went away forever. That is the
-    // failure the way into Yours already taught: a room reachable only by a
-    // gesture, with nothing on screen to find, is a room most people will
-    // never open — and unlike Yours, search has no reason to be discreet.
-    //
-    // So the pull is an accelerator for the hand that knows it, and neither
-    // room depends on anybody having learned one.
+    // Two rooms behind this screen, and both say so in words. The pull is an
+    // accelerator for the hand that knows it, and neither room depends on
+    // anybody having learned one.
 
     private var pullAffordance: some View {
         HStack(spacing: 18) {
@@ -489,9 +576,6 @@ private struct FieldPutAwaySheet: View {
         .onChange(of: store.putAwayCategories.isEmpty) { _, isEmpty in
             if isEmpty { dismiss() }
         }
-        // No identifier on the root, for the reason given on the destination
-        // sheet in `FieldCategoryRoom`: it would propagate down over
-        // `field.putAway.bringBack` on every row here.
     }
 
     private func row(_ category: LifeCategory) -> some View {

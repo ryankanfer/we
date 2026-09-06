@@ -123,36 +123,43 @@ struct WEPigmentTests {
 
     // MARK: The gate
 
-    /// Soft on warm ink black, deep on warm cream, both clearing 3:1.
+    /// Every family clears 3:1 on every ground it can be drawn on.
     ///
-    /// This is what makes deep and soft a role rather than a preference. A
-    /// soft tone on cream is not a quiet mark, it is an illegible one, and a
-    /// deep tone as edge light on black is not subtle, it is absent.
-    @Test func everyFamilyClearsItsCanvas() {
+    /// This used to assert soft-on-black and deep-on-cream, which is what
+    /// made deep and soft a role rather than a preference. V2 §3 cut the cream
+    /// ground, so `deep` no longer has a page to be legible against and
+    /// `color(on:)` returns `soft` for all three grounds.
+    ///
+    /// `deep` is kept rather than deleted — see `FieldSwatch` — but it is now
+    /// unused by the app, and an unmeasured value is how a palette rots. So
+    /// the gate narrows to what actually ships: soft, on every ground, at 3:1.
+    @Test func everyFamilyClearsEveryGround() {
         for swatch in FieldSwatch.allCases {
-            let onDark = Self.contrast(
-                Self.components(swatch.soft),
-                Self.components(WECanvas.dark.bg)
-            )
-            let onCream = Self.contrast(
-                Self.components(swatch.deep),
-                Self.components(WECanvas.cream.bg)
-            )
-            #expect(onDark >= 3.0, "\(swatch.name) soft on dark: \(onDark)")
-            #expect(onCream >= 3.0, "\(swatch.name) deep on cream: \(onCream)")
+            for canvas in WECanvas.allCases {
+                let ratio = Self.contrast(
+                    Self.components(swatch.color(on: canvas)),
+                    Self.components(canvas.bg)
+                )
+                #expect(
+                    ratio >= 3.0,
+                    "\(swatch.name) on \(canvas.rawValue): \(ratio)"
+                )
+            }
         }
     }
 
-    /// The canvas picks the tone, and it picks a different one each way.
-    @Test func theCanvasSelectsTheTone() {
+    /// Every ground picks the same tone, and says so.
+    ///
+    /// The inverse of what this once asserted. `color(on:)` kept its signature
+    /// through the cut so that the call sites keep naming their ground; this
+    /// is what stops that signature from quietly growing a second answer again
+    /// without the cream canvas's contrast solve behind it.
+    @Test func everyGroundSelectsTheSoftTone() {
         for swatch in FieldSwatch.allCases {
-            #expect(swatch.color(on: .dark) == swatch.soft)
-            #expect(swatch.color(on: .cream) == swatch.deep)
+            for canvas in WECanvas.allCases {
+                #expect(swatch.color(on: canvas) == swatch.soft)
+            }
             #expect(swatch.color == swatch.soft)
-            #expect(
-                Self.components(swatch.soft) != Self.components(swatch.deep),
-                "\(swatch.name) has one value wearing two names"
-            )
         }
     }
 

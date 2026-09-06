@@ -652,6 +652,19 @@ nonisolated struct InsightDeclineDTO: Decodable, Sendable {
     }
 }
 
+nonisolated struct InvitationGreetingDTO: Decodable, Sendable {
+    let name: String
+    let hue: String
+}
+
+nonisolated struct DeviceTokenParameters: Encodable, Sendable {
+    let token: String
+
+    enum CodingKeys: String, CodingKey {
+        case token = "p_token"
+    }
+}
+
 nonisolated struct JoinCoupleParameters: Encodable, Sendable {
     let code: String
 

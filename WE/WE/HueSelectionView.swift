@@ -87,7 +87,7 @@ struct HueSettingsView: View {
         .scrollIndicators(.hidden)
         .background {
             ZStack(alignment: .bottom) {
-                WECanvas.dark.bg.ignoresSafeArea()
+                WECanvas.ground.bg.ignoresSafeArea()
 
                 // The shared atmosphere, where it lives everywhere else in
                 // the app: at the bottom edge, as light. It used to be a
@@ -98,7 +98,7 @@ struct HueSettingsView: View {
                     .ignoresSafeArea(edges: .bottom)
             }
         }
-        .environment(\.weCanvas, .dark)
+        .environment(\.weCanvas, .ground)
         .navigationTitle("Appearance")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)

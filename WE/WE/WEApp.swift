@@ -1,7 +1,34 @@
 import SwiftUI
 
+/// The only reason this app has a delegate.
+///
+/// A device token arrives here and nowhere else, and it arrives with no
+/// session attached — often before there is one. It is handed to
+/// `WEDeviceTokenStore`, which holds it until `AppSession` has somebody to
+/// write it against. Registration failure is not surfaced anywhere: a phone
+/// that cannot be woken is a phone that finds the arrival waiting for it when
+/// it is next opened, which is the same product.
+final class WEAppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken token: Data
+    ) {
+        let value = WEArrivalNotifications.hex(token)
+        Task { @MainActor in WEDeviceTokenStore.shared.received(value) }
+    }
+
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        // Deliberately empty. There is nothing to tell anybody, and nothing
+        // for them to do about it.
+    }
+}
+
 @main
 struct WEApp: App {
+    @UIApplicationDelegateAdaptor(WEAppDelegate.self) private var appDelegate
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -127,6 +154,10 @@ struct WEApp: App {
                     .task { await previewSession.restoreIfNeeded() }
             case .demo:
                 FieldZoneShell(store: FieldStore(state: .demo))
+                    .environmentObject(previewSession)
+                    .task { await previewSession.restoreIfNeeded() }
+            case .sparse:
+                FieldZoneShell(store: FieldStore(state: .sparse))
                     .environmentObject(previewSession)
                     .task { await previewSession.restoreIfNeeded() }
             case .live:

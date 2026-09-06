@@ -108,7 +108,25 @@ private struct SharedJourneyUsSurface: View {
         .allowsHitTesting(false)
     }
 
+    /// Us at rest.
+    ///
+    /// "Empty" names the *journey* state, not the screen: no question is
+    /// pending. That is Us's normal condition, and it is where §14d's field
+    /// lives — the things this couple keeps coming back to, sized by how often
+    /// they come up. Only a couple with nothing accumulated yet gets the
+    /// explanatory copy below, which is a genuine first-run state rather than
+    /// the resting one.
+    @ViewBuilder
     private var empty: some View {
+        if FieldUsMentions.mentions(in: store.state).isEmpty {
+            nothingYet
+        } else {
+            FieldUsFieldSurface()
+                .padding(.top, 34)
+        }
+    }
+
+    private var nothingYet: some View {
         VStack(alignment: .leading, spacing: 0) {
             JourneyMark(state: .quiet, store: store)
                 .frame(maxWidth: .infinity)

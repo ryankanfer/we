@@ -75,15 +75,41 @@ struct UsSurfaceConstraintTests {
 
 @Suite("The colour field says nothing about timing")
 struct WEColourFieldStateTests {
-    /// The two states that need a second device resolve to `shared` until the
-    /// ceremony can produce them. A surface that cannot know one person acted
-    /// must not imply it.
-    @Test("Unimplemented ceremony states resolve to shared, not to a guess")
-    func partnerStatesResolveHonestly() {
-        #expect(WEColourFieldState.oneActed(.a).resolved == .shared)
-        #expect(WEColourFieldState.bothLanded.resolved == .shared)
+    /// Both ceremony states are moments rather than conditions. They play once
+    /// and settle back into the shared field, so a beat held for an hour looks
+    /// exactly like a beat held for a second, and the third beat is lit the
+    /// same as the first.
+    @Test("The two ceremony states settle back into the shared field")
+    func ceremonyStatesAreTransient() {
+        #expect(WEColourFieldState.oneActed(.a).settled == .shared)
+        #expect(WEColourFieldState.bothLanded.settled == .shared)
         #expect(WEColourFieldState.oneActed(.a).showsBothHues)
         #expect(!WEColourFieldState.oneActed(.a).isStill)
+    }
+
+    /// The strengthening names exactly one person, and every other state names
+    /// nobody. A field that could strengthen on its own would be reporting the
+    /// other person's timing, which is the thing this type exists to prevent.
+    @Test("Only one state strengthens a hue, and only the one it names")
+    func strengtheningIsNamedAndRare() {
+        #expect(WEColourFieldState.oneActed(.a).strengthens == .a)
+        #expect(WEColourFieldState.oneActed(.b).strengthens == .b)
+        #expect(WEColourFieldState.shared.strengthens == nil)
+        #expect(WEColourFieldState.bothLanded.strengthens == nil)
+        #expect(WEColourFieldState.mine(.a).strengthens == nil)
+        #expect(WEColourFieldState.still.strengthens == nil)
+    }
+
+    /// Convergence belongs to the moment both acknowledgements land, and to
+    /// nothing else. In particular not to one person acting: the fields moving
+    /// toward each other because *this* phone acted would draw a relationship
+    /// out of half of one.
+    @Test("Only both landing draws the fields together")
+    func convergenceBelongsToBoth() {
+        #expect(WEColourFieldState.bothLanded.converges)
+        #expect(!WEColourFieldState.oneActed(.a).converges)
+        #expect(!WEColourFieldState.shared.converges)
+        #expect(!WEColourFieldState.still.converges)
     }
 
     @Test("A private surface shows one hue and a shared one shows both")

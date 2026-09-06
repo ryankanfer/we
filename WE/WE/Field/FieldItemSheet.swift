@@ -183,7 +183,7 @@ struct FieldItemSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             FieldRuleLine()
 
-            FieldLabel("When", ink: .monoLabelQuiet)
+            FieldLabel("When", ink: .labelQuiet)
                 .padding(.top, 18)
                 .padding(.bottom, 13)
 

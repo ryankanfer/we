@@ -248,7 +248,14 @@ struct FieldCategoryRoom: View {
             }
             .buttonStyle(.plain)
             .overlay(alignment: .top) { FieldRuleLine(color: FieldRule.row) }
-            .accessibilityElement(children: .combine)
+            // Deliberately not `.accessibilityElement(children: .combine)`: the
+            // row is already an accessibility element, because it is a Button.
+            // Combining *after* `.buttonStyle` wraps that element in a second
+            // one rather than merging it, leaving a button inside a button —
+            // VoiceOver reads the row twice, and a query by label matches two.
+            // A Button already merges its label's children, so the explicit
+            // label below is enough. See `FieldLifeZone.categoryRow`, which
+            // combines the *content* inside the label closure instead.
             .accessibilityLabel(
                 [row.item.title, row.reason]
                     .compactMap { $0 }
@@ -326,7 +333,14 @@ struct FieldCategoryRoom: View {
         }
         .buttonStyle(.plain)
         .overlay(alignment: .top) { FieldRuleLine(color: FieldRule.row) }
-        .accessibilityElement(children: .combine)
+        // Deliberately not `.accessibilityElement(children: .combine)`: the
+        // row is already an accessibility element, because it is a Button.
+        // Combining *after* `.buttonStyle` wraps that element in a second
+        // one rather than merging it, leaving a button inside a button —
+        // VoiceOver reads the row twice, and a query by label matches two.
+        // A Button already merges its label's children, so the explicit
+        // label below is enough. See `FieldLifeZone.categoryRow`, which
+        // combines the *content* inside the label closure instead.
         .accessibilityLabel(item.title)
         .accessibilityHint("Opens this, to move it or take it off")
         .accessibilityIdentifier("field.room.row")

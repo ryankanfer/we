@@ -6,7 +6,7 @@
 //
 //  Two rules govern this file. The first: nothing here invents a visual
 //  language. The stage draws the app's own components — `FieldCard`,
-//  `FieldReasoning`, the two person colours, the serif/mono split — because a
+//  `FieldReasoning`, the two person colours, the serif/sans split — because a
 //  walkthrough drawn in its own style teaches a screen that does not exist.
 //  What a person recognises here they have to recognise again on Today.
 //
@@ -34,9 +34,13 @@ struct WalkthroughScaffold<Stage: View, Caption: View>: View {
         ZStack {
             FieldPalette.bg.ignoresSafeArea()
 
-            FieldAmbient(
+            // The walkthrough is a lesson *about* the app rather than a
+            // surface of it, so it takes the warm top-anchored statement
+            // rather than any zone's — it is not somewhere you can get lost,
+            // and the glow should not imply you are standing in Life.
+            FieldGlow(
                 identity: WalkthroughSeed.identity,
-                hour: Calendar.gregorianUS.component(.hour, from: Date())
+                statement: .warmTop
             )
 
             VStack(alignment: .leading, spacing: 0) {
@@ -74,7 +78,7 @@ struct WalkthroughScaffold<Stage: View, Caption: View>: View {
             Button("Skip", action: onClose)
                 .font(FieldType.button)
                 .tracking(FieldTracking.button)
-                .foregroundStyle(.fieldInk(.monoLabelQuiet))
+                .foregroundStyle(.fieldInk(.labelQuiet))
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
                 .buttonStyle(.plain)
@@ -168,7 +172,7 @@ struct WalkthroughNavigation: View {
             .foregroundStyle(
                 active == journey
                     ? .fieldInk(.headline)
-                    : .fieldInk(.monoLabelQuiet)
+                    : .fieldInk(.labelQuiet)
             )
             .frame(minWidth: 44, minHeight: 44)
     }
@@ -229,7 +233,7 @@ struct WalkthroughProgress: View {
             Text("\(step + 1) OF \(count)")
                 .font(FieldType.subLabel)
                 .tracking(FieldTracking.subLabel)
-                .foregroundStyle(.fieldInk(.monoLabelQuiet))
+                .foregroundStyle(.fieldInk(.labelQuiet))
         }
         // The dots are 3pt tall and the whole row is one accessibility
         // element, which the hit-region audit rightly fails. Same fix
@@ -245,7 +249,7 @@ struct WalkthroughProgress: View {
 
 // MARK: - The caption
 
-/// Us explaining, under the stage. A mono label and one serif sentence — the
+/// Us explaining, under the stage. A tracked label and one serif sentence — the
 /// same two voices every zone uses for the same job.
 ///
 /// One sentence, and there is deliberately no way to add a second. Every beat
@@ -302,7 +306,7 @@ struct WalkthroughSaid: View {
                 "\(WalkthroughSeed.identity.name(for: owner)) said",
                 font: FieldType.subLabel,
                 tracking: FieldTracking.subLabel,
-                ink: .monoLabelQuiet,
+                ink: .labelQuiet,
                 isHeader: false
             )
 
@@ -352,7 +356,7 @@ struct WalkthroughFiled: View {
                     Text(category.rawValue.uppercased())
                         .font(FieldType.subLabel)
                         .tracking(FieldTracking.subLabel)
-                        .foregroundStyle(.fieldInk(.monoLabelQuiet))
+                        .foregroundStyle(.fieldInk(.labelQuiet))
                 }
 
                 if let dueOn {

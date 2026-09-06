@@ -60,6 +60,34 @@ protocol Repository {
     /// Withdraws the live invitation without waiting for it to expire.
     func revokeInvitation() async throws
 
+    /// Who is waiting, for whoever holds this code.
+    ///
+    /// Answerable with no account and no session, because the person asking
+    /// has neither yet. `nil` for anything that is not a live invitation, and
+    /// `nil` says only that: a withdrawn code, an expired one, a spent one and
+    /// a code that never existed are indistinguishable here on purpose. The
+    /// four are told apart at redemption, where somebody has actually
+    /// committed to spending one.
+    func invitationGreeting(code: String) async throws -> InvitationGreeting?
+
+    /// Closes an invitation from the invited person's side.
+    ///
+    /// The same revocation the inviter's own withdraw performs, authorised by
+    /// holding the code rather than by a session, because the person declining
+    /// has no account and must not need one in order to say no. Nothing
+    /// records that a decline is what happened; see the migration.
+    func declineInvitation(code: String) async throws
+
+    /// Persists this device's push token against this person, and only this
+    /// person. Owner only in both directions: a partner must never be able to
+    /// read the other's devices.
+    func registerDeviceToken(_ token: String) async throws
+
+    /// Forgets every device this person has registered. A token left behind
+    /// after a sign out is a phone that keeps being invited into somebody
+    /// else's relationship.
+    func forgetDeviceTokens() async throws
+
     /// Records that the survivor has been told their partner left, so the
     /// interface never raises it again.
     func acknowledgeDeparture() async throws

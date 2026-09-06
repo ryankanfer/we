@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 import Testing
 @testable import WE
 
@@ -72,6 +73,67 @@ struct DesignTokenTests {
         #expect(Self.contrast(Self.ink, Self.canvas) >= Self.aa)
         #expect(Self.contrast(Self.inkSecondary, Self.canvas) >= Self.aa)
         #expect(Self.contrast(Self.inkTertiary, Self.canvas) >= Self.aa)
+    }
+
+    /// The V2 ramp, measured against the grounds it actually stands on.
+    ///
+    /// The constants above describe the pre-V2 surfaces, and they are still
+    /// asserted because those surfaces still exist. None of them is
+    /// `Design.pdf` §3's ground, though — so until this test, the near-black
+    /// re-value landed with no contrast gate over it at all, and the suite
+    /// went green while the shipping palette was never measured.
+    ///
+    /// This reads the shipping tokens rather than a copy of them: every
+    /// `FieldInk` step, resolved through `WECanvas.alpha(for:)`, over every
+    /// ground the app paints — the three canvases and the one elevated sheet
+    /// value they share. A ramp step cannot be lowered, and a ground cannot be
+    /// lightened, without failing here.
+    ///
+    /// AA rather than AA-large throughout, deliberately. WCAG's large-text
+    /// allowance starts at 18pt (24px) and almost nothing in WE is that big —
+    /// the tracked DM Sans labels that lean hardest on the quiet end of this
+    /// ramp are 9pt.
+    @Test
+    func everyInkStepClearsAAOnEveryV2Ground() {
+        for canvas in WECanvas.allCases {
+            let ink = canvas.inkRGB
+            let inkComponents = (ink.r, ink.g, ink.b)
+
+            for (name, ground) in [
+                ("bg", canvas.bg),
+                ("bgElevated", canvas.bgElevated),
+            ] {
+                let background = Self.components(ground)
+
+                for step in FieldInk.allCases {
+                    let resolved = Self.over(
+                        inkComponents,
+                        canvas.alpha(for: step),
+                        background
+                    )
+                    let ratio = Self.contrast(resolved, background)
+
+                    #expect(
+                        ratio >= Self.aa,
+                        """
+                        \(step) at \(canvas.alpha(for: step)) alpha scores \
+                        \(ratio):1 on \(canvas).\(name) — below AA. Raise \
+                        the ramp step; do not lower this floor.
+                        """
+                    )
+                }
+            }
+        }
+    }
+
+    /// `Color` to raw components, so the assertions above can read the
+    /// shipping tokens instead of a second copy of their hex values.
+    private static func components(
+        _ color: Color
+    ) -> (Double, Double, Double) {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
+        return (Double(r), Double(g), Double(b))
     }
 
     @Test

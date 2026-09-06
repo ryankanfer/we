@@ -92,6 +92,55 @@ struct FieldPaletteTests {
 
     /// The ramp must stay monotonic. A step that is out of order means a
     /// screen has silently promoted something.
+    /// Both bundled faces actually register under the names `FieldType` probes.
+    ///
+    /// This is the one typography failure with no symptom. `FieldType` checks
+    /// availability once and silently falls back to the system faces, so a
+    /// wrong family name — `"DMSans"` for `"DM Sans 9pt"`, or a cut dropped
+    /// from `UIAppFonts` — renders a whole app in the wrong type with no
+    /// error, no crash, and nothing in the log. It has cost a build here more
+    /// than once, which is why it is asserted rather than remembered.
+    ///
+    /// Both halves matter. The *family* is what the availability probe reads;
+    /// the *face* is what `.custom` asks for, and they are not the same
+    /// string. A family that registers with none of its expected faces is the
+    /// shape a half-applied `UIAppFonts` edit takes.
+    @Test
+    func bothFacesRegisterUnderTheNamesFieldTypeProbes() throws {
+        #if canImport(UIKit)
+        let serif = UIFont.fontNames(forFamilyName: FieldType.serifFamily)
+        #expect(
+            !serif.isEmpty,
+            "\(FieldType.serifFamily) did not register; every screen is on the system serif"
+        )
+        #expect(serif.contains("Newsreader36pt-Light"))
+        #expect(serif.contains("Newsreader36pt-Regular"))
+        #expect(serif.contains("Newsreader36pt-Italic"))
+
+        // The text cut is a separate family, and `FieldType.serif` reaches for
+        // it below 20pt — so its absence would go unnoticed by a probe that
+        // only ever asks about the display cut.
+        let serifText = UIFont.fontNames(forFamilyName: "Newsreader 14pt")
+        #expect(!serifText.isEmpty, "Newsreader 14pt did not register")
+        #expect(serifText.contains("Newsreader14pt-Regular"))
+
+        let sans = UIFont.fontNames(forFamilyName: FieldType.sansFamily)
+        #expect(
+            !sans.isEmpty,
+            "\(FieldType.sansFamily) did not register; every label is on the system sans"
+        )
+        #expect(sans.contains("DMSans-9pt"))
+
+        // §3: "There is no monospace in the product." The face is gone from
+        // the bundle, and this is what stops it being quietly re-added by a
+        // plist edit that nobody reads.
+        #expect(
+            UIFont.fontNames(forFamilyName: "IBM Plex Mono").isEmpty,
+            "IBM Plex Mono is back in the bundle"
+        )
+        #endif
+    }
+
     @Test
     func rampIsMonotonic() {
         let values = FieldInk.allCases.map(\.rawValue)
@@ -107,17 +156,24 @@ struct FieldPaletteTests {
         #expect(FieldSwatch.burgundy.deep.fieldHex == 0x7E2F42)
         #expect(FieldSwatch.sage.soft.fieldHex == 0x8AA98B)
         #expect(FieldSwatch.sage.deep.fieldHex == 0x4E6B52)
-        // The ground moved, deliberately: "Type Holds the Room" asks for warm
-        // ink black rather than the desaturated deep green the handoff
-        // specified, because green is a colour and a colour competes with the
-        // person hue at the bottom edge. `FieldPalette` now delegates to
-        // `WECanvas.dark`, so this asserts the two agree rather than
+        // The ground moved again. V1 traded the handoff's desaturated deep
+        // green for warm ink black; V2 §3 goes the rest of the way to
+        // near-black #0A0A09 with #F0EBDD ink, and cuts the light mode that
+        // the warm black was half of. `FieldPalette` delegates to
+        // `WECanvas.ground`, so this asserts the two agree rather than
         // asserting a second copy of the same number.
-        #expect(FieldPalette.bg.fieldHex == WECanvas.dark.bg.fieldHex)
-        #expect(FieldPalette.bg.fieldHex == 0x13100D)
-        #expect(FieldPalette.bgElevated.fieldHex == 0x1B1713)
-        #expect(FieldPalette.bgDeep.fieldHex == 0x0B0908)
-        #expect(FieldPalette.ink.fieldHex == 0xE8E4D9)
+        #expect(FieldPalette.bg.fieldHex == WECanvas.ground.bg.fieldHex)
+        #expect(FieldPalette.bg.fieldHex == 0x0A0A09)
+        #expect(FieldPalette.bgElevated.fieldHex == 0x17140F)
+        #expect(FieldPalette.bgDeep.fieldHex == 0x050505)
+        #expect(FieldPalette.ink.fieldHex == 0xF0EBDD)
+
+        // The two intentional deviations, named in §3 and nowhere else. They
+        // are asserted here rather than only in `WECanvasTests` because that
+        // suite measures them as *ratios* — it would still pass if both were
+        // quietly re-picked together.
+        #expect(WECanvas.room.bg.fieldHex == 0x15100D)
+        #expect(WECanvas.page.bg.fieldHex == 0x100E0C)
     }
 
     /// The calendar takeover sits *below* the page in perceived depth, so it
@@ -125,9 +181,9 @@ struct FieldPaletteTests {
     /// lighter. Getting this backwards is the single easiest mistake here.
     @Test
     func depthOrderingHolds() {
-        let canvas = Self.luminance((0x13 / 255, 0x10 / 255, 0x0D / 255))
-        let elevated = Self.luminance((0x1B / 255, 0x17 / 255, 0x13 / 255))
-        let deep = Self.luminance((0x0B / 255, 0x09 / 255, 0x08 / 255))
+        let canvas = Self.luminance((0x0A / 255, 0x0A / 255, 0x09 / 255))
+        let elevated = Self.luminance((0x17 / 255, 0x14 / 255, 0x0F / 255))
+        let deep = Self.luminance((0x05 / 255, 0x05 / 255, 0x05 / 255))
 
         #expect(deep < canvas)
         #expect(elevated > canvas)

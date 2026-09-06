@@ -58,4 +58,14 @@ extension FieldSupabaseBackend: WECeremonyBackend {
             .rpc("keep_ceremony_beat", params: ["p_beat": beat.rawValue])
             .execute()
     }
+
+    /// One boolean, for this caller's own couple. Takes no argument for the
+    /// same reason the aggregate does not: the couple is resolved from the
+    /// caller's membership, so there is no couple id to guess at.
+    func ceremonyIsRequired() async throws -> Bool {
+        try await client
+            .rpc("ceremony_is_required")
+            .execute()
+            .value
+    }
 }

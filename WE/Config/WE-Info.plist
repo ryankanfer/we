@@ -60,6 +60,10 @@
 		<key>UISceneConfigurations</key>
 		<dict/>
 	</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>NSContactsUsageDescription</key>
@@ -74,8 +78,7 @@
 		<string>Newsreader_36pt-LightItalic.ttf</string>
 		<string>Newsreader_36pt-Regular.ttf</string>
 		<string>Newsreader_36pt-Italic.ttf</string>
-		<string>IBMPlexMono-Regular.ttf</string>
-		<string>IBMPlexMono-Medium.ttf</string>
+		<string>DMSans-9pt.ttf</string>
 	</array>
 	<!--
 	  UILaunchScreen and UILaunchStoryboardName cannot both be present: the

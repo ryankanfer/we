@@ -110,6 +110,18 @@ final class WEUITests: XCTestCase {
         )
     }
 
+    /// The three beats, in the order `WEBeat.allCases` performs them.
+    ///
+    /// Held here as one list because two tests walk it and they drifted apart
+    /// once already: both were still asserting the pre-`3bc6dca` wording, and
+    /// tapping a "Continue" button that `WEPromiseViewTests` separately
+    /// forbids the Promise from ever having.
+    private static let beatTitles = [
+        "Yours stays yours.",
+        "Nothing moves without you.",
+        "What opens, opens together.",
+    ]
+
     @MainActor
     func testLivingConfluencePromiseSupportsReducedMotion() throws {
         let app = launch(
@@ -119,26 +131,23 @@ final class WEUITests: XCTestCase {
         )
         replayPromise(in: app)
 
-        XCTAssertTrue(
-            app.staticTexts["Yours stays yours."]
-                .waitForExistence(timeout: 4)
-        )
-        app.buttons["Continue"].tap()
-        XCTAssertTrue(
-            app.staticTexts["You see what crosses."].exists
-        )
-        app.buttons["Continue"].tap()
-        XCTAssertTrue(
-            app.staticTexts["Shared is a new space."].exists
-        )
-        app.buttons["Enter WE"].tap()
-        // What this test is about is that all three panels are reachable and
+        // By identifier rather than by label. The way to give a beat is a
+        // single affordance whose wording is still moving, and a test that
+        // spells the wording is a test that goes stale the next time it does.
+        for title in Self.beatTitles {
+            XCTAssertTrue(
+                app.staticTexts[title].waitForExistence(timeout: 4),
+                "the Promise should reach \(title)"
+            )
+            app.buttons["we.promise.give"].tap()
+        }
+
+        // What this test is about is that all three beats are reachable and
         // dismissable with Reduce Motion on. Where it lands afterwards
         // depends on the session state and belongs to other tests.
-        let firstPanel = app.staticTexts["Yours stays yours."]
         XCTAssertTrue(
-            firstPanel.waitForNonExistence(timeout: 4),
-            "the Promise should be gone once it has been entered"
+            app.staticTexts[Self.beatTitles[0]].waitForNonExistence(timeout: 4),
+            "the Promise should be gone once it has been read through"
         )
     }
 
@@ -153,27 +162,19 @@ final class WEUITests: XCTestCase {
         )
         replayPromise(in: promiseApp)
 
-        for expectedTitle in [
-            "Yours stays yours.",
-            "You see what crosses.",
-        ] {
+        // Every beat, including the last: the point is that the way to give a
+        // beat stays reachable at this text size, and the last beat is the one
+        // with the most words above the affordance.
+        for title in Self.beatTitles {
             XCTAssertTrue(
-                promiseApp.staticTexts[expectedTitle]
-                    .waitForExistence(timeout: 4)
+                promiseApp.staticTexts[title].waitForExistence(timeout: 4),
+                "the Promise should reach \(title)"
             )
-            let continueButton = promiseApp.buttons["Continue"]
-            scrollUntilVisible(continueButton, in: promiseApp, maxSwipes: 8)
-            XCTAssertTrue(continueButton.isHittable)
-            continueButton.tap()
+            let give = promiseApp.buttons["we.promise.give"]
+            scrollUntilVisible(give, in: promiseApp, maxSwipes: 8)
+            XCTAssertTrue(give.isHittable, "\(title) must stay givable")
+            give.tap()
         }
-
-        XCTAssertTrue(
-            promiseApp.staticTexts["Shared is a new space."]
-                .waitForExistence(timeout: 4)
-        )
-        let enterButton = promiseApp.buttons["Enter WE"]
-        scrollUntilVisible(enterButton, in: promiseApp, maxSwipes: 8)
-        XCTAssertTrue(enterButton.isHittable)
         promiseApp.terminate()
 
         let waitingApp = launch(
@@ -197,13 +198,9 @@ final class WEUITests: XCTestCase {
         )
         XCTAssertTrue(app.buttons["welcome.join"].isHittable)
         XCTAssertTrue(app.buttons["welcome.signIn"].isHittable)
+        // One question, and no description of the category underneath it.
         XCTAssertTrue(
-            app.staticTexts.matching(
-                NSPredicate(
-                    format: "label CONTAINS %@",
-                    "A shared space for"
-                )
-            ).firstMatch.exists
+            app.staticTexts["Who are you making this with?"].exists
         )
         // The point of this screen: nothing is asked for before a door is
         // chosen. No credential field, no capture field.
@@ -214,7 +211,7 @@ final class WEUITests: XCTestCase {
         XCTAssertTrue(
             app.staticTexts["Begin on your side."]
                 .waitForExistence(timeout: 3),
-            "Start a WE space should open account creation, not sign-in"
+            "Begin should open account creation, not sign-in"
         )
     }
 
@@ -251,8 +248,12 @@ final class WEUITests: XCTestCase {
         )
         app.buttons["welcome.join"].tap()
 
+        // Told, not asked — before the code field, and above it. Somebody
+        // arriving here was invited by a person, and the first sentence says
+        // so even before the network has said who.
         XCTAssertTrue(
-            app.staticTexts["Enter the code."].waitForExistence(timeout: 3)
+            app.staticTexts["Someone is waiting for you."]
+                .waitForExistence(timeout: 3)
         )
         let codeField = app.textFields["welcome.joinCode"]
         XCTAssertTrue(codeField.waitForExistence(timeout: 2))
@@ -263,6 +264,14 @@ final class WEUITests: XCTestCase {
         codeField.typeText("wedemo")
         XCTAssertEqual(codeField.value as? String, "WEDEMO")
 
+        app.buttons["welcome.joinCode.continue"].tap()
+
+        // The code buys one thing before it buys an account: the name of the
+        // person waiting. `invitation_greeting` answers it without a session,
+        // which is the whole reason this screen can exist at all.
+        XCTAssertTrue(
+            app.staticTexts["Ryan is waiting."].waitForExistence(timeout: 4)
+        )
         app.buttons["welcome.joinCode.continue"].tap()
 
         // The code is held, and the sheet moves straight on to making an
@@ -280,7 +289,7 @@ final class WEUITests: XCTestCase {
         XCTAssertTrue(account.waitForExistence(timeout: 4))
         account.tap()
 
-        let replay = app.buttons["Replay the Living Confluence Promise"]
+        let replay = app.buttons["See the beginning again"]
         scrollUntilVisible(replay, in: app, maxSwipes: 8)
         XCTAssertTrue(replay.isHittable)
         replay.tap()

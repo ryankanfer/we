@@ -95,7 +95,7 @@ struct FieldLifeSearch: View {
 
     private var field: some View {
         VStack(alignment: .leading, spacing: 12) {
-            FieldLabel("Find", ink: .monoLabelQuiet)
+            FieldLabel("Find", ink: .labelQuiet)
 
             TextField("", text: $query)
                 .textFieldStyle(.plain)
@@ -125,7 +125,7 @@ struct FieldLifeSearch: View {
         } else if matches.isEmpty {
             Text("Nothing written down about that.")
                 .font(FieldType.body)
-                .foregroundStyle(.fieldInk(.monoLabel))
+                .foregroundStyle(.fieldInk(.label))
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -187,7 +187,15 @@ struct FieldLifeSearch: View {
         .overlay(alignment: .top) {
             FieldRuleLine(color: FieldRule.row)
         }
-        .accessibilityElement(children: .combine)
+        // Deliberately not `.accessibilityElement(children: .combine)`: the
+        // row is already an accessibility element, because it is a Button.
+        // Combining *after* `.buttonStyle` wraps that element in a second
+        // one rather than merging it, leaving a button inside a button —
+        // VoiceOver reads the row twice, and a query by label matches two.
+        // A Button already merges its label's children into one element
+        // and reads them in order, which is what this row wants. See
+        // `FieldLifeZone.categoryRow`, which combines the *content*
+        // inside the label closure instead.
         .accessibilityHint("Opens this, to move it or take it off")
         .accessibilityIdentifier("field.search.row")
     }

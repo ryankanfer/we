@@ -42,7 +42,7 @@ struct SignalConsentView: View {
                 .accessibilityHint(signal.detail)
             }
         }
-        .navigationTitle("How WE notices")
+        .navigationTitle(WEGateCopy.interruptions)
         .navigationBarTitleDisplayMode(.inline)
     }
 

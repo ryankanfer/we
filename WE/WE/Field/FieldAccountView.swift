@@ -265,7 +265,7 @@ struct FieldAccountView: View {
         VStack(alignment: .leading, spacing: 0) {
             FieldRuleLine()
 
-            FieldLabel("How WE notices")
+            FieldLabel(WEGateCopy.interruptions)
                 .padding(.top, 20)
                 .padding(.bottom, 6)
 

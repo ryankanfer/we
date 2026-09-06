@@ -19,7 +19,10 @@ nonisolated enum WEJourneyState: String, Codable, CaseIterable, Sendable {
         case .offerPreview:
             "Offer preview. You are choosing exactly what can cross."
         case .offered:
-            "Offered. The topic is waiting at the consent threshold."
+            // Not "waiting at the consent threshold". The word survives as
+            // internal geometry naming in this file and nowhere a person
+            // reads, and a VoiceOver label is somewhere a person reads.
+            "Offered. The topic is waiting for the other person."
         case .held:
             "Both sides are present and remain private."
         case .shared:

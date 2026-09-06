@@ -57,7 +57,7 @@ struct FieldCategoryPicker: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
             HStack(alignment: .firstTextBaseline) {
-                FieldLabel(title, ink: .monoLabelQuiet)
+                FieldLabel(title, ink: .labelQuiet)
 
                 Spacer()
 

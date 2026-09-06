@@ -32,7 +32,7 @@ struct FieldItemHelp: View {
 
                 FieldLabel(
                     "Where to look",
-                    ink: .monoLabelQuiet
+                    ink: .labelQuiet
                 )
                 .padding(.top, 18)
                 .padding(.bottom, 13)
@@ -183,7 +183,7 @@ private struct FieldLookupReview: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Optional clarification")
                 .font(FieldType.sectionLabel)
-                .foregroundStyle(.fieldInk(.monoLabel))
+                .foregroundStyle(.fieldInk(.label))
 
             TextField(
                 "Add only what this lookup needs",

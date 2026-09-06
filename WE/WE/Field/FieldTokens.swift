@@ -27,7 +27,7 @@ import UIKit
 /// The dark canvas, by its old name.
 ///
 /// This described the single page the app used to have. It now delegates to
-/// `WECanvas.dark` rather than holding its own values: two constants for one
+/// `WECanvas.ground` rather than holding its own values: two constants for one
 /// ground drift, and the drift shows up as a screen that is *nearly* the
 /// right black, which is worse than either being wrong.
 ///
@@ -37,21 +37,21 @@ import UIKit
 /// screens — plus the ones not yet converted.
 enum FieldPalette {
     /// The app background. Warm ink black. Never a gradient fill.
-    static var bg: Color { WECanvas.dark.bg }
+    static var bg: Color { WECanvas.ground.bg }
 
     /// Sheets and overlays that sit *above* the page.
-    static var bgElevated: Color { WECanvas.dark.bgElevated }
+    static var bgElevated: Color { WECanvas.ground.bgElevated }
 
     /// The Reminders full-screen takeover — *below* the page in perceived
     /// depth, which is why it is darker rather than lighter.
-    static var bgDeep: Color { WECanvas.dark.bgDeep }
+    static var bgDeep: Color { WECanvas.ground.bgDeep }
 
     /// Primary text. A warm off-white. Also the inverted button fill.
-    static var ink: Color { WECanvas.dark.ink }
+    static var ink: Color { WECanvas.ground.ink }
 
     /// The ink channel as raw components, so alpha ramps stay one source.
     static var inkRGB: (r: Double, g: Double, b: Double) {
-        WECanvas.dark.inkRGB
+        WECanvas.ground.inkRGB
     }
 }
 
@@ -97,6 +97,27 @@ extension FieldInk {
     }
 }
 
+/// The ink ramp, and why it stops where it does.
+///
+/// Every step here carries text, so every step has to clear WCAG AA — 4.5:1
+/// — against the darkest and the lightest ground the app stands on. On V2's
+/// near-black (#0A0A09 … #17140F) with #F0EBDD ink, that floor lands at
+/// **0.491 alpha**. The ramp bottoms out at 0.50, which clears it on all four
+/// grounds with margin (4.63:1 at worst).
+///
+/// The consequence is deliberate and worth stating: **the quiet end of this
+/// ramp no longer differentiates.** The old ramp ran down to 0.30, and the
+/// bottom five steps — everything from `deemphasisedItem` down — scored
+/// between 2.36:1 and 3.96:1 on this ground, which is illegible for the 9pt
+/// tracked DM Sans labels that used them. They are now within a few
+/// thousandths of each other and read as one weight.
+///
+/// So quiet is no longer something ink can say here. Structure says it
+/// instead — rule weight, indent, type size, and whether a thing is a row, a
+/// run, or a count. That is `Design.pdf` §2's law anyway ("structure carries
+/// purpose"), and leaning on it costs less than shipping text nobody can
+/// read. The steps stay distinct and ordered so the roles keep their names
+/// and a lighter ground could spread them again.
 enum FieldInk: Double, CaseIterable {
     /// Headlines, primary list items.
     case headline = 1.00
@@ -111,23 +132,23 @@ enum FieldInk: Double, CaseIterable {
     /// Reasoning — the "why this, now" voice.
     case reasoning = 0.62
     /// Section subtitles.
-    case sectionSubtitle = 0.55
+    case sectionSubtitle = 0.56
     /// Category summaries.
-    case categorySummary = 0.52
+    case categorySummary = 0.545
     /// Quiet metadata prose.
-    case metadataProse = 0.50
+    case metadataProse = 0.535
     /// De-emphasised list items.
-    case deemphasisedItem = 0.45
-    /// Mono section labels.
-    case monoLabel = 0.40
-    /// Mono labels, one step quieter.
-    case monoLabelQuiet = 0.38
+    case deemphasisedItem = 0.525
+    /// Section labels. DM Sans, uppercase, tracked.
+    case label = 0.518
+    /// Labels, one step quieter.
+    case labelQuiet = 0.512
     /// Right-aligned dates and counts.
-    case dateCount = 0.35
+    case dateCount = 0.507
     /// Header-right metadata.
-    case headerMeta = 0.32
+    case headerMeta = 0.503
     /// Home indicator, most recessive labels.
-    case recessive = 0.30
+    case recessive = 0.50
 }
 
 // MARK: - Hairlines
@@ -155,6 +176,13 @@ enum FieldRule {
     static let secondaryButton = FieldRuleStyle(alpha: 0.25)
     /// The WE mark's ring.
     static let mark = FieldRuleStyle(alpha: 0.50)
+
+    // Life's four bands (§15b). The weight drops with each one, which is half
+    // of what separates them now that the ink cannot — see `FieldStrata`.
+    static let strataThisWeek = FieldRuleStyle(alpha: 0.20)
+    static let strataWaiting = FieldRuleStyle(alpha: 0.14)
+    static let strataNoHurry = FieldRuleStyle(alpha: 0.10)
+    static let strataFading = FieldRuleStyle(alpha: 0.07)
 }
 
 struct FieldRuleStyle: ShapeStyle {
@@ -276,16 +304,18 @@ enum FieldSwatch: String, CaseIterable, Codable, Sendable, Identifiable {
         }
     }
 
-    func color(on canvas: WECanvas) -> Color {
-        canvas == .cream ? deep : soft
-    }
-
-    /// The dark canvas value.
+    /// The value for a ground.
     ///
-    /// Kept as a plain property because most of the app is dark and reads
-    /// this in contexts that need a concrete `Color` — gradient stops, the
-    /// colour field, `UIColor` bridging. A surface that can be on either
-    /// ground should call `color(on:)` with the environment's canvas.
+    /// `deep` existed for the cream canvas, where a soft hue on paper is a
+    /// wash rather than a mark. Every ground is near-black now, so every
+    /// ground wants `soft` — but the signature is kept so that the ~30 call
+    /// sites reading a swatch against a canvas keep saying which one they
+    /// mean. Collapsing it would bake "there is only one ground" into thirty
+    /// files instead of this one.
+    func color(on canvas: WECanvas) -> Color { soft }
+
+    /// The value on the ground, for contexts that genuinely cannot take a
+    /// canvas — gradient stops, the colour field, `UIColor` bridging.
     var color: Color { soft }
 
     var palette: FieldPersonPalette {
@@ -422,7 +452,7 @@ struct FieldIdentity: Hashable, Codable, Sendable {
     )
 
     func color(for owner: FieldOwner) -> Color {
-        color(for: owner, on: .dark)
+        color(for: owner, on: .ground)
     }
 
     /// A person's colour, resolved for the ground it is drawn on.
@@ -464,7 +494,7 @@ struct FieldIdentity: Hashable, Codable, Sendable {
 
     func blend(
         _ angle: FieldBlendAngle = .horizontal,
-        on canvas: WECanvas = .dark
+        on canvas: WECanvas = .ground
     ) -> LinearGradient {
         LinearGradient(
             colors: [personA.color(on: canvas), personB.color(on: canvas)],
@@ -511,6 +541,11 @@ struct FieldIdentity: Hashable, Codable, Sendable {
 }
 
 enum FieldBlendAngle {
+    /// 118deg — the launch gradient, the splash collapse, the mark. §3 names
+    /// this one as *the* blend: "118° blend · both". Corner to corner rather
+    /// than horizontal, so the sweep ends on a diagonal rather than a flat
+    /// vertical band.
+    case brand
     /// 90deg — lists, rules, the nav indicator.
     case horizontal
     /// 120deg — the onboarding preview block.
@@ -520,6 +555,9 @@ enum FieldBlendAngle {
 
     var start: UnitPoint {
         switch self {
+        // 118deg measured clockwise from twelve o'clock lands just past the
+        // top-left corner on the left edge.
+        case .brand: UnitPoint(x: 0, y: 0.06)
         case .horizontal: .leading
         case .onboarding: UnitPoint(x: 0, y: 0.14)
         case .square: .topLeading
@@ -528,6 +566,7 @@ enum FieldBlendAngle {
 
     var end: UnitPoint {
         switch self {
+        case .brand: UnitPoint(x: 1, y: 0.94)
         case .horizontal: .trailing
         case .onboarding: UnitPoint(x: 1, y: 0.86)
         case .square: .bottomTrailing
@@ -535,67 +574,160 @@ enum FieldBlendAngle {
     }
 }
 
-// MARK: - Ambient accent
+// MARK: - The glow
 //
-// "A single ambient accent *is* permitted … drifting warm in the morning and
-// cool at night. It tracks the **hour**, never a person."
+// V2 §3: "A single radial bleed per screen replaces chrome and does the
+// orientation work." This is the whole of the app's chrome budget outside the
+// zone strip — there is no toolbar, no search icon, no badge and no avatar, so
+// the only thing telling you which surface you are on is its structure and
+// which corner the light pools in.
+//
+// The hard rule, and the reason this is one type rather than a modifier
+// anyone can stack: "Never more than one glow statement per screen." A screen
+// is handed exactly one `FieldGlowStatement`, so a second is not something you
+// can forget not to add.
+//
+// The V1 ambient this replaces tracked the *hour*, drifting warm in the
+// morning and cool at night, and deliberately never tracked a person. V2
+// re-points the same light at orientation instead — so it now says *where you
+// are*, and still never says who anyone is or what they have done.
 
-struct FieldAmbient: View {
+enum FieldGlowStatement: String, CaseIterable, Sendable {
+    /// Life. Warm, pooling at the bottom-left.
+    case warmBottomLeft
+    /// Us. Cool, at the bottom-right.
+    case coolBottomRight
+    /// Today. Both, split across the bottom — the zone that belongs to the
+    /// two of you at once is the only one lit from both sides.
+    case splitBottom
+    /// Life's strata, and the private room. Warm, anchored at the top.
+    case warmTop
+    /// Quiet mode. No glow at all: §3 names "drained" as a statement in its
+    /// own right, and it is the loudest one in the set.
+    case drained
+
+    var center: UnitPoint {
+        switch self {
+        case .warmBottomLeft: UnitPoint(x: 0.12, y: 1.02)
+        case .coolBottomRight: UnitPoint(x: 0.88, y: 1.02)
+        case .splitBottom: UnitPoint(x: 0.5, y: 1.04)
+        case .warmTop: UnitPoint(x: 0.5, y: -0.02)
+        case .drained: .center
+        }
+    }
+}
+
+struct FieldGlow: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     var identity: FieldIdentity
-    var hour: Int
+    var statement: FieldGlowStatement
 
-    /// 0 at dawn, 1 at night. Interpolates warm to cool across the day.
-    private var coolness: Double {
-        let noon = 12.0
-        let distance = abs(Double(hour) - noon) / noon
-        return min(max(distance, 0), 1)
-    }
+    /// The alpha at the centre of the bleed. §3 caps a gradient behind text at
+    /// 0.42; this sits far under it, because the cap is a legibility limit and
+    /// not a target. The V1 ambient this replaces ran at 0.13 and the brief
+    /// asks for atmosphere rather than a graphic.
+    private static let peak: Double = 0.13
 
-    private var tint: Color {
-        let warm = identity.personA.color
-        let cool = identity.personB.color
-        return coolness > 0.5 ? cool : warm
-    }
+    /// Where the tint has fully gone, as a fraction of `radius`.
+    ///
+    /// The first cut ramped peak-to-clear across the whole radius, which put
+    /// some colour on every pixel of the screen and read as a tinted page
+    /// rather than as light pooling in a corner. The CSS this comes from
+    /// stops at 60 percent — `transparent 60%` — so the tint is gone well
+    /// before the far edge and the ground is allowed to be the ground.
+    private static let falloff: Double = 0.58
+
+    private var warm: Color { identity.personA.color }
+    private var cool: Color { identity.personB.color }
 
     var body: some View {
-        if reduceTransparency {
+        if reduceTransparency || statement == .drained {
             Color.clear
         } else {
-            RadialGradient(
-                gradient: Gradient(colors: [
-                    tint.opacity(0.13),
-                    .clear,
-                ]),
-                center: UnitPoint(x: 0.88, y: 0.06),
-                startRadius: 0,
-                endRadius: 320
-            )
+            GeometryReader { proxy in
+                // Sized against the width, not the diagonal. A bleed scaled
+                // to the long edge of a phone is taller than it is wide by
+                // half again and stops reading as a pool of light.
+                let radius = proxy.size.width * 1.15
+                ZStack {
+                    switch statement {
+                    case .splitBottom:
+                        // Two bleeds, one statement. They are the same light
+                        // from two sides rather than two glows, which is why
+                        // they share a radius and each sits at half strength
+                        // — a warm pool and a cool pool of full weight would
+                        // read as the app reporting on two people.
+                        bleed(warm, at: UnitPoint(x: 0.18, y: 1.04), radius: radius, scale: 0.62)
+                        bleed(cool, at: UnitPoint(x: 0.82, y: 1.04), radius: radius, scale: 0.62)
+                    case .coolBottomRight:
+                        bleed(cool, at: statement.center, radius: radius, scale: 1)
+                    case .warmBottomLeft, .warmTop:
+                        bleed(warm, at: statement.center, radius: radius, scale: 1)
+                    case .drained:
+                        Color.clear
+                    }
+                }
+            }
             .ignoresSafeArea()
             .allowsHitTesting(false)
         }
+    }
+
+    private func bleed(
+        _ tint: Color,
+        at center: UnitPoint,
+        radius: CGFloat,
+        scale: Double
+    ) -> some View {
+        RadialGradient(
+            gradient: Gradient(stops: [
+                .init(color: tint.opacity(Self.peak * scale), location: 0),
+                .init(color: tint.opacity(Self.peak * scale * 0.28), location: Self.falloff * 0.55),
+                .init(color: .clear, location: Self.falloff),
+                .init(color: .clear, location: 1),
+            ]),
+            center: center,
+            startRadius: 0,
+            endRadius: radius
+        )
     }
 }
 
 // MARK: - Typography
 //
-// Two families only. Newsreader carries all content; IBM Plex Mono carries
-// labels, dates, counts, and buttons — always uppercase, always letter-spaced.
+// Two faces only, per V2 §3. Newsreader carries "everything human" — 300 for
+// display, 400 for text, 400 italic for WE's own voice. DM Sans at 9-11pt,
+// uppercase and letterspaced, carries labels and actions.
+//
+// "There is no monospace in the product — an earlier typewriter treatment was
+// cut for reading too retro against the serif." IBM Plex Mono is gone from the
+// bundle; the roles it carried kept their names and changed face.
 //
 // The .ttf files live in Field/FONTS and are listed under UIAppFonts in
 // WE-Info.plist. If either family fails to register, `FieldType` falls back to
-// the system serif and the system monospaced face so the layout still reads.
-// See Field/FONTS.md.
+// the system serif and the system sans so the layout still reads. See
+// Field/FONTS.md.
 
 enum FieldType {
     // Newsreader ships as optical-size cuts, so there is no bare "Newsreader"
     // family to probe — 36pt is the one the display sizes use, and it standing
     // in for the pair is enough to know the bundle registered.
     static let serifFamily = "Newsreader 36pt"
-    static let monoFamily = "IBM Plex Mono"
+
+    // DM Sans ships from Google Fonts only as a variable font. It is
+    // instantiated at wght 400 / opsz 9 — pinned to the 9pt optical design on
+    // purpose, because §3 uses this face at 9-11pt and nowhere else, and the
+    // display cuts are drawn with a tighter fit than a 9pt label wants.
+    //
+    // The family here is the *typographic* family (name ID 16), which is what
+    // Core Text indexes by, and the optical size lives in the subfamily rather
+    // than in it. Newsreader is the other way round — "Newsreader 36pt" is its
+    // typographic family — which is exactly the kind of difference that makes
+    // this worth asserting in a test rather than reasoning about.
+    static let sansFamily = "DM Sans"
 
     private static let hasSerif: Bool = isAvailable(serifFamily)
-    private static let hasMono: Bool = isAvailable(monoFamily)
+    private static let hasSans: Bool = isAvailable(sansFamily)
 
     private static func isAvailable(_ family: String) -> Bool {
         #if canImport(UIKit)
@@ -700,6 +832,28 @@ enum FieldType {
     static let listItem = serif(15.5, .regular)
     /// A prominent list item, Ours and the takeover — 400 18–21/1.25.
     static let listItemLarge = serif(18, .regular)
+    /// Life's item type when the strata have collapsed (§16a).
+    ///
+    /// Only ever used when there are five or fewer things on the whole page,
+    /// so it is a size the list earns by being short rather than one any row
+    /// can ask for. Light rather than regular: at 30px the regular weight
+    /// reads as a headline, and these are still items.
+    static let listItemSparse = serif(30, .light)
+
+    /// Us's field (§14d): five steps, and size is the only thing carrying
+    /// frequency. Named as a ramp rather than five roles because the step is
+    /// chosen by rank at render time, not by what the word is.
+    ///
+    /// Light above the optical-size boundary and regular below it, the way
+    /// every other pair in this file splits: at 15 and 18 the light cut goes
+    /// spindly against a near-black ground.
+    static let usFieldSteps: [Font] = [
+        serif(42, .light),
+        serif(30, .light),
+        serif(23, .regular),
+        serif(18, .regular),
+        serif(15, .regular),
+    ]
     /// The takeover's items — 400 21/1.25.
     static let takeoverItem = serif(21, .regular)
     /// Body / supporting — 400 13.5–15/1.6.
@@ -721,32 +875,36 @@ enum FieldType {
     /// The daily moment's statement — 400 20/1.35.
     static let momentStatement = serif(20, .regular)
 
-    // MARK: IBM Plex Mono
+    // MARK: DM Sans
 
-    private static func mono(_ size: CGFloat, _ weight: Font.Weight) -> Font {
-        guard hasMono else {
-            return .system(size: size, weight: weight, design: .monospaced)
+    private static func sans(_ size: CGFloat) -> Font {
+        guard hasSans else {
+            return .system(size: size, weight: .regular)
         }
-        let face = weight == .medium
-            ? "IBMPlexMono-Medium"
-            : "IBMPlexMono-Regular"
-        return .custom(face, size: size, relativeTo: textStyle(for: size))
+        // The PostScript name, not the family: `.custom` wants the face.
+        return .custom("DMSans-9pt", size: size, relativeTo: textStyle(for: size))
     }
 
-    /// Zone label — LIFE / TODAY / US. 400 10, tracking 0.22em.
-    static let zoneLabel = mono(10, .regular)
-    /// Section label — 400 9.5, tracking 0.18em.
-    static let sectionLabel = mono(9.5, .regular)
-    /// Sub-label inside a card — 400 9, tracking 0.16em.
-    static let subLabel = mono(9, .regular)
-    /// Right-aligned date / count — 400 9.5–10, tracking 0.08–0.14em.
-    static let dateCount = mono(9.75, .regular)
-    /// A button label — 400 10.5–11.5, tracking 0.06–0.08em.
-    static let button = mono(11, .regular)
-    /// The WE mark's wordmark — 400 11, tracking 0.14em.
-    static let mark = mono(11, .regular)
-    /// The status bar clock — 500 13.5.
-    static let statusClock = mono(13.5, .medium)
+    // §3 gives this face one weight — 400 — for both of its roles, so `sans`
+    // takes no weight argument. A second weight would have to arrive as a
+    // second bundled cut and a change to the spec, rather than by someone
+    // passing `.medium` at a call site.
+
+    /// Zone label — LIFE / TODAY / US. 400 10, tracking +2.2.
+    static let zoneLabel = sans(10)
+    /// Section label — 400 9.5, tracking +2.2.
+    static let sectionLabel = sans(9.5)
+    /// Sub-label inside a card — 400 9, tracking +2.0.
+    static let subLabel = sans(9)
+    /// Right-aligned date / count — 400 9.5, tracking +2.0.
+    static let dateCount = sans(9.5)
+    /// An action — DONE, I'LL TAKE IT. 400 10-11, tracking +1.6-2.4.
+    static let button = sans(11)
+    /// The WE mark's wordmark — 400 11, tracking +2.4.
+    static let mark = sans(11)
+    /// The status bar clock — the one place the app imitates OS chrome, and
+    /// only in the prototype frames. 400 13.5.
+    static let statusClock = sans(13.5)
 }
 
 // MARK: - Responsive display sizing
@@ -824,23 +982,38 @@ enum WEDisplayScale {
 // against the size it is used at.
 
 enum FieldTracking {
+    /// Tracking as a fraction of the point size. Newsreader's one tracked
+    /// role — the hero — is still authored this way, because a display face
+    /// tightening by a proportion of its size is what optical sizing means.
     static func em(_ value: CGFloat, at size: CGFloat) -> CGFloat {
         value * size
     }
 
-    /// 0.22em at 10pt — zone labels and the nav.
-    static let zoneLabel = em(0.22, at: 10)
-    /// 0.18em at 9.5pt — section labels.
-    static let sectionLabel = em(0.18, at: 9.5)
-    /// 0.16em at 9pt — sub-labels.
-    static let subLabel = em(0.16, at: 9)
-    /// 0.14em at 9.5pt — dates, counts, the pull affordance.
-    static let dateCount = em(0.14, at: 9.5)
-    /// 0.08em at 11pt — button labels.
-    static let button = em(0.08, at: 11)
-    /// 0.14em at 11pt — the WE wordmark.
-    static let mark = em(0.14, at: 11)
-    /// -0.01em at 42pt — the Today hero only.
+    /// Tracking in absolute points, which is how §3 specifies DM Sans:
+    /// "9-11px with 1.8-2.4px tracking".
+    ///
+    /// Deliberately not converted to em at each site. At this size the two
+    /// notations disagree by enough to matter — +2.2 at 9.5pt is 0.232em, and
+    /// nobody reading a call site would have written that — and copying the
+    /// spec's own units is what makes a hand edit visible in review.
+    static func px(_ value: CGFloat) -> CGFloat { value }
+
+    /// +2.2 — zone labels and the nav.
+    static let zoneLabel = px(2.2)
+    /// +2.2 — section labels.
+    static let sectionLabel = px(2.2)
+    /// +2.0 — sub-labels.
+    static let subLabel = px(2.0)
+    /// +2.0 — dates, counts.
+    static let dateCount = px(2.0)
+    /// +1.6 — actions. The widest type in the face gets the tightest track,
+    /// so DONE and I'LL TAKE IT stay a word rather than becoming a rule.
+    static let button = px(1.6)
+    /// +2.4 — the WE wordmark, at the top of §3's range because it is two
+    /// letters and has nothing to hold it together but the space between.
+    static let mark = px(2.4)
+    /// -0.01em at 42pt — the Today hero only, and the only negative track in
+    /// the app.
     static let hero = em(-0.01, at: 42)
 }
 
@@ -1100,7 +1273,7 @@ struct FieldOutlinedButtonStyle: ButtonStyle {
             .font(FieldType.button)
             .tracking(FieldTracking.button)
             .textCase(.uppercase)
-            .foregroundStyle(tint ?? FieldInk.legend.color(on: .dark))
+            .foregroundStyle(tint ?? FieldInk.legend.color(on: .ground))
             .padding(.horizontal, 20)
             .padding(.vertical, 13)
             .background(
@@ -1116,7 +1289,7 @@ struct FieldOutlinedButtonStyle: ButtonStyle {
                     style: .continuous
                 )
                 .stroke(
-                    tint?.opacity(0.55) ?? FieldRule.secondaryButton.color(on: .dark),
+                    tint?.opacity(0.55) ?? FieldRule.secondaryButton.color(on: .ground),
                     lineWidth: 1
                 )
             }
@@ -1135,7 +1308,7 @@ struct FieldQuietButtonStyle: ButtonStyle {
             .font(FieldType.button)
             .tracking(FieldTracking.button)
             .textCase(.uppercase)
-            .foregroundStyle(.fieldInk(.monoLabel))
+            .foregroundStyle(.fieldInk(.label))
             .padding(.vertical, 13)
             .opacity(configuration.isPressed ? 0.6 : 1)
     }
@@ -1143,7 +1316,7 @@ struct FieldQuietButtonStyle: ButtonStyle {
 
 // MARK: - Recurring components
 
-/// A tracked, uppercase mono label. The app's most repeated device.
+/// A tracked, uppercase label in DM Sans. The app's most repeated device.
 struct FieldLabel: View {
     let text: String
     var font: Font = FieldType.sectionLabel
@@ -1153,14 +1326,14 @@ struct FieldLabel: View {
     // grounds: pinning it to the dark canvas turned every remaining label on
     // Life into cream ink on cream paper, which reads as a rendering bug
     // rather than as restraint.
-    var ink: FieldInk = .monoLabel
+    var ink: FieldInk = .label
     var isHeader = true
 
     init(
         _ text: String,
         font: Font = FieldType.sectionLabel,
         tracking: CGFloat = FieldTracking.sectionLabel,
-        ink: FieldInk = .monoLabel,
+        ink: FieldInk = .label,
         isHeader: Bool = true
     ) {
         self.text = text
@@ -1179,7 +1352,7 @@ struct FieldLabel: View {
     }
 }
 
-/// A tracked mono word inside a hairline capsule.
+/// A tracked label word inside a hairline capsule.
 ///
 /// The app's one small tappable token: the correction picker's destinations,
 /// the item sheet's categories and days, and the two account actions on sign
@@ -1225,7 +1398,7 @@ struct FieldChip: View {
                     Capsule().stroke(
                         isSelected
                             ? (tint ?? FieldPalette.ink).opacity(0.5)
-                            : FieldRule.secondaryButton.color(on: .dark),
+                            : FieldRule.secondaryButton.color(on: .ground),
                         lineWidth: 1
                     )
                 }

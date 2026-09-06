@@ -2,6 +2,24 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!--
+	  aps-environment is deliberately absent, and this comment is the reason.
+	  The arrival notification is built and tested — see
+	  supabase/functions/announce-arrival — but the entitlement cannot be
+	  declared until Push Notifications is enabled on the App ID, or every
+	  device build fails to sign against a profile that cannot carry it.
+
+	  To turn it on: target WE, Signing & Capabilities, add Push
+	  Notifications, then restore:
+
+	      <key>aps-environment</key>
+	      <string>development</string>
+
+	  Nothing else has to change. The app registers only if notifications
+	  were already permitted, and with no entitlement that registration
+	  simply never yields a token — which is the same path as somebody who
+	  declined, and is a path the product is built to treat as ordinary.
+	-->
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.com.ryankanfer.WE.shared</string>

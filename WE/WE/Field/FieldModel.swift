@@ -52,15 +52,30 @@ enum FieldZone: Int, CaseIterable, Codable, Sendable, Identifiable {
 
     /// The ground this zone stands on.
     ///
-    /// Life is shared, resolved material — things both people have already
-    /// mentioned, sitting where either can find them — so it takes the cream
-    /// canvas. Today and Us hold decisions that are still open, and open
-    /// decisions belong on the dark one. The canvas is a claim about what
-    /// kind of material a zone holds, not a theme.
-    var canvas: WECanvas {
+    /// All three zones stand on the same ground.
+    ///
+    /// Life used to take a cream canvas, on the argument that the ground was
+    /// a claim about what kind of material a zone holds. V2 §3 cuts that:
+    /// "an earlier light treatment for Life was cut so that geometry alone
+    /// carries differentiation." The zones are now told apart by their
+    /// structure — a read, strata, a field — and by which corner the glow
+    /// pools in, not by the colour of the page.
+    ///
+    /// Kept as a property rather than deleted because the deviations in
+    /// `WECanvas` are real and a zone is still the thing that answers this
+    /// question. It just answers it the same way three times.
+    var canvas: WECanvas { .ground }
+
+    /// Which way the light falls here.
+    ///
+    /// With the ground constant across all three zones, this is what does the
+    /// orientation work — V2 §3 assigns each zone one corner and Today gets
+    /// both, because Today is the one that belongs to the two of you at once.
+    var glow: FieldGlowStatement {
         switch self {
-        case .life: .cream
-        case .we, .us: .dark
+        case .life: .warmBottomLeft
+        case .we: .splitBottom
+        case .us: .coolBottomRight
         }
     }
 
@@ -689,7 +704,7 @@ struct FieldCorrection: Identifiable, Codable, Hashable, Sendable {
 /// the users.
 struct FieldBehaviourChange: Identifiable, Codable, Hashable, Sendable {
     let id: String
-    /// The observed behaviour, as a mono label.
+    /// The observed behaviour, as a tracked label.
     var observation: String
     /// What the app now does differently.
     var change: String

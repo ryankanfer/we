@@ -57,21 +57,49 @@ struct LivingConfluencePromise: View {
     @State private var landed = 0
     @State private var replayBeat = 0
 
+    /// What the field is saying, which is only ever one of three things: the
+    /// couple, this person having just given a beat, or a beat landing on both
+    /// phones. `arrival` holds the last of those on screen long enough to be
+    /// seen, because the beat resolves and moves on in the same instant.
+    @State private var arrival: Task<Void, Never>?
+    @State private var isArriving = false
+
     private var identity: FieldIdentity
     private var partnerName: String { identity.nameB }
 
+    /// Which of the two hues is this person's own.
+    ///
+    /// Only ever used to strengthen *their own* colour when they act. Nothing
+    /// on this screen may draw the partner acting, so nothing on this screen
+    /// needs to know which of them the partner is.
+    private var viewer: FieldOwner
+
     init(
         identity: FieldIdentity = .seed,
+        viewer: FieldOwner = .a,
         isReplay: Bool = false,
         ceremony: Binding<WECeremonyState>,
         keep: @escaping (WEBeat) -> Void = { _ in },
         onComplete: @escaping () -> Void
     ) {
         self.identity = identity
+        self.viewer = viewer
         self.isReplay = isReplay
         self._ceremony = ceremony
         self.keep = keep
         self.onComplete = onComplete
+    }
+
+    /// The resting reading of the field, from state this device can see.
+    ///
+    /// A held beat is *this* person having acted, and that is the only reason
+    /// `oneActed` can ever be constructed here. A replay writes nothing and
+    /// waits for nobody, so it never leaves `shared`.
+    private var restingField: WEColourFieldState {
+        guard !isReplay, let beat, ceremony.state(of: beat) == .held else {
+            return .shared
+        }
+        return .oneActed(viewer)
     }
 
     private var beat: WEBeat? {
@@ -89,7 +117,7 @@ struct LivingConfluencePromise: View {
 
     var body: some View {
         ZStack {
-            WECanvas.dark.bg.ignoresSafeArea()
+            WECanvas.ground.bg.ignoresSafeArea()
 
             if let beat {
                 VStack(alignment: .leading, spacing: 0) {
@@ -120,9 +148,11 @@ struct LivingConfluencePromise: View {
 
             // Both hues from the first beat. The field is the couple, not a
             // progress bar: it must not brighten as beats are kept, or it
-            // becomes the step counter drawn in colour.
+            // becomes the step counter drawn in colour. The two moments it is
+            // allowed to mark both settle back to exactly this, so beat three
+            // is lit the same as beat one.
             WEColourField(
-                state: .shared,
+                state: isArriving ? .bothLanded : restingField,
                 identity: identity,
                 height: 168
             )
@@ -130,18 +160,46 @@ struct LivingConfluencePromise: View {
             .ignoresSafeArea(edges: .bottom)
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: beat)
-        .environment(\.weCanvas, .dark)
+        .environment(\.weCanvas, .ground)
         .preferredColorScheme(.dark)
         // One shared haptic, at the instant a beat is kept on both phones,
         // and nothing else in the whole ceremony. WE has no sound.
         .sensoryFeedback(.success, trigger: landed)
         .onChange(of: ceremony.kept) { old, new in
-            if new.count > old.count { landed += 1 }
+            guard new.count > old.count else { return }
+            landed += 1
+            markArrival()
         }
         .onChange(of: ceremony.isComplete) { _, complete in
             if complete, !isReplay { onComplete() }
         }
-        .accessibilityIdentifier("we.promise")
+        // Deliberately no identifier on the root. An identifier on a
+        // container is inherited by every descendant that would otherwise
+        // carry its own, so naming the whole screen `we.promise` silently
+        // renamed the give affordance and the held line to `we.promise` too —
+        // leaving `we.promise.give` and `we.promise.held` matching nothing.
+        // The beats are found by their own words, which is what a test should
+        // be asserting about a promise anyway.
+        .accessibilityElement(children: .contain)
+        .onDisappear { arrival?.cancel() }
+    }
+
+    /// Holds `bothLanded` on the field for as long as the moment takes.
+    ///
+    /// The beat resolves to `kept` and `currentBeat` advances in the same
+    /// instant, so a field derived purely from state would show the landing
+    /// for a single frame. This is the one piece of ceremony timing that is
+    /// not read from persisted state, and it is safe to hold locally precisely
+    /// because it says nothing: it is triggered by the aggregate resolving,
+    /// which both phones see at once, and it reports nobody's timing.
+    private func markArrival() {
+        arrival?.cancel()
+        isArriving = true
+        arrival = Task {
+            try? await Task.sleep(nanoseconds: 2_600_000_000)
+            guard !Task.isCancelled else { return }
+            isArriving = false
+        }
     }
 
     /// The way to give the beat, and what stands in its place once given.

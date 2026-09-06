@@ -54,7 +54,7 @@ struct WEStillness: View {
 
     var body: some View {
         ZStack {
-            WECanvas.dark.bg.ignoresSafeArea()
+            WECanvas.ground.bg.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 0) {
                 Spacer(minLength: 0)
@@ -64,9 +64,9 @@ struct WEStillness: View {
                 Spacer(minLength: 0)
 
                 if let withdrawal, let onWithdraw {
-                    // Plain serif, not the tracked uppercase mono the quiet
+                    // Plain serif, not the tracked uppercase label the quiet
                     // button style draws. On a screen that is one serif
-                    // sentence, a shouted mono label is the loudest thing
+                    // sentence, a shouted tracked label is the loudest thing
                     // present, which is the opposite of recessive — and the
                     // navigation is the only uppercase the direction allows.
                     //
@@ -86,12 +86,15 @@ struct WEStillness: View {
             // the display edge, so a short frame crops away the part that
             // reads as light and leaves only the dim outer edge — which looks
             // like a smudge rather than like a room with someone in it.
+            //
+            // Not marked hidden, deliberately, for the reason given in
+            // `WEColourField`: colour is not an accessibility element, and
+            // hiding one promotes it to a node carrying nothing but the flag.
             WEColourField(state: .mine(owner), identity: identity, height: 168)
                 .frame(maxHeight: .infinity, alignment: .bottom)
                 .ignoresSafeArea(edges: .bottom)
-                .accessibilityHidden(true)
         }
-        .environment(\.weCanvas, .dark)
+        .environment(\.weCanvas, .ground)
         .preferredColorScheme(.dark)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("we.stillness")

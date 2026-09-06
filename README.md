@@ -102,8 +102,26 @@ npm test
 
 It is not the source of truth for native navigation, presentation, or maintenance.
 
+## Notifications
+
+**WE never sends a notification containing news, only ones inviting presence.**
+
+There is exactly one, and it is sent once per space: the moment the second
+person joins, both phones receive the same fixed sentence, which names nobody
+and reports nothing. No badge, no sound, no payload beyond that sentence. Local
+moments follow the same rule.
+
+Refusing notifications is a first class path, not a degraded one. The ceremony
+is driven by persisted state and an aggregate that reveals no timing, so a
+declined permission, a dropped push, or a project with no APNs credentials at
+all costs a convenience and never correctness — the arrival is simply there
+when the app is next opened. Nothing is retried, and nothing ever reports that
+the other person was or was not notified.
+
+See `supabase/functions/announce-arrival/README.md`.
+
 ## Deliberate exclusions
 
 AI chat, advertisements, A/B infrastructure, external calendar accounts, finance integrations,
-relationship scores, push notifications, recurrence, priorities, reminders, and Mac adaptation
+relationship scores, recurrence, priorities, reminders, and Mac adaptation
 are outside this milestone.

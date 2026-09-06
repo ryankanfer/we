@@ -103,7 +103,7 @@ struct ProfileView: View {
                     }
                     .accessibilityIdentifier("account.walkthrough")
 
-                    Button("Replay the Living Confluence Promise") {
+                    Button(WEGateCopy.replayPromise) {
                         dismiss()
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { onReplayPromise() }
                     }
@@ -114,7 +114,7 @@ struct ProfileView: View {
                             Label("Share partner invitation", systemImage: "square.and.arrow.up")
                         }
                     }
-                    NavigationLink("How WE notices") {
+                    NavigationLink(WEGateCopy.interruptions) {
                         SignalConsentView()
                     }
                     NavigationLink("Privacy policy") {

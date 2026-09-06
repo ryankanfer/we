@@ -76,15 +76,15 @@ struct FieldZoneShell: View {
                 .ignoresSafeArea()
                 .animation(.weCanvasCrossing, value: store.activeZone)
 
-            // Person colour on the cream canvas is restricted to authorship
-            // points, fine rules, and the bottom atmosphere. A tinted glow
-            // across the top of the page is none of those, so the ambient
-            // fades out as Life comes forward rather than washing the paper.
-            FieldAmbient(
+            // One glow statement per screen, and the zone is what decides
+            // which one. V2 §3: warm pooling bottom-left is Life, cool
+            // bottom-right is Us, split at the bottom is Today. The ground
+            // beneath is constant, so this is the only thing that moves when
+            // a zone changes — which is why it is the orientation.
+            FieldGlow(
                 identity: store.identity,
-                hour: Calendar.gregorianUS.component(.hour, from: store.now)
+                statement: store.activeZone.glow
             )
-            .opacity(store.activeZone.canvas == .cream ? 0 : 1)
             .animation(.weCanvasCrossing, value: store.activeZone)
 
             pager
@@ -115,11 +115,11 @@ struct FieldZoneShell: View {
                     .zIndex(20)
             }
         }
-        // The status bar is the one piece of chrome WE does not draw, so it
-        // has to be told which ground it is sitting on. Left pinned to dark it
-        // paints a white clock onto the cream page, which is the most visible
-        // possible way to look broken.
-        .preferredColorScheme(store.activeZone.canvas == .cream ? .light : .dark)
+        // The status bar is the one piece of chrome WE does not draw. Every
+        // ground is near-black now, so this no longer varies — but it still
+        // has to be stated, because the default follows the system and a
+        // phone in light mode would paint a black clock onto #0A0A09.
+        .preferredColorScheme(.dark)
         .environment(store)
         .animation(.fieldZone(reduceMotion), value: store.activeZone)
         .animation(.fieldZone(reduceMotion), value: store.calendarOpen)
@@ -267,7 +267,7 @@ struct FieldZoneShell: View {
         case .live:
             YoursSupabaseBackend(client: SupabaseClientProvider.shared.client)
                 ?? YoursMemoryBackend(clock: clock)
-        case .seeded, .demo, .gallery:
+        case .seeded, .demo, .sparse, .gallery:
             YoursMemoryBackend(clock: clock)
         }
         return YoursStore(backend: backend, clock: clock)
@@ -363,11 +363,12 @@ struct FieldZoneShell: View {
                 WEColourField(state: .shared, identity: store.identity)
             }
             .ignoresSafeArea(edges: .bottom)
-            // The field hides itself, but the stack composing it with the
-            // scrim is its own node, and a decorative node with nothing to
-            // say is exactly what the audit is for. Hide the decoration as a
-            // whole rather than each layer of it.
-            .accessibilityHidden(true)
+            // Deliberately *not* `accessibilityHidden`. The scrim and the
+            // field are colour with no node of their own, and marking a view
+            // that is not an accessibility element hidden promotes it to one
+            // — an element carrying nothing but a hidden flag, which the
+            // audit then reports as a node with no description. Hiding what
+            // was never there is what created the defect.
         }
     }
 
@@ -397,7 +398,7 @@ struct FieldZoneShell: View {
                 .foregroundStyle(
                     store.activeZone == zone
                         ? .fieldInk(.headline)
-                        : .fieldInk(.monoLabelQuiet)
+                        : .fieldInk(.labelQuiet)
                 )
                 .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Rectangle())
@@ -430,7 +431,7 @@ struct FieldZoneShell: View {
     }
 
     /// 40 × 40pt circle, 1px border at ink .5, fill ink .06, the wordmark in
-    /// 11pt mono at .14em. Present on every zone.
+    /// 11pt DM Sans at +2.4. Present on every zone.
     ///
     /// Tap returns to Today; tap it *from* Today and it opens Yours;
     /// long-press opens the account. The handoff allows no chrome for
@@ -635,7 +636,7 @@ struct FieldZoneScaffold<Content: View>: View {
                                 zone.label,
                                 font: FieldType.zoneLabel,
                                 tracking: FieldTracking.zoneLabel,
-                                ink: .monoLabel
+                                ink: .label
                             )
 
                             if let headerMeta {

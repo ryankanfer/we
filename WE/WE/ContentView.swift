@@ -71,7 +71,7 @@ struct ContentView: View {
                     Button {
                         showsProfile = true
                     } label: {
-                        // Mono, like every other label the app puts in a
+                        // DM Sans, like every other label the app puts in a
                         // corner. The filled SF Symbol was the last piece of
                         // iOS chrome on a pre-zone screen.
                         Text("ACCOUNT")
@@ -93,7 +93,7 @@ struct ContentView: View {
             ProfileView(onReplayPromise: onReplayPromise)
         }
         .onChange(of: session.state) { oldState, newState in
-            if oldState == .waitingForPartner, newState == .ready {
+            if arrivalHappened(from: oldState, to: newState) {
                 showsPartnerArrival = true
             }
         }
@@ -103,6 +103,42 @@ struct ContentView: View {
         .task(id: pendingInvitationKey) {
             await redeemPendingInvitationIfNeeded()
         }
+    }
+
+    /// Whether the space just became two people, from either side of it.
+    ///
+    /// Both people see the arrival, which the single `.waitingForPartner ->
+    /// .ready` edge never managed: that one fires only for the person who did
+    /// the inviting, so the person who redeemed the code walked into a colour
+    /// picker without the app ever acknowledging that they had arrived
+    /// somewhere. Redemption moves them out of `.needsCouple`, which is the
+    /// same event seen from the other phone.
+    ///
+    /// `.waitingForPartner -> .choosingHue` is the inviter's real route, not
+    /// `-> .ready`: `create_couple` leaves `hue_chosen_at` null, so the person
+    /// who opened the space still has a colour to choose when the second
+    /// person lands. The old hook watched the one transition the inviter
+    /// usually does not take.
+    ///
+    /// This is an edge, and edges are exactly what the *ceremony* refuses to
+    /// be driven by — see `WECeremonyHost`. The difference is what is at
+    /// stake: a missed arrival costs three words, and a missed ceremony would
+    /// leave a promise unperformed. The Joining is driven by persisted state
+    /// precisely so it survives everything this cannot.
+    private func arrivalHappened(
+        from oldState: AppSession.State,
+        to newState: AppSession.State
+    ) -> Bool {
+        let wasAlone = oldState == .needsCouple
+            || oldState == .waitingForPartner
+        let isTogether = newState == .choosingHue || newState == .ready
+        // And there are actually two people. A partner who joins and deletes
+        // their account while this phone is offline would otherwise arrive and
+        // depart in one snapshot, and the app would announce somebody who is
+        // already gone.
+        return wasAlone
+            && isTogether
+            && session.snapshot?.members.count == 2
     }
 
     private var showsAuthenticatedProfileButton: Bool {
@@ -244,35 +280,75 @@ struct ContentView: View {
     }
 }
 
+/// The other person, arriving.
+///
+/// Three words on both phones at the same instant, and the first surface in
+/// the product to carry both hues. What stood here was a paragraph — "A shared
+/// space opened. You and Dylan remain yourselves. What you both choose can now
+/// have a place between you." — which explains the arrival to somebody who is
+/// looking straight at it, and explaining a moment is how you lose it.
+///
+/// The sentence is always about the *other* person. Neither phone announces
+/// its owner to its owner, so both people read the same three words and
+/// neither reads their own name.
+///
+/// **No haptic here.** WE has exactly one, at the instant a ceremony beat
+/// lands on both phones, and it fires correctly already. A second one in
+/// onboarding would spend the only piece of physical vocabulary the product
+/// has on the smaller of two moments.
 private struct PartnerArrivalCeremony: View {
     @EnvironmentObject private var session: AppSession
+    @Environment(\.dynamicTypeSize) private var typeSize
     let onComplete: () -> Void
 
     var body: some View {
-        FieldGateScaffold(label: "Ours") {
-            VStack(alignment: .leading, spacing: FieldMetrics.sectionGap) {
-                // The blend, once, on the one screen that is literally about
-                // two people becoming reachable to each other. This is exactly
-                // what the handoff reserves it for.
-                Rectangle()
-                    .fill(FieldIdentity.seed.blend())
-                    .frame(height: 1)
-                    .accessibilityLabel(
-                        "Two private sides with a shared clearing between them"
-                    )
+        ZStack {
+            WECanvas.ground.bg.ignoresSafeArea()
 
-                FieldGateHeadline(
-                    title: "A shared space opened.",
-                    subtitle: "You and \(session.partnerName) remain "
-                        + "yourselves. What you both choose can now have a "
-                        + "place between you."
+            VStack(alignment: .leading, spacing: 0) {
+                Spacer(minLength: 0)
+
+                WEDisplayText(
+                    WEGateCopy.arrival(of: session.partnerName),
+                    role: .hero
                 )
 
-                Button("Begin together", action: onComplete)
-                    .buttonStyle(FieldFilledButtonStyle())
+                Spacer(minLength: 0)
+
+                WEEditorialAction(WEGateCopy.begin, action: onComplete)
                     .accessibilityIdentifier("arrival.begin")
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, FieldMetrics.usSide)
+            .padding(.bottom, FieldMetrics.screenBottom(at: typeSize))
+
+            // Shared, and for the first time truthfully so: until this instant
+            // there was one person in the space.
+            WEColourField(state: .shared, identity: identity, height: 168)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .ignoresSafeArea(edges: .bottom)
         }
+        .environment(\.weCanvas, .ground)
+        .preferredColorScheme(.dark)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("we.arrival")
+    }
+
+    /// Both people, in the Field vocabulary. The bridge from
+    /// `couple_members.hue` is the same one `HueSelectionView` uses; see
+    /// CUTOVER.md for why two vocabularies still exist.
+    private var identity: FieldIdentity {
+        let members = session.snapshot?.members ?? []
+        let mine = members.first { $0.id == session.user?.id }
+        let theirs = members.first { $0.id != session.user?.id }
+        return FieldIdentity(
+            personA: mine.map { FieldSwatch(nearest: WEHue($0.hue)) }
+                ?? FieldIdentity.seed.personA,
+            personB: theirs.map { FieldSwatch(nearest: WEHue($0.hue)) }
+                ?? FieldIdentity.seed.personB,
+            nameA: mine?.name ?? FieldIdentity.seed.nameA,
+            nameB: theirs?.name ?? session.partnerName
+        )
     }
 }
 
@@ -283,7 +359,7 @@ private struct PairingView: View {
     @State private var selectedArchive: RelationshipArchive?
 
     var body: some View {
-        FieldGateScaffold(label: "Your side", centred: false) {
+        FieldGateScaffold(centred: false) {
             VStack(alignment: .leading, spacing: FieldMetrics.sectionGap) {
                 FieldGateHeadline(
                     title: "Your side is ready.",
@@ -328,7 +404,6 @@ private struct PairingView: View {
         if let saved = session.privateProposals.first {
             FieldCard(accent: FieldIdentity.seed.personA.color) {
                 VStack(alignment: .leading, spacing: 11) {
-                    FieldLabel("Saved on your side")
                     Text(saved.title)
                         .font(FieldType.listItemLarge)
                         .foregroundStyle(.fieldInk(.headline))
@@ -351,7 +426,6 @@ private struct PairingView: View {
         VStack(alignment: .leading, spacing: 16) {
             FieldRuleLine()
 
-            FieldLabel("When you are ready")
                 .padding(.top, 4)
 
             Text(
@@ -474,8 +548,15 @@ private struct PartnerWaitingView: View {
     @AppStorage("we.invitation.sent") private var invitationSent = false
 
     private var name: String {
+        invitee ?? "they"
+    }
+
+    /// The name, or nothing. `WEGateCopy` writes the unnamed sentences out in
+    /// full rather than assembling them around a placeholder, so what it wants
+    /// is the absence rather than a stand in word.
+    private var invitee: String? {
         let trimmed = inviteeName.trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty ? "they" : trimmed
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private var code: String { session.snapshot?.couple?.joinCode ?? "" }
@@ -502,11 +583,9 @@ private struct PartnerWaitingView: View {
     /// behaviour the whole position is trying not to produce.
     private var stillness: some View {
         WEStillness(
-            line: name == "they"
-                ? "WE is still until they arrive."
-                : "WE is still until \(name) arrives.",
+            line: WEGateCopy.stillness(for: name == "they" ? nil : name),
             identity: FieldIdentity.seed,
-            withdrawal: "Withdraw the invitation",
+            withdrawal: WEGateCopy.withdraw,
             onWithdraw: {
                 invitationSent = false
                 Task { await session.revokeInvitation() }
@@ -514,8 +593,28 @@ private struct PartnerWaitingView: View {
         )
     }
 
+    /// Two different endings, and only one of them is this person's doing.
+    ///
+    /// Withdrawing sets `invitationSent` back to false, so an invitation that
+    /// is no longer live while it is still marked as sent ended some other
+    /// way: it was declined, or it ran out. Those two are deliberately the
+    /// same sentence. Telling somebody they were turned down, as against
+    /// simply told the invitation is closed, is a fact they can do nothing
+    /// with and would be handed on the app's initiative.
+    private var closedTitle: String {
+        invitationSent
+            ? WEGateCopy.invitationClosedTitle
+            : WEGateCopy.invitationWithdrawnTitle
+    }
+
+    private var closedDetail: String {
+        invitationSent
+            ? WEGateCopy.invitationClosedDetail
+            : WEGateCopy.invitationWithdrawnDetail
+    }
+
     private var invitationScreen: some View {
-        FieldGateScaffold(label: "Invitation ready") {
+        FieldGateScaffold {
             VStack(alignment: .leading, spacing: FieldMetrics.sectionGap) {
                 FieldGateHeadline(
                     // "The invitation is at the threshold" is the register of
@@ -523,26 +622,22 @@ private struct PartnerWaitingView: View {
                     // "threshold" survives fine as internal geometry naming
                     // and does not belong in a sentence anybody reads.
                     title: isLive
-                        ? (name == "they" ? "For them." : "For \(name).")
-                        : "The invitation has\nbeen withdrawn.",
+                        ? WEGateCopy.invitationTitle(for: invitee)
+                        : closedTitle,
                     subtitle: isLive
-                        ? "Send this when you're ready. "
-                            + (name == "they"
-                                ? "They'll see your name and nothing else."
-                                : "\(name) will see your name and nothing else.")
-                        : "This code no longer opens anything. Make a new one "
-                            + "when you are ready."
+                        ? WEGateCopy.invitationDetail(for: invitee)
+                        : closedDetail
                 )
 
                 if isLive {
                     FieldTextField(
-                        label: "Who is this for?",
+                        label: WEGateCopy.inviteeNameField,
                         text: $inviteeName,
                         identifier: "waiting.inviteeName"
                     )
                 }
 
-                // The code itself, in the app's mono at a size you can read
+                // The code itself, in the app's label face at a size you can read
                 // across a table. Selectable, because somebody will want to
                 // copy it by hand rather than share it.
                 VStack(alignment: .leading, spacing: 14) {

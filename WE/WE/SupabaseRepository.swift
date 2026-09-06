@@ -138,6 +138,59 @@ final class SupabaseRepository: Repository {
         _ = try await configuredClient().rpc("revoke_invitation").execute()
     }
 
+    /// The one read in the app that runs without a session.
+    ///
+    /// `invitation_greeting` is granted to `anon` because the person it
+    /// answers has no account at the moment they read it. Decoded from the raw
+    /// body rather than through `.value`: the function returns SQL null for
+    /// anything that is not live, and a top level `null` is not a value any
+    /// typed decode can be asked for.
+    func invitationGreeting(code: String) async throws -> InvitationGreeting? {
+        guard let code = PendingInvitation.normalized(code) else { return nil }
+        let response = try await configuredClient()
+            .rpc(
+                "invitation_greeting",
+                params: JoinCoupleParameters(code: code)
+            )
+            .execute()
+
+        guard
+            let dto = try? JSONDecoder().decode(
+                InvitationGreetingDTO.self,
+                from: response.data
+            ),
+            let hue = MemberHue(rawValue: dto.hue)
+        else { return nil }
+
+        let name = dto.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : InvitationGreeting(name: name, hue: hue)
+    }
+
+    func declineInvitation(code: String) async throws {
+        guard let code = PendingInvitation.normalized(code) else { return }
+        _ = try await configuredClient()
+            .rpc(
+                "decline_invitation",
+                params: JoinCoupleParameters(code: code)
+            )
+            .execute()
+    }
+
+    func registerDeviceToken(_ token: String) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "register_device_token",
+                params: DeviceTokenParameters(token: token)
+            )
+            .execute()
+    }
+
+    func forgetDeviceTokens() async throws {
+        _ = try await configuredClient()
+            .rpc("forget_device_tokens")
+            .execute()
+    }
+
     func acknowledgeDeparture() async throws {
         _ = try await configuredClient().rpc("acknowledge_departure").execute()
     }

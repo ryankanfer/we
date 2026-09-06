@@ -121,6 +121,18 @@ nonisolated struct Member: Identifiable, Codable, Hashable, Sendable {
     let hue: MemberHue
 }
 
+/// Who is waiting, for the person holding an invitation code.
+///
+/// A name and a hue, and deliberately nothing else — no id, no couple, no
+/// dates. It exists so that the invited person's first screen can tell them
+/// something true rather than ask them for something: the whole difference
+/// between being summoned and being chosen is that this is known before the
+/// code field, not after it.
+nonisolated struct InvitationGreeting: Codable, Hashable, Sendable {
+    let name: String
+    let hue: MemberHue
+}
+
 nonisolated enum InsightKind: String, Codable, Sendable {
     case logistical
     case relational

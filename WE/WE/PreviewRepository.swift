@@ -133,6 +133,24 @@ actor PreviewRepository: Repository {
         )
     }
 
+    /// The fixture's own inviter, for any code the field will accept.
+    ///
+    /// There is no invitation table behind the preview, so this answers from
+    /// the same snapshot every other preview screen is drawn from — which is
+    /// what makes the invited person's first screen previewable at all.
+    func invitationGreeting(code: String) async throws -> InvitationGreeting? {
+        guard PendingInvitation.normalized(code) != nil else { return nil }
+        guard let member = waitingSnapshot.members.first else { return nil }
+        return InvitationGreeting(name: member.name, hue: member.hue)
+    }
+
+    func declineInvitation(code: String) async throws {
+        try await revokeInvitation()
+    }
+
+    func registerDeviceToken(_ token: String) async throws {}
+    func forgetDeviceTokens() async throws {}
+
     func revokeInvitation() async throws {
         snapshot = replacing(
             couple: snapshot.couple.map {

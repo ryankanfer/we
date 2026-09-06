@@ -1158,6 +1158,21 @@ actor SimulationRepository: Repository {
     func joinCouple(code: String) async throws {}
     func createInvitation() async throws {}
     func revokeInvitation() async throws {}
+    func declineInvitation(code: String) async throws {}
+    func registerDeviceToken(_ token: String) async throws {}
+    func forgetDeviceTokens() async throws {}
+
+    /// The other person in the simulation, which is who would be waiting.
+    func invitationGreeting(code: String) async throws -> InvitationGreeting? {
+        guard PendingInvitation.normalized(code) != nil else { return nil }
+        let snapshot = await store.load(viewer: viewer)
+        guard
+            let partner = snapshot.members.first(
+                where: { $0.id != viewer.userID }
+            )
+        else { return nil }
+        return InvitationGreeting(name: partner.name, hue: partner.hue)
+    }
     func acknowledgeDeparture() async throws {}
 
     func updateProfile(name: String, userID: String) async throws {

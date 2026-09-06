@@ -30,10 +30,14 @@ struct WelcomeView: View {
     @EnvironmentObject private var pendingInvitation: PendingInvitation
     @State private var destination: Destination?
 
-    /// A code can already be held before this screen is ever tapped — a
-    /// `we://join/CODE` link opens straight here. When it is, the invitation
-    /// section stops asking and starts confirming.
-    private var heldCode: String? { pendingInvitation.code }
+    /// Whether the held code has already been offered on this launch.
+    ///
+    /// A `we://join/CODE` link opens this screen with a code already in hand,
+    /// and somebody who tapped an invitation should not have to pick a door to
+    /// be told who sent it. So the invited person's screen presents itself —
+    /// once. Doing it every time the welcome screen appears would put somebody
+    /// who dismissed it in order to sign in straight back where they were.
+    @State private var hasOfferedHeldInvitation = false
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -52,7 +56,6 @@ struct WelcomeView: View {
                         start
                         invitation
                         returning
-                        privacy
                     }
                     .padding(.horizontal, FieldMetrics.screenSide)
                 }
@@ -63,6 +66,12 @@ struct WelcomeView: View {
             .scrollBounceBehavior(.basedOnSize)
         }
         .preferredColorScheme(.dark)
+        .task(id: pendingInvitation.code) {
+            guard pendingInvitation.code != nil, !hasOfferedHeldInvitation
+            else { return }
+            hasOfferedHeldInvitation = true
+            destination = .joinWithCode
+        }
         .sheet(item: $destination) { destination in
             switch destination {
             case .createAccount:
@@ -70,25 +79,28 @@ struct WelcomeView: View {
             case .signIn:
                 SignInView()
             case .joinWithCode:
-                JoinWithCodeView {
-                    // Swapping the item rather than dismissing and presenting
-                    // again — the code is held by now, and a dismiss/present
-                    // race would flash the welcome screen in between.
-                    self.destination = .createAccount
-                }
+                WEInvitationArrival(
+                    onContinue: {
+                        // Swapping the item rather than dismissing and
+                        // presenting again — the code is held by now, and a
+                        // dismiss/present race would flash the welcome screen
+                        // in between.
+                        self.destination = .createAccount
+                    },
+                    onDecline: { self.destination = nil }
+                )
             }
         }
     }
 
+    /// One question, and nothing above it.
+    ///
+    /// What stood here was a tracked "WELCOME TO WE" eyebrow over a headline
+    /// naming the category and a subtitle explaining the category again. Three
+    /// pieces of furniture to say one thing, and none of them about the person
+    /// the reader has in mind.
     private var introduction: some View {
-        VStack(alignment: .leading, spacing: FieldMetrics.sectionGapTight) {
-            brandLabel("Welcome to ")
-
-            FieldGateHeadline(
-                title: "A shared space for\nwhat matters between you.",
-                subtitle: "What you both choose can have a place here."
-            )
-        }
+        FieldGateHeadline(title: WEGateCopy.welcome)
     }
 
     private var start: some View {
@@ -99,51 +111,31 @@ struct WelcomeView: View {
             Button {
                 destination = .createAccount
             } label: {
-                brandText("Start a ", trailing: " space")
-                    .frame(maxWidth: .infinity)
+                Text(WEGateCopy.begin).frame(maxWidth: .infinity)
             }
             .buttonStyle(FieldFilledButtonStyle())
             .accessibilityIdentifier("welcome.start")
-
-            Text("Begin here. Invite the other person when you're ready.")
-                .font(FieldType.body)
-                .foregroundStyle(.fieldInk(.metadataProse))
-                .fieldLineHeight(1.5, size: 14.5)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
+    /// One door, whether or not a code is already held.
+    ///
+    /// It used to split: a held code turned the button into "Join with
+    /// WEDEMO" and routed straight to account creation, skipping the only
+    /// screen that tells this person who is waiting for them. Both routes now
+    /// go through that screen, which is where a held code belongs anyway.
     private var invitation: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            FieldLabel(
-                heldCode == nil ? "Have an invitation?" : "Your invitation"
-            )
-
-            if let heldCode {
-                Button {
-                    destination = .createAccount
-                } label: {
-                    Text("Join with \(heldCode)").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(FieldOutlinedButtonStyle())
-                .accessibilityLabel("Join with code \(heldCode)")
-                .accessibilityIdentifier("welcome.join")
-            } else {
-                Button {
-                    destination = .joinWithCode
-                } label: {
-                    Text("Join with a code").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(FieldOutlinedButtonStyle())
-                .accessibilityIdentifier("welcome.join")
-            }
+        Button {
+            destination = .joinWithCode
+        } label: {
+            Text(WEGateCopy.invited).frame(maxWidth: .infinity)
         }
+        .buttonStyle(FieldOutlinedButtonStyle())
+        .accessibilityIdentifier("welcome.join")
     }
 
     private var returning: some View {
         VStack(alignment: .leading, spacing: 2) {
-            brandLabel("Already use ", trailing: "?")
-
             // Built the way `ContentView`'s account button is, rather than on
             // `FieldQuietButtonStyle`: that style pads without a background,
             // and an unbacked pad is not hit-testable, so the only tappable
@@ -151,11 +143,11 @@ struct WelcomeView: View {
             Button {
                 destination = .signIn
             } label: {
-                Text("SIGN IN")
+                Text(WEGateCopy.signIn)
                     .font(FieldType.button)
                     .tracking(FieldTracking.button)
                     // The underline is drawn to the text, not to the tap
-                    // target — `.underline()` on an uppercased, tracked mono
+                    // target — `.underline()` on an uppercased, tracked label
                     // label sits too low and runs past the last letter.
                     .overlay(alignment: .bottom) {
                         Rectangle()
@@ -168,50 +160,12 @@ struct WelcomeView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.fieldInk(.monoLabel))
+            .foregroundStyle(.fieldInk(.label))
             .accessibilityLabel("Sign in")
             .accessibilityIdentifier("welcome.signIn")
         }
     }
 
-    private var privacy: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Rectangle()
-                .fill(FieldSwatch.burgundy.color.opacity(0.7))
-                .frame(width: 56, height: 1)
-                .accessibilityHidden(true)
-
-            Text("Private reflection stays private.")
-                .font(FieldType.reasoning)
-                .foregroundStyle(.fieldInk(.reasoning))
-                .fieldLineHeight(1.6, size: 13)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.top, FieldMetrics.sectionGapTight)
-    }
-
-    /// WE is the one word on this page that is not interface copy. Giving the
-    /// wordmark a stronger weight keeps it legible inside the airy tracked
-    /// labels without making every door louder.
-    private func brandText(
-        _ leading: String,
-        trailing: String = ""
-    ) -> Text {
-        Text(
-            "\(leading)\(Text("WE").fontWeight(.bold))\(trailing)"
-        )
-    }
-
-    private func brandLabel(
-        _ leading: String,
-        trailing: String = ""
-    ) -> some View {
-        brandText(leading.uppercased(), trailing: trailing.uppercased())
-            .font(FieldType.sectionLabel)
-            .tracking(FieldTracking.sectionLabel)
-            .foregroundStyle(.fieldInk(.monoLabel))
-            .accessibilityAddTraits(.isHeader)
-    }
 }
 
 #Preview("Welcome") {
