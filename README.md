@@ -49,6 +49,26 @@ Privacy is enforced in Supabase as well as Swift:
 Protected database writes use server functions. Active-couple row-level security prevents
 outsiders and former members from reading or mutating live relationship data.
 
+### Private intake
+
+The Share Sheet follows one release boundary:
+
+> Private input → private artifact → explicit proposal → exact review → deliberate release
+
+The extension accepts text, HTTPS links, and up to five normalized images. It has no networking
+or model dependency. Drafts are encrypted inside the private-intake app group, isolated by a
+random account vault, and remain visible only on that person’s side until the containing app
+freezes and publishes an exact reviewed revision. Links and images begin excluded.
+
+`From elsewhere` is controlled by `WEShareInboxEnabled`. The Xcode project enables it for Debug
+verification and leaves it disabled for Release until the migration, cleanup worker,
+accessibility checks, and end-to-end publication tests have passed against the release backend.
+The widget is intentionally not a member of the private-intake app group.
+
+LIFE’s “Where to look” is deterministic and purpose-specific. It never runs automatically, and
+shows the exact title-based query and destination before anything leaves WE. No private detail,
+partner identity, ownership, dates, or history is added to the query.
+
 ## Native milestone status
 
 - [x] Build Ahead, Life, Profile, complete Auth, the Threshold walkthrough, Pairing, WE, and
@@ -58,16 +78,19 @@ outsiders and former members from reading or mutating live relationship data.
   relationship-ended/archive states.
 - [x] Keep the frozen web tag for comparison only.
 
-Implementation and automated coverage are present. Two authenticated sessions through the full
-lifecycle now run locally and in CI-able form:
+Pull requests now gate schema/privacy, native build/unit, and serial critical UI flows. Nightly
+automation exercises Partner A, Partner B, and an outsider against an isolated live Supabase
+stack, then renders small/large/max-accessibility iPhone contracts with reviewable `.xcresult`
+and visual-diff evidence. Two authenticated sessions through the full lifecycle also run
+locally:
 
 ```bash
 ./supabase/tests/local/run_dual_sided.sh
 ```
 
-See [`supabase/tests/local/README.md`](supabase/tests/local/README.md). Before release, the
-remaining manual gates are local pgTAP execution, the Supabase security-advisor review,
-small/large iPhone and accessibility passes, and five target-couple usability sessions.
+See [`supabase/tests/local/README.md`](supabase/tests/local/README.md). The remaining manual
+gates are VoiceOver and widget judgment, the Supabase security-advisor/callback review, and
+five target-couple usability sessions.
 
 ## Running the iPhone app
 
@@ -97,8 +120,26 @@ npm test
 
 It is not the source of truth for native navigation, presentation, or maintenance.
 
+## Notifications
+
+**WE never sends a notification containing news, only ones inviting presence.**
+
+There is exactly one, and it is sent once per space: the moment the second
+person joins, both phones receive the same fixed sentence, which names nobody
+and reports nothing. No badge, no sound, no payload beyond that sentence. Local
+moments follow the same rule.
+
+Refusing notifications is a first class path, not a degraded one. The ceremony
+is driven by persisted state and an aggregate that reveals no timing, so a
+declined permission, a dropped push, or a project with no APNs credentials at
+all costs a convenience and never correctness — the arrival is simply there
+when the app is next opened. Nothing is retried, and nothing ever reports that
+the other person was or was not notified.
+
+See `supabase/functions/announce-arrival/README.md`.
+
 ## Deliberate exclusions
 
-AI chat, advertisements, A/B infrastructure, calendars, finance integrations, relationship
-scores, push notifications, recurrence, priorities, reminders, and Mac adaptation are outside
-this milestone.
+AI chat, advertisements, A/B infrastructure, external calendar accounts, finance integrations,
+relationship scores, recurrence, priorities, reminders, and Mac adaptation
+are outside this milestone.

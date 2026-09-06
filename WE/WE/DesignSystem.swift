@@ -7,6 +7,33 @@
 
 import SwiftUI
 
+// MARK: - The single surface and ink scale
+//
+// WE previously ran two palettes side by side: a semantic one
+// (WEInk/WEFaint/WECard) used by Life, Ahead, Profile and the sheets, and a
+// second cinematic one built from weCinematicInk plus ~129 literal
+// .white.opacity(…) values used by WE, Thread and the Promise. The two dark
+// canvases were not the same colour, so every sheet landed on a surface
+// visibly darker than the one it came from.
+//
+// The tokens below replace both. They are NOT declared here — the target sets
+// ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES, so Xcode
+// generates `Color.weCanvas` and friends directly from the colour sets.
+// Declaring them by hand collides with the generated symbols.
+//
+// Contrast is measured against Color.weSurface and holds for all ten hues;
+// DesignTokenTests asserts it.
+//
+//   Color.weCanvas         #17140F  the app canvas, one value everywhere
+//   Color.weSurface        #26231E  cards and sheets, 1.18:1 above canvas
+//   Color.weSurfaceRaised  #322E29  nested surfaces inside a card
+//
+//   Color.weInk            #F4EFE5  titles and primary body, 13.60:1
+//   Color.weInkSecondary   #C7C2B8  body copy and descriptions, 8.79:1
+//   Color.weInkTertiary    #989289  eyebrows and metadata, 5.05:1
+//   Color.weInkFaint       #7D786F  3.55:1 — 18pt and larger only, never body
+//   Color.weHairline       #443E36  borders and dividers, non-text
+
 extension Font {
     static var weLargeTitle: Font {
         .system(.largeTitle, design: .serif, weight: .regular)
@@ -14,6 +41,14 @@ extension Font {
 
     static var weTitle: Font {
         .system(.title2, design: .serif, weight: .regular)
+    }
+
+    static var weSheetTitle: Font {
+        .system(.title3, design: .serif, weight: .semibold)
+    }
+
+    static var weSubheadline: Font {
+        .system(.subheadline, design: .serif, weight: .regular)
     }
 
     static var weHeadline: Font {
@@ -26,6 +61,10 @@ extension Font {
 
     static var weCaption: Font {
         .caption.weight(.medium)
+    }
+
+    static var weMeta: Font {
+        .system(.caption2, design: .default, weight: .medium)
     }
 }
 
@@ -133,6 +172,29 @@ struct WEPrimaryButtonStyle: ButtonStyle {
                 Color("WEBurgundy").opacity(isEnabled ? 1 : 0.45),
                 in: RoundedRectangle(cornerRadius: 16, style: .continuous)
             )
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .animation(.weQuick, value: configuration.isPressed)
+    }
+}
+
+struct WESecondaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    var tintColor: Color = .white
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(tintColor.opacity(isEnabled ? 0.9 : 0.45))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(
+                .white.opacity(0.08),
+                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(.white.opacity(0.12), lineWidth: 1)
+            }
             .scaleEffect(configuration.isPressed ? 0.985 : 1)
             .animation(.weQuick, value: configuration.isPressed)
     }

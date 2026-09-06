@@ -1,0 +1,37 @@
+{
+  "configurations" : [
+    {
+      "id" : "E09A3E93-3A89-4A1E-9A83-1DC291860D4C",
+      "name" : "Deterministic",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : false,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:WE.xcodeproj",
+      "identifier" : "79C3EB343013C00A00394313",
+      "name" : "WE"
+    }
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:WE.xcodeproj",
+        "identifier" : "79C3EB413013C00D00394313",
+        "name" : "WETests"
+      }
+    },
+    {
+      "parallelizable" : false,
+      "target" : {
+        "containerPath" : "container:WE.xcodeproj",
+        "identifier" : "79C3EB4B3013C00D00394313",
+        "name" : "WEUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

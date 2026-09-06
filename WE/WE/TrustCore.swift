@@ -15,6 +15,8 @@ nonisolated struct TrustResolution: Equatable, Sendable {
 }
 
 nonisolated struct TrustState: Equatable, Sendable {
+    var insightID: String
+    var seedKey: String
     var visibility: ConsentVisibility
     var ownerID: String?
     var readiness: ConsentReadiness
@@ -22,6 +24,7 @@ nonisolated struct TrustState: Equatable, Sendable {
     var requestedAt: Int?
     var acceptedAt: Int?
     var responses: [String: TrustResponse]
+    var sharedDirection: SharedDirection?
     var dismissedBy: Set<String>
     var declinedBy: Set<String>
     var resolution: TrustResolution?
@@ -35,6 +38,9 @@ nonisolated enum TrustPhase: Equatable, Sendable {
     case declined
     case answering
     case held
+    case shared
+    /// Compatibility for visual mappings compiled against the former state.
+    /// TrustCore never projects this phase.
     case revealed
     case resolved
 }
@@ -47,6 +53,7 @@ nonisolated struct TrustProjection: Equatable, Sendable {
     let myResponse: TrustResponse
     let partnerResponse: TrustResponse?
     let matched: Bool?
+    let sharedDirection: SharedDirection?
     let resolution: TrustResolution?
     let dismissed: Bool
 }
@@ -64,17 +71,22 @@ nonisolated enum TrustTransitionError: LocalizedError, Equatable {
 
 nonisolated enum TrustCore {
     static func initialState(
+        insightID: String = "local-insight",
+        seedKey: String = "local",
         visibility: ConsentVisibility = .shared,
         ownerID: String? = nil,
         memberIDs: [String] = ["ry", "dylan"]
     ) -> TrustState {
         TrustState(
+            insightID: insightID,
+            seedKey: seedKey,
             visibility: visibility,
             ownerID: visibility == .private ? ownerID : nil,
             readiness: .idle,
             responses: Dictionary(
                 uniqueKeysWithValues: memberIDs.map { ($0, .none) }
             ),
+            sharedDirection: nil,
             dismissedBy: [],
             declinedBy: []
         )
@@ -221,21 +233,15 @@ nonisolated enum TrustCore {
             note: note
         )
 
+        // The second answer is a queue boundary, not a synthesis boundary.
+        // Only the protected server worker may turn two private answers into
+        // shared copy. TrustCore deliberately cannot inspect both answers to
+        // manufacture a result on-device.
         if let otherID = otherMemberID(in: state, viewer: memberID),
-           next.responses[otherID]?.status == .submitted {
-            next.responses[memberID]?.status = .revealed
-            next.responses[otherID]?.status = .revealed
+           next.responses[otherID]?.status == .revealed {
+            next.responses[otherID]?.status = .submitted
         }
         return next
-    }
-
-    static func answersMatch(_ state: TrustState) -> Bool? {
-        let responses = Array(state.responses.values)
-        guard responses.count >= 2,
-              responses.allSatisfy({ $0.status == .revealed }) else {
-            return nil
-        }
-        return responses[0].choice == responses[1].choice
     }
 
     static func resolve(
@@ -247,20 +253,19 @@ nonisolated enum TrustCore {
         guard state.resolution == nil else {
             throw TrustTransitionError.invalid("already resolved")
         }
-        let responses = Array(state.responses.values)
-        guard responses.count >= 2,
-              responses.allSatisfy({ $0.status == .revealed }) else {
+        guard let sharedDirection = state.sharedDirection else {
             throw TrustTransitionError.invalid(
-                "cannot resolve before both answers are revealed"
+                "cannot resolve before a shared direction exists"
             )
         }
 
         var next = state
         next.resolution = TrustResolution(
             type: type,
-            choice: choice,
+            choice: type == .settled ? sharedDirection.title : nil,
             at: at
         )
+        _ = choice
         return next
     }
 
@@ -288,9 +293,7 @@ nonisolated enum TrustCore {
             return nil
         }
 
-        let otherID = otherMemberID(in: state, viewer: viewerID)
         let mine = state.responses[viewerID] ?? .none
-        let theirs = otherID.flatMap { state.responses[$0] } ?? .none
 
         let phase: TrustPhase
         if state.resolution != nil {
@@ -305,9 +308,9 @@ nonisolated enum TrustCore {
                 phase = .invited
             }
         } else if state.visibility == .mutual {
-            if mine.status == .revealed && theirs.status == .revealed {
-                phase = .revealed
-            } else if mine.status == .submitted {
+            if state.sharedDirection != nil {
+                phase = .shared
+            } else if hasSubmitted(mine) {
                 phase = .held
             } else {
                 phase = .answering
@@ -321,9 +324,10 @@ nonisolated enum TrustCore {
             visibility: state.visibility,
             initiatorID: state.initiatorID,
             requestedAt: state.requestedAt,
-            myResponse: mine,
-            partnerResponse: theirs.status == .revealed ? theirs : nil,
-            matched: answersMatch(state),
+            myResponse: normalizedOwnerResponse(mine),
+            partnerResponse: nil,
+            matched: nil,
+            sharedDirection: state.sharedDirection,
             resolution: state.resolution,
             dismissed: state.dismissedBy.contains(viewerID)
         )
@@ -334,6 +338,32 @@ nonisolated enum TrustCore {
         viewer: String
     ) -> String? {
         state.responses.keys.first { $0 != viewer }
+    }
+
+    private static func hasSubmitted(_ response: TrustResponse?) -> Bool {
+        response?.status == .submitted || response?.status == .revealed
+    }
+
+    private static func normalizedOwnerResponse(
+        _ response: TrustResponse
+    ) -> TrustResponse {
+        guard response.status == .revealed else { return response }
+        return TrustResponse(
+            status: .submitted,
+            choice: response.choice,
+            note: response.note
+        )
+    }
+
+    static func normalizingLegacyState(
+        _ state: TrustState
+    ) -> TrustState {
+        var next = state
+        for memberID in next.responses.keys
+        where next.responses[memberID]?.status == .revealed {
+            next.responses[memberID]?.status = .submitted
+        }
+        return next
     }
 }
 
@@ -360,7 +390,9 @@ extension InsightRecord {
             )
         }
 
-        return TrustState(
+        return TrustCore.normalizingLegacyState(TrustState(
+            insightID: insight.id,
+            seedKey: insight.seedKey,
             visibility: consent?.visibility ?? .shared,
             ownerID: consent?.ownerID,
             readiness: consent?.readiness ?? .idle,
@@ -368,9 +400,10 @@ extension InsightRecord {
             requestedAt: consent?.requestedAt == nil ? nil : 0,
             acceptedAt: consent?.acceptedAt == nil ? nil : 0,
             responses: mappedResponses,
+            sharedDirection: sharedDirection,
             dismissedBy: dismissedBy,
             declinedBy: declinedBy,
             resolution: resolution
-        )
+        ))
     }
 }

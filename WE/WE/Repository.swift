@@ -23,6 +23,16 @@ enum RepositoryError: LocalizedError {
 protocol Repository {
     var isConfigured: Bool { get }
 
+    /// Whether this repository keeps credentials somewhere that survives the
+    /// app being deleted.
+    ///
+    /// True only for Supabase, which stores its session in the Keychain —
+    /// and the Keychain outlives an uninstall, so a reinstall comes back
+    /// signed in as whoever used the phone last. `AppSession` clears them on
+    /// the first launch of a new install; the in-memory repositories have
+    /// nothing to clear and must not be asked to.
+    var persistsCredentialsAcrossInstalls: Bool { get }
+
     func restoreSession() async throws -> AuthenticatedUser?
     func signUp(name: String, email: String, password: String) async throws
         -> SignUpResult
@@ -41,8 +51,54 @@ protocol Repository {
 
     func createCouple() async throws
     func joinCouple(code: String) async throws
+
+    /// Issues a fresh invitation, revoking any live one in the same
+    /// transaction. "I sent it to the wrong person" has to mean the old code
+    /// stops working at the instant the new one starts.
+    func createInvitation() async throws
+
+    /// Withdraws the live invitation without waiting for it to expire.
+    func revokeInvitation() async throws
+
+    /// Who is waiting, for whoever holds this code.
+    ///
+    /// Answerable with no account and no session, because the person asking
+    /// has neither yet. `nil` for anything that is not a live invitation, and
+    /// `nil` says only that: a withdrawn code, an expired one, a spent one and
+    /// a code that never existed are indistinguishable here on purpose. The
+    /// four are told apart at redemption, where somebody has actually
+    /// committed to spending one.
+    func invitationGreeting(code: String) async throws -> InvitationGreeting?
+
+    /// Closes an invitation from the invited person's side.
+    ///
+    /// The same revocation the inviter's own withdraw performs, authorised by
+    /// holding the code rather than by a session, because the person declining
+    /// has no account and must not need one in order to say no. Nothing
+    /// records that a decline is what happened; see the migration.
+    func declineInvitation(code: String) async throws
+
+    /// Persists this device's push token against this person, and only this
+    /// person. Owner only in both directions: a partner must never be able to
+    /// read the other's devices.
+    func registerDeviceToken(_ token: String) async throws
+
+    /// Forgets every device this person has registered. A token left behind
+    /// after a sign out is a phone that keeps being invited into somebody
+    /// else's relationship.
+    func forgetDeviceTokens() async throws
+
+    /// Records that the survivor has been told their partner left, so the
+    /// interface never raises it again.
+    func acknowledgeDeparture() async throws
     func updateProfile(name: String, userID: String) async throws
     func updateHue(_ hue: MemberHue, membership: Membership) async throws
+    func loadPrivateProposals(
+        for user: AuthenticatedUser
+    ) async throws -> [SavedPrivateProposal]
+    func claimPrivateProposal(_ proposal: PrivateProposal) async throws
+        -> String
+    func offerPrivateProposal(id: String) async throws
 
     func createPlan(_ input: PlanInput, coupleID: String) async throws
     func updatePlan(id: String, input: PlanInput) async throws
@@ -77,8 +133,18 @@ protocol Repository {
     func submitResponse(
         insightID: String,
         choice: String,
-        note: String?
+        note: String?,
+        consentsToAIProcessing: Bool
     ) async throws
+    func passJourneyQuestion(insightID: String) async throws
+    func recordJourneyQuestionShown(insightID: String) async throws
+    func confirmSharedDirection(
+        insightID: String,
+        decision: DirectionDecision
+    ) async throws
+    /// One person's half of ending a journey. The journey closes when both
+    /// have called it; a single call is recorded and nothing else changes.
+    func completeFieldJourney(journeyID: String) async throws
     func resolveInsight(
         insightID: String,
         type: ResolutionType,
@@ -110,6 +176,28 @@ protocol Repository {
 }
 
 extension Repository {
+    func recordJourneyQuestionShown(insightID: String) async throws {}
+
+    func loadPrivateProposals(
+        for user: AuthenticatedUser
+    ) async throws -> [SavedPrivateProposal] {
+        []
+    }
+
+    func claimPrivateProposal(_ proposal: PrivateProposal) async throws
+        -> String
+    {
+        throw RepositoryError.invalidData(
+            "private proposals are unavailable"
+        )
+    }
+
+    func offerPrivateProposal(id: String) async throws {
+        throw RepositoryError.invalidData(
+            "offering a private proposal is unavailable"
+        )
+    }
+
     func setPresence(_ mode: PresenceMode) async throws {
         throw RepositoryError.invalidData("presence is unavailable")
     }
@@ -179,6 +267,11 @@ enum AuthCallbackResult: Equatable, Sendable {
     case passwordRecovery(AuthenticatedUser)
 }
 
+extension Repository {
+    /// Only a real backend has anything outliving the app bundle.
+    var persistsCredentialsAcrossInstalls: Bool { false }
+}
+
 enum RepositoryFactory {
     static func make(
         environment: AppEnvironment = .current
@@ -191,11 +284,9 @@ enum RepositoryFactory {
                     environment.previewDeletionPassword
             )
         case .live:
-            SupabaseRepository(
-                provider: SupabaseClientProvider(
-                    configuration: environment.supabase
-                )
-            )
+            // The shared client, never a new one — see
+            // `SupabaseClientProvider`.
+            SupabaseRepository(provider: .shared)
         }
     }
 }

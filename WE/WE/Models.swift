@@ -18,6 +18,79 @@ nonisolated struct Profile: Identifiable, Codable, Hashable, Sendable {
 nonisolated struct Couple: Identifiable, Codable, Hashable, Sendable {
     let id: String
     let joinCode: String
+
+    /// When the current invitation stops working, or nil when there is no
+    /// live invitation to send.
+    ///
+    /// `joinCode` is never nil — the column behind it is `not null` — so the
+    /// code alone cannot tell you whether there is anything to share. This is
+    /// the field that can: nil means withdrawn, spent, or never issued, and
+    /// the code sitting beside it would be refused.
+    var invitationExpiresAt: Date?
+
+    /// When a partner deleted their account, or nil if nobody ever has.
+    ///
+    /// This is what distinguishes the two shapes of a one-member couple:
+    /// somebody who has never paired, and somebody whose partner left. They
+    /// are the same member count and completely different situations.
+    var departedAt: Date?
+
+    /// When the survivor was told. Set once, by `acknowledgeDeparture`.
+    var departureSeenAt: Date?
+
+    init(
+        id: String,
+        joinCode: String,
+        invitationExpiresAt: Date? = nil,
+        departedAt: Date? = nil,
+        departureSeenAt: Date? = nil
+    ) {
+        self.id = id
+        self.joinCode = joinCode
+        self.invitationExpiresAt = invitationExpiresAt
+        self.departedAt = departedAt
+        self.departureSeenAt = departureSeenAt
+    }
+
+    /// The one quiet moment: somebody left and this person has not been told.
+    ///
+    /// Both halves are required. `departedAt` alone would raise it again on
+    /// every launch for the rest of the account's life, which is the opposite
+    /// of the rule in CIRCLE.md:52 — a thing is told once, and then the
+    /// interface is silent about it.
+    var owesDepartureNotice: Bool {
+        departedAt != nil && departureSeenAt == nil
+    }
+
+    /// Whether the code is worth putting on screen. Evaluated against the
+    /// clock at the moment it is asked, because a screen left open across the
+    /// boundary should stop offering a code that no longer works.
+    func hasLiveInvitation(asOf now: Date = Date()) -> Bool {
+        activeInvitation(asOf: now) != nil
+    }
+
+    func activeInvitation(
+        asOf now: Date = Date()
+    ) -> PartnerInvitation? {
+        guard let invitationExpiresAt, invitationExpiresAt > now else {
+            return nil
+        }
+        return PartnerInvitation(
+            code: joinCode,
+            expiresAt: invitationExpiresAt
+        )
+    }
+}
+
+nonisolated struct PartnerInvitation: Equatable, Sendable {
+    let code: String
+    let expiresAt: Date
+
+    var deepLink: String { "we://join/\(code)" }
+
+    var shareMessage: String {
+        "Join me in WE\n\(deepLink)\nCode: \(code)"
+    }
 }
 
 nonisolated enum MemberHue: String, CaseIterable, Codable, Sendable {
@@ -48,6 +121,18 @@ nonisolated struct Member: Identifiable, Codable, Hashable, Sendable {
     let hue: MemberHue
 }
 
+/// Who is waiting, for the person holding an invitation code.
+///
+/// A name and a hue, and deliberately nothing else — no id, no couple, no
+/// dates. It exists so that the invited person's first screen can tell them
+/// something true rather than ask them for something: the whole difference
+/// between being summoned and being chosen is that this is known before the
+/// code field, not after it.
+nonisolated struct InvitationGreeting: Codable, Hashable, Sendable {
+    let name: String
+    let hue: MemberHue
+}
+
 nonisolated enum InsightKind: String, Codable, Sendable {
     case logistical
     case relational
@@ -71,6 +156,12 @@ nonisolated struct Insight: Identifiable, Codable, Hashable, Sendable {
     let source: String
     let actionTitle: String
     let options: [String]
+    var journeyScope: JourneyScope = .longTerm
+    var triggerProvenance: JourneyTriggerProvenance? = nil
+    var subjectReferences: [JourneySubjectReference] = []
+    var expiresAt: String? = nil
+    var contextSnapshot: JourneyContextSnapshot? = nil
+    var sort: Int = 0
 }
 
 nonisolated enum ConsentVisibility: String, Codable, Sendable {
@@ -109,6 +200,8 @@ nonisolated enum ResponseStatus: String, Codable, Sendable {
     case none
     case draft
     case submitted
+    /// Read-only compatibility for snapshots created before answers became
+    /// permanently owner-only. New writes never create this state.
     case revealed
 }
 
@@ -138,6 +231,7 @@ nonisolated struct InsightRecord: Identifiable, Codable, Hashable, Sendable {
     let insight: Insight
     let consent: InsightConsent?
     let responses: [InsightResponse]
+    var sharedDirection: SharedDirection? = nil
     let dismissedBy: Set<String>
     let declinedBy: Set<String>
 
@@ -174,6 +268,16 @@ nonisolated enum ResponsibilityOwner: String, CaseIterable, Codable, Sendable {
     case me
     case partner
     case together
+
+    /// Display name. Lived in `LifeView` until the zones replaced it; Profile
+    /// is the caller that outlasted it.
+    var title: String {
+        switch self {
+        case .me: "Me"
+        case .partner: "Partner"
+        case .together: "Together"
+        }
+    }
 }
 
 nonisolated struct ResponsibilityInput: Equatable, Sendable {
@@ -246,11 +350,10 @@ nonisolated struct RelationshipArchiveSnapshot: Codable, Hashable, Sendable {
     var events: [RelationshipEvent] = []
     var seasons: [Season] = []
     var handoffs: [ResponsibilityHandoff] = []
-    var approaches: [PlanApproach] = []
 
     enum CodingKeys: String, CodingKey {
         case plans, responsibilities, resolutions, anchors, events, seasons
-        case handoffs, approaches
+        case handoffs
     }
 
     init(
@@ -260,8 +363,7 @@ nonisolated struct RelationshipArchiveSnapshot: Codable, Hashable, Sendable {
         anchors: [Anchor] = [],
         events: [RelationshipEvent] = [],
         seasons: [Season] = [],
-        handoffs: [ResponsibilityHandoff] = [],
-        approaches: [PlanApproach] = []
+        handoffs: [ResponsibilityHandoff] = []
     ) {
         self.plans = plans
         self.responsibilities = responsibilities
@@ -270,7 +372,6 @@ nonisolated struct RelationshipArchiveSnapshot: Codable, Hashable, Sendable {
         self.events = events
         self.seasons = seasons
         self.handoffs = handoffs
-        self.approaches = approaches
     }
 
     init(from decoder: Decoder) throws {
@@ -303,10 +404,6 @@ nonisolated struct RelationshipArchiveSnapshot: Codable, Hashable, Sendable {
             [ResponsibilityHandoff].self,
             forKey: .handoffs
         ) ?? []
-        approaches = try values.decodeIfPresent(
-            [PlanApproach].self,
-            forKey: .approaches
-        ) ?? []
     }
 }
 
@@ -330,6 +427,13 @@ nonisolated struct RelationshipSnapshot: Codable, Hashable, Sendable {
     let archives: [RelationshipArchive]
     let syncedAt: Date
     var v2: V2RelationshipState? = nil
+    var directionConfirmations: [DirectionConfirmation] = []
+    var journeyPasses: [JourneyPass] = []
+    var journeys: [SharedJourney] = []
 
     var v2State: V2RelationshipState { v2 ?? .empty }
+
+    var canInvitePartner: Bool {
+        membership != nil && couple != nil && members.count < 2
+    }
 }

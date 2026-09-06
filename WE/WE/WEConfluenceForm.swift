@@ -1,5 +1,26 @@
 import SwiftUI
 
+extension TrustPhase {
+    /// How near the two fields sit while the relationship is in this phase.
+    ///
+    /// Legacy editorial artwork still reads this value, but trust-bearing
+    /// surfaces use the architectural continuity line instead. A shared state
+    /// means room opened between two sides, never that identities merged.
+    var confluenceConnection: CGFloat {
+        switch self {
+        case .hidden: 0.18
+        case .open: 0.18
+        case .declined: 0.24
+        case .waiting: 0.30
+        case .invited: 0.30
+        case .answering: 0.44
+        case .held: 0.62
+        case .shared, .revealed: 1
+        case .resolved: 1
+        }
+    }
+}
+
 struct WEConfluenceForm: View, Animatable {
     var personalHue: WEHue
     var partnerHue: WEHue = .partnerDefault
@@ -7,10 +28,19 @@ struct WEConfluenceForm: View, Animatable {
 
     @Environment(\.accessibilityReduceMotion)
     private var reduceMotion
+    @Environment(\.scenePhase)
+    private var scenePhase
 
     var animatableData: CGFloat {
         get { connection }
         set { connection = newValue }
+    }
+
+    /// The shader is a continuous 30fps GPU pass. It has no reason to run
+    /// while the app is backgrounded or while Reduce Motion holds it on a
+    /// fixed frame.
+    private var isPaused: Bool {
+        reduceMotion || scenePhase != .active
     }
 
     var body: some View {
@@ -18,7 +48,7 @@ struct WEConfluenceForm: View, Animatable {
             TimelineView(
                 .animation(
                     minimumInterval: 1.0 / 30.0,
-                    paused: reduceMotion
+                    paused: isPaused
                 )
             ) { context in
                 Rectangle()
@@ -48,7 +78,7 @@ struct WEConfluenceForm: View, Animatable {
 
 #Preview {
     ZStack {
-        Color.weCinematicInk.ignoresSafeArea()
+        Color.weCanvas.ignoresSafeArea()
 
         WEConfluenceForm(
             personalHue: .burgundy,

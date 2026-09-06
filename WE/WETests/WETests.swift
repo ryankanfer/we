@@ -12,7 +12,7 @@ import Testing
 @MainActor
 struct WETests {
     @Test
-    func happyPathRevealsBothAnswersTogether() throws {
+    func secondAnswerWaitsForProtectedServerSynthesis() throws {
         var state = TrustCore.initialState()
         state = try TrustCore.requestReveal(state, by: "ry", at: 1)
 
@@ -41,17 +41,19 @@ struct WETests {
             choice: "Keep it"
         )
 
-        #expect(state.responses["ry"]?.status == .revealed)
-        #expect(state.responses["dylan"]?.status == .revealed)
-        #expect(TrustCore.answersMatch(state) == true)
-        #expect(
-            TrustCore.project(state, for: "dylan")?.partnerResponse?.note
-                == "I want the time away with you."
+        #expect(state.responses["ry"]?.status == .submitted)
+        #expect(state.responses["dylan"]?.status == .submitted)
+        let projection = try #require(
+            TrustCore.project(state, for: "dylan")
         )
+        #expect(projection.phase == .held)
+        #expect(projection.partnerResponse == nil)
+        #expect(projection.matched == nil)
+        #expect(projection.sharedDirection == nil)
     }
 
     @Test
-    func mismatchDoesNotDecideAnything() throws {
+    func differentAnswersCannotBeResolvedOnDevice() throws {
         var state = TrustCore.initialState()
         state = try TrustCore.requestReveal(state, by: "ry", at: 0)
         state = try TrustCore.acceptReveal(state, by: "dylan", at: 1)
@@ -66,15 +68,51 @@ struct WETests {
             choice: "Change it"
         )
 
-        #expect(TrustCore.answersMatch(state) == false)
+        #expect(state.sharedDirection == nil)
         #expect(state.resolution == nil)
+        #expect(throws: TrustTransitionError.self) {
+            try TrustCore.resolve(state, type: .leftOpen, at: 2)
+        }
+    }
 
-        state = try TrustCore.resolve(
-            state,
-            type: .leftOpen,
-            at: 2
-        )
-        #expect(state.resolution?.type == .leftOpen)
+    @Test
+    func answerContentNeverProducesSharedCopyOnDevice() throws {
+        let privateChoices = [
+            "Quiet and close",
+            "Out of the house",
+            "Playful and spontaneous",
+            "A choice containing UNIQUE_PRIVATE_MARKER",
+        ]
+        for firstChoice in privateChoices {
+            for secondChoice in privateChoices {
+                var state = TrustCore.initialState(
+                    seedKey: "tonight-non-interference"
+                )
+                state = try TrustCore.requestReveal(
+                    state,
+                    by: "ry",
+                    at: 0
+                )
+                state = try TrustCore.acceptReveal(
+                    state,
+                    by: "dylan",
+                    at: 1
+                )
+                state = try TrustCore.submitResponse(
+                    state,
+                    by: "ry",
+                    choice: firstChoice,
+                    note: "FIRST_PRIVATE_NOTE"
+                )
+                state = try TrustCore.submitResponse(
+                    state,
+                    by: "dylan",
+                    choice: secondChoice,
+                    note: "SECOND_PRIVATE_NOTE"
+                )
+                #expect(state.sharedDirection == nil)
+            }
+        }
     }
 
     @Test
@@ -419,12 +457,23 @@ struct WETests {
             by: "dylan",
             choice: "Keep it"
         )
+        state.sharedDirection = SharedDirection(
+            insightID: state.insightID,
+            key: "server-result",
+            eyebrow: "A DIRECTION TO CHOOSE",
+            title: "Protect an easy beginning",
+            message: "Grounded shared reasoning.",
+            symbol: "circle.circle",
+            createdAt: nil
+        )
         state = try TrustCore.resolve(
             state,
             type: .settled,
             at: 2,
             choice: "Keep it"
         )
+        #expect(state.resolution?.choice == state.sharedDirection?.title)
+        #expect(state.resolution?.choice != "Keep it")
 
         #expect(throws: TrustTransitionError.self) {
             try TrustCore.resolve(
@@ -443,17 +492,19 @@ struct WETests {
         try await repository.submitResponse(
             insightID: insightID,
             choice: "Out of the house",
-            note: nil
+            note: nil,
+            consentsToAIProcessing: true
         )
         var snapshot = try await repository.loadRelationship(
             for: PreviewData.user
         )
-        let revealed = try #require(snapshot.insights.first)
+        let shared = try #require(snapshot.insights.first)
         #expect(
-            revealed.responses.allSatisfy {
-                $0.status == .revealed
+            shared.responses.allSatisfy {
+                $0.status == .submitted
             }
         )
+        #expect(shared.sharedDirection != nil)
 
         try await repository.resolveInsight(
             insightID: insightID,
@@ -465,39 +516,83 @@ struct WETests {
         )
         #expect(
             snapshot.insights.first?.consent?.resolutionChoice
-                == "Out of the house"
+                == snapshot.insights.first?.sharedDirection?.title
         )
     }
 
     @Test
-    func sharedMomentFindsOverlapWithoutExposingEitherChoice() throws {
+    func legacyRevealedRowsBecomeSubmittedWithoutProjectingRawData() throws {
         let insight = try #require(PreviewData.insights.first)
-        let result = try #require(
-            SharedMomentInterpreter.interpretation(
-                for: insight,
-                mine: "Easy, with no decisions",
-                partner: "Out of the house"
-            )
+        let record = InsightRecord(
+            insight: insight,
+            consent: InsightConsent(
+                insightID: insight.id,
+                visibility: .mutual,
+                ownerID: nil,
+                readiness: .accepted,
+                initiatorID: "ry",
+                requestedAt: nil,
+                acceptedAt: nil,
+                resolutionType: nil,
+                resolutionChoice: nil
+            ),
+            responses: [
+                InsightResponse(
+                    insightID: insight.id,
+                    profileID: "ry",
+                    status: .revealed,
+                    choice: "Quiet and close",
+                    note: "OWNER_SECRET"
+                ),
+                InsightResponse(
+                    insightID: insight.id,
+                    profileID: "dylan",
+                    status: .revealed,
+                    choice: "Quiet and close",
+                    note: "PARTNER_SECRET"
+                ),
+            ],
+            dismissedBy: [],
+            declinedBy: []
         )
 
-        #expect(result.title == "A small change of scene")
-        #expect(!result.message.contains("Easy, with no decisions"))
-        #expect(!result.message.contains("Out of the house"))
+        let state = record.trustState(memberIDs: ["ry", "dylan"])
+        let projection = try #require(
+            TrustCore.project(state, for: "ry")
+        )
+        #expect(projection.phase == .held)
+        #expect(projection.myResponse.status == .submitted)
+        #expect(projection.partnerResponse == nil)
+        #expect(projection.matched == nil)
+        #expect(projection.sharedDirection == nil)
     }
 
     @Test
-    func exactSharedMomentChoiceProducesClearYes() throws {
-        let insight = try #require(PreviewData.insights.first)
-        let result = try #require(
-            SharedMomentInterpreter.interpretation(
-                for: insight,
-                mine: "Quiet and close",
-                partner: "Quiet and close"
-            )
+    func previewRepositoryClaimsThenOffersAPrivateProposal() async throws {
+        let repository = PreviewRepository()
+        let proposal = PrivateProposal(
+            id: UUID(),
+            sourceNote: "A private note",
+            title: "Make a little room for this",
+            offeredTopic: OfferedTopic(
+                title: "A little more room",
+                question: "What would feel useful right now?",
+                options: ["More quiet", "A simple plan"]
+            ),
+            preparationMethod: .deterministicFallback,
+            createdAt: Date()
         )
 
-        #expect(result.eyebrow == "A CLEAR YES")
-        #expect(result.title == "Quiet and close")
+        let proposalID = try await repository.claimPrivateProposal(proposal)
+        #expect(proposalID == proposal.id.uuidString.lowercased())
+        let saved = try await repository.loadPrivateProposals(
+            for: PreviewData.user
+        )
+        #expect(saved.count == 1)
+        #expect(saved.first?.id == proposalID)
+        #expect(saved.first?.title == proposal.title)
+        #expect(saved.first?.offeredTopic == proposal.offeredTopic)
+        try await repository.offerPrivateProposal(id: proposalID)
     }
 
     @Test
@@ -686,7 +781,7 @@ struct WETests {
         )
         #expect(
             session.questionAction(for: unanswered).explanation
-                == "Your answer stays private until Dylan answers."
+                == "Your answer is never shown to Dylan. If they answer too, WE opens a separate shared direction."
         )
         #expect(
             session.questionAction(for: answered)
@@ -694,7 +789,7 @@ struct WETests {
         )
         #expect(
             session.questionAction(for: answered).explanation
-                == "Dylan has answered. Continuing opens the shared result on both sides."
+                == "Dylan has answered. Continuing opens a separate shared direction on both sides."
         )
     }
 
@@ -820,7 +915,8 @@ struct WETests {
     }
 
     @Test
-    func simulationSharesStateButKeepsDismissalsPrivate() async throws {
+    func simulationSharesStateButKeepsDismissalsAndApproachesPrivate()
+        async throws {
         let store = SimulationStore()
         let initial = await store.load(viewer: .ryan)
         let suggestion = try #require(initial.v2State.suggestions.first)
@@ -879,11 +975,26 @@ struct WETests {
             note: nil,
             viewer: .dylan
         )
-        let mutualForRyan = await store.load(viewer: .ryan)
+        let stillPrivateForRyan = await store.load(viewer: .ryan)
         #expect(
-            mutualForRyan.v2State.approaches.filter {
-                $0.planID == planID && $0.revealedAt != nil
-            }.count == 2
+            stillPrivateForRyan.v2State.approaches.count == 1
+        )
+        #expect(
+            stillPrivateForRyan.v2State.approaches.first?.profileID == "ryan"
+        )
+        #expect(
+            stillPrivateForRyan.v2State.approaches.first?.approach == .gently
+        )
+        #expect(
+            stillPrivateForRyan.v2State.approaches.first?.note
+                == "Start softly"
+        )
+        let stillPrivateForDylan = await store.load(viewer: .dylan)
+        #expect(
+            stillPrivateForDylan.v2State.approaches.count == 1
+        )
+        #expect(
+            stillPrivateForDylan.v2State.approaches.first?.profileID == "dylan"
         )
     }
 
@@ -936,9 +1047,29 @@ struct WETests {
             try await cache.load(userID: "simulation-cache")
         )
 
-        #expect(restored.version == 2)
+        #expect(restored.version == CachedRelationship.currentVersion)
         #expect(restored.snapshot.v2State == snapshot.v2State)
         #expect(restored.snapshot.responsibilities == snapshot.responsibilities)
+    }
+
+    @Test
+    func submitResponseParametersCarryExplicitAIConsent() throws {
+        let encoded = try JSONEncoder().encode(
+            SubmitResponseParameters(
+                insightID: "insight-id",
+                choice: "Quiet and close",
+                note: "private",
+                consentsToAIProcessing: true
+            )
+        )
+        let object = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+
+        #expect(object["p_insight"] as? String == "insight-id")
+        #expect(object["p_choice"] as? String == "Quiet and close")
+        #expect(object["p_note"] as? String == "private")
+        #expect(object["p_ai_processing_consent"] as? Bool == true)
     }
 
     private func testPlan(

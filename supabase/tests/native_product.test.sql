@@ -70,10 +70,10 @@ select is(
   (
     select pronargdefaults
     from pg_proc
-    where oid = 'public.submit_response(uuid,text,text)'::regprocedure
+    where oid = 'public.submit_response(uuid,text,boolean,text)'::regprocedure
   ),
   1,
-  'response notes are optional at the PostgREST RPC boundary'
+  'response notes remain optional while AI consent is required'
 );
 select is(
   (

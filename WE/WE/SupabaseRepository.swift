@@ -1,6 +1,26 @@
 import Foundation
 import Supabase
 
+private struct SharedJourneyDTOBatch: Sendable {
+    let insights: [InsightDTO]
+    let consents: [ConsentDTO]
+    let responses: [ResponseDTO]
+    let directions: [SharedDirectionDTO]
+    let confirmations: [DirectionConfirmationDTO]
+    let passes: [JourneyPassDTO]
+    let journeys: [SharedJourneyDTO]
+
+    static let empty = SharedJourneyDTOBatch(
+        insights: [],
+        consents: [],
+        responses: [],
+        directions: [],
+        confirmations: [],
+        passes: [],
+        journeys: []
+    )
+}
+
 final class SupabaseRepository: Repository {
     private let client: SupabaseClient?
 
@@ -110,6 +130,71 @@ final class SupabaseRepository: Repository {
             .execute()
     }
 
+    func createInvitation() async throws {
+        _ = try await configuredClient().rpc("create_invitation").execute()
+    }
+
+    func revokeInvitation() async throws {
+        _ = try await configuredClient().rpc("revoke_invitation").execute()
+    }
+
+    /// The one read in the app that runs without a session.
+    ///
+    /// `invitation_greeting` is granted to `anon` because the person it
+    /// answers has no account at the moment they read it. Decoded from the raw
+    /// body rather than through `.value`: the function returns SQL null for
+    /// anything that is not live, and a top level `null` is not a value any
+    /// typed decode can be asked for.
+    func invitationGreeting(code: String) async throws -> InvitationGreeting? {
+        guard let code = PendingInvitation.normalized(code) else { return nil }
+        let response = try await configuredClient()
+            .rpc(
+                "invitation_greeting",
+                params: JoinCoupleParameters(code: code)
+            )
+            .execute()
+
+        guard
+            let dto = try? JSONDecoder().decode(
+                InvitationGreetingDTO.self,
+                from: response.data
+            ),
+            let hue = MemberHue(rawValue: dto.hue)
+        else { return nil }
+
+        let name = dto.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : InvitationGreeting(name: name, hue: hue)
+    }
+
+    func declineInvitation(code: String) async throws {
+        guard let code = PendingInvitation.normalized(code) else { return }
+        _ = try await configuredClient()
+            .rpc(
+                "decline_invitation",
+                params: JoinCoupleParameters(code: code)
+            )
+            .execute()
+    }
+
+    func registerDeviceToken(_ token: String) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "register_device_token",
+                params: DeviceTokenParameters(token: token)
+            )
+            .execute()
+    }
+
+    func forgetDeviceTokens() async throws {
+        _ = try await configuredClient()
+            .rpc("forget_device_tokens")
+            .execute()
+    }
+
+    func acknowledgeDeparture() async throws {
+        _ = try await configuredClient().rpc("acknowledge_departure").execute()
+    }
+
     func updateProfile(name: String, userID: String) async throws {
         _ = try await configuredClient()
             .from("profiles")
@@ -132,6 +217,77 @@ final class SupabaseRepository: Repository {
             )
             .eq("couple_id", value: membership.coupleID)
             .eq("profile_id", value: membership.profileID)
+            .execute()
+    }
+
+    func loadPrivateProposals(
+        for user: AuthenticatedUser
+    ) async throws -> [SavedPrivateProposal] {
+        let values: [PrivateProposalDTO] = try await configuredClient()
+            .from("private_proposals")
+            .select(
+                "id,owner_id,proposal_title,offered_title,offered_question,offered_options,preparation_method,prepared_at"
+            )
+            .eq("owner_id", value: user.id)
+            .order("prepared_at", ascending: false)
+            .execute()
+            .value
+
+        return try values.map { value in
+            guard value.ownerID == user.id else {
+                throw RepositoryError.invalidData(
+                    "private proposal ownership did not match"
+                )
+            }
+            guard let method = ProposalPreparationMethod(
+                rawValue: value.preparationMethod
+            ) else {
+                throw RepositoryError.invalidData(
+                    "unknown proposal preparation method"
+                )
+            }
+            return SavedPrivateProposal(
+                id: value.id,
+                title: value.title,
+                offeredTopic: OfferedTopic(
+                    title: value.offeredTitle,
+                    question: value.offeredQuestion,
+                    options: value.offeredOptions
+                ),
+                preparationMethod: method,
+                preparedAt: value.preparedAt
+            )
+        }
+    }
+
+    func claimPrivateProposal(_ proposal: PrivateProposal) async throws
+        -> String
+    {
+        let proposalID: String = try await configuredClient()
+            .rpc(
+                "claim_private_proposal",
+                params: ClaimPrivateProposalParameters(
+                    localID: proposal.id,
+                    sourceNote: proposal.sourceNote,
+                    title: proposal.title,
+                    offeredTitle: proposal.offeredTopic.title,
+                    offeredQuestion: proposal.offeredTopic.question,
+                    offeredOptions: proposal.offeredTopic.options,
+                    preparationMethod: proposal.preparationMethod.rawValue,
+                    createdAt: Self.timestamp(proposal.createdAt)
+                )
+            )
+            .execute()
+            .value
+        return proposalID
+    }
+
+    func offerPrivateProposal(id: String) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "offer_private_proposal",
+                params: OfferPrivateProposalParameters(proposalID: id)
+            )
             .execute()
     }
 
@@ -268,7 +424,8 @@ final class SupabaseRepository: Repository {
     func submitResponse(
         insightID: String,
         choice: String,
-        note: String?
+        note: String?,
+        consentsToAIProcessing: Bool
     ) async throws {
         _ = try await configuredClient()
             .rpc(
@@ -276,8 +433,44 @@ final class SupabaseRepository: Repository {
                 params: SubmitResponseParameters(
                     insightID: insightID,
                     choice: choice,
-                    note: note
+                    note: note,
+                    consentsToAIProcessing: consentsToAIProcessing
                 )
+            )
+            .execute()
+    }
+
+    func passJourneyQuestion(insightID: String) async throws {
+        try await runInsightRPC("pass_journey_question", insightID: insightID)
+    }
+
+    func recordJourneyQuestionShown(insightID: String) async throws {
+        try await runInsightRPC(
+            "record_journey_question_shown",
+            insightID: insightID
+        )
+    }
+
+    func confirmSharedDirection(
+        insightID: String,
+        decision: DirectionDecision
+    ) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "confirm_shared_direction",
+                params: DirectionDecisionParameters(
+                    insightID: insightID,
+                    decision: decision.rawValue
+                )
+            )
+            .execute()
+    }
+
+    func completeFieldJourney(journeyID: String) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "complete_field_journey",
+                params: ["p_journey": journeyID]
             )
             .execute()
     }
@@ -459,26 +652,28 @@ final class SupabaseRepository: Repository {
     {
         let client = try configuredClient()
         let channel = client.channel("we-couple")
+        // Relationship membership plus the shared-journey lifecycle. Field's
+        // remaining tables still use FieldSupabaseBackend's own channel.
+        //
+        // This channel used to register a `postgresChange` stream per V2 table
+        // on every launch, and every one of them woke the app to re-run a
+        // `loadRelationship` that no longer reads any of them. What is left is
+        // what the pre-couple flow actually depends on: `couple_members`, so
+        // the person waiting on a join code sees the moment somebody redeems
+        // it, and `relationship_archives`, which `AppSession.archives` reads.
+        //
+        // The Field zones do not use this channel at all — they have their
+        // own, in `FieldSupabaseBackend.changes()`, over `observedTables`.
         let tables = [
+            "couple_members",
+            "relationship_archives",
+            "insights",
             "insight_consent",
             "responses",
-            "couple_members",
-            "dismissals",
-            "insight_declines",
-            "reflections",
-            "plans",
-            "responsibilities",
-            "relationship_archives",
-            "relationship_presence",
-            "signal_consents",
-            "anchors",
-            "responsibility_handoffs",
-            "plan_approaches",
-            "relationship_events",
-            "seasons",
-            "contextual_suggestions",
-            "contextual_suggestion_dismissals",
-            "insight_grace",
+            "shared_directions",
+            "direction_confirmations",
+            "journey_passes",
+            "field_journeys",
         ]
         let sourceStreams = tables.map {
             channel.postgresChange(
@@ -578,36 +773,16 @@ final class SupabaseRepository: Repository {
             hueChosenAt: membershipDTO.hueChosenAt
         )
 
-        let localDate = Calendar.current.dateComponents(
-            [.year, .month, .day],
-            from: Date()
-        )
-        let localDateValue = String(
-            format: "%04d-%02d-%02d",
-            localDate.year ?? 1970,
-            localDate.month ?? 1,
-            localDate.day ?? 1
-        )
-        _ = try? await client
-            .rpc(
-                "refresh_shared_moments",
-                params: RefreshSharedMomentsParameters(
-                    localDate: localDateValue
-                )
-            )
-            .execute()
-        _ = try? await client
-            .rpc(
-                "refresh_contextual_suggestions",
-                params: RefreshSharedMomentsParameters(
-                    localDate: localDateValue
-                )
-            )
-            .execute()
+        if WEFeatureFlags.sharedJourneysEnabled {
+            _ = try await client.rpc("refresh_shared_journey_question").execute()
+        }
 
         async let couplesRequest: [CoupleDTO] = client
             .from("couples")
-            .select("id,join_code")
+            .select(
+                "id,join_code,join_code_expires_at,departed_at,"
+                    + "departure_seen_at"
+            )
             .eq("id", value: membership.coupleID)
             .limit(1)
             .execute()
@@ -616,196 +791,42 @@ final class SupabaseRepository: Repository {
             .from("couple_members")
             .select("profile_id,hue,profiles(name)")
             .eq("couple_id", value: membership.coupleID)
+            // `member_slot` is the database's stable A/B contract. Postgres
+            // row order is otherwise undefined, so leaving this implicit can
+            // swap sides between launches and persist the viewer's work under
+            // their partner.
+            .order("member_slot", ascending: true)
             .execute()
             .value
-        async let insightsRequest: [InsightDTO] = client
-            .from("insights")
-            .select("id,seed_key,kind,domain,present,title,body,evidence,source,options,sort")
-            .eq("couple_id", value: membership.coupleID)
-            .order("sort", ascending: true)
-            .execute()
-            .value
-        async let consentRequest: [ConsentDTO] = client
-            .from("insight_consent")
-            .select(
-                "insight_id,visibility,owner_id,readiness,initiator_id,requested_at,accepted_at,resolution_type,resolution_choice"
-            )
-            .execute()
-            .value
-        async let responsesRequest: [ResponseDTO] = client
-            .from("responses")
-            .select("insight_id,profile_id,status,choice,note")
-            .execute()
-            .value
-        async let reflectionsRequest: [ReflectionDTO] = client
-            .from("reflections")
-            .select("id,couple_id,owner_id,domain,kind,text")
-            .eq("owner_id", value: user.id)
-            .execute()
-            .value
-        async let dismissalsRequest: [DismissalDTO] = client
-            .from("dismissals")
-            .select("insight_id,profile_id")
-            .execute()
-            .value
-        async let declinesRequest: [InsightDeclineDTO] = client
-            .from("insight_declines")
-            .select("insight_id,profile_id")
-            .execute()
-            .value
-        async let graceRequest: [DeclineGraceDTO] = client
-            .from("insight_grace")
-            .select(
-                "insight_id,profile_id,decline_count,suppress_until"
-            )
-            .eq("profile_id", value: user.id)
-            .execute()
-            .value
-        async let partnerAnswerStatusesRequest:
-            [PartnerAnswerStatusDTO] = client
-            .rpc("partner_answer_statuses")
-            .execute()
-            .value
-        async let plansRequest: [PlanDTO] = client
-            .from("plans")
-            .select("id,couple_id,title,note,scheduled_on,status,completed_at,created_by,updated_by,created_at,updated_at")
-            .eq("couple_id", value: membership.coupleID)
-            .order("scheduled_on", ascending: true, nullsFirst: false)
-            .execute()
-            .value
-        async let responsibilitiesRequest: [ResponsibilityDTO] = client
-            .from("responsibilities")
-            .select(
-                "id,couple_id,title,note,owner_id,scheduled_on,related_plan_id,suggestion_provenance,status,completed_at,created_by,updated_by,created_at,updated_at"
-            )
-            .eq("couple_id", value: membership.coupleID)
-            .order("created_at", ascending: true)
-            .execute()
-            .value
-        async let presenceRequest: [PresenceDTO] = client
-            .from("relationship_presence")
-            .select("couple_id,mode,changed_by,changed_at")
-            .eq("couple_id", value: membership.coupleID)
-            .limit(1)
-            .execute()
-            .value
-        async let signalConsentsRequest: [SignalConsentDTO] = client
-            .from("signal_consents")
-            .select("couple_id,profile_id,signal,enabled,updated_at")
-            .eq("profile_id", value: user.id)
-            .execute()
-            .value
-        async let anchorsRequest: [AnchorDTO] = client
-            .from("anchors")
-            .select(
-                "id,couple_id,title,note,cadence,is_active,created_by,created_at,updated_at"
-            )
-            .eq("couple_id", value: membership.coupleID)
-            .order("created_at", ascending: true)
-            .execute()
-            .value
-        async let handoffsRequest: [HandoffDTO] = client
-            .from("responsibility_handoffs")
-            .select(
-                "id,responsibility_id,couple_id,from_profile_id,to_profile_id,status,created_at,responded_at"
-            )
-            .eq("couple_id", value: membership.coupleID)
-            .order("created_at", ascending: false)
-            .execute()
-            .value
-        async let approachesRequest: [ApproachDTO] = client
-            .from("plan_approaches")
-            .select(
-                "id,plan_id,profile_id,approach,note,revealed_at,created_at"
-            )
-            .eq("couple_id", value: membership.coupleID)
-            .execute()
-            .value
-        async let eventsRequest: [RelationshipEventDTO] = client
-            .from("relationship_events")
-            .select(
-                "id,couple_id,event_type,source_id,title,occurred_at,provenance"
-            )
-            .eq("couple_id", value: membership.coupleID)
-            .order("occurred_at", ascending: true)
-            .execute()
-            .value
-        async let seasonsRequest: [SeasonDTO] = client
-            .from("seasons")
-            .select(
-                "id,couple_id,sequence,starts_at,cutoff_at,title,summary,event_ids,provenance,created_at"
-            )
-            .eq("couple_id", value: membership.coupleID)
-            .order("sequence", ascending: true)
-            .execute()
-            .value
-        async let suggestionsRequest: [ContextualSuggestionDTO] = client
-            .from("contextual_suggestions")
-            .select(
-                "id,couple_id,kind,related_plan_id,title,proposed_responsibility_title,proposed_scheduled_on,evidence,provenance,created_at,is_eligible,confirmed_responsibility_id"
-            )
-            .eq("couple_id", value: membership.coupleID)
-            .eq("is_eligible", value: true)
-            .is("confirmed_responsibility_id", value: nil)
-            .order("created_at", ascending: true)
-            .execute()
-            .value
-        async let suggestionDismissalsRequest:
-            [ContextualSuggestionDismissalDTO] = client
-            .from("contextual_suggestion_dismissals")
-            .select("suggestion_id")
-            .eq("profile_id", value: user.id)
-            .execute()
-            .value
-
-        let (
-            coupleDTOs,
-            memberDTOs,
-            insightDTOs,
-            consentDTOs,
-            responseDTOs,
-            reflectionDTOs,
-            dismissalDTOs,
-            declineDTOs,
-            planDTOs,
-            responsibilityDTOs
-        ) = try await (
+        async let sharedJourneyRequest = loadSharedJourneyDTOs(
+            client: client,
+            userID: user.id,
+            coupleID: membership.coupleID,
+            enabled: WEFeatureFlags.sharedJourneysEnabled
+        )
+        // The V2 relationship layer is not fetched.
+        //
+        // `WEApp.content` hands the screen to `FieldRoot` the moment the
+        // session is ready, so `ContentView` and `ProfileView` — the only
+        // things that ever rendered any of this — now carry the states that
+        // come *before* a couple exists. `Field/CUTOVER.md`: "The zones are
+        // the app." Everything below used to run anyway: twenty-one parallel
+        // selects and two seeding RPCs on every cold start, for surfaces no
+        // signed-in, paired person can reach.
+        //
+        // Fetched still, because the pre-couple flow genuinely needs them:
+        // the profile, this person's archives, their membership, the couple's
+        // join code, and the two members.
+        //
+        // The tables, their RLS, and their RPCs are all untouched. Deleting
+        // client work is reversible in an afternoon; dropping tables is not,
+        // and "unused by today's UI" is weaker evidence than "unused after
+        // real beta behaviour". Revisit after beta.
+        let (coupleDTOs, memberDTOs, journeyDTOs) = try await (
             couplesRequest,
             membersRequest,
-            insightsRequest,
-            consentRequest,
-            responsesRequest,
-            reflectionsRequest,
-            dismissalsRequest,
-            declinesRequest,
-            plansRequest,
-            responsibilitiesRequest
+            sharedJourneyRequest
         )
-
-        let (
-            presenceDTOs,
-            signalConsentDTOs,
-            anchorDTOs,
-            handoffDTOs,
-            approachDTOs,
-            eventDTOs,
-            seasonDTOs,
-            suggestionDTOs,
-            suggestionDismissalDTOs
-        ) = try await (
-            presenceRequest,
-            signalConsentsRequest,
-            anchorsRequest,
-            handoffsRequest,
-            approachesRequest,
-            eventsRequest,
-            seasonsRequest,
-            suggestionsRequest,
-            suggestionDismissalsRequest
-        )
-        let graceDTOs = try await graceRequest
-        let partnerAnswerStatusDTOs =
-            try await partnerAnswerStatusesRequest
 
         let members = try memberDTOs.map {
             try Member(
@@ -814,90 +835,154 @@ final class SupabaseRepository: Repository {
                 hue: memberHue($0.hue)
             )
         }
-        let consentByInsight = try Dictionary(
-            uniqueKeysWithValues: consentDTOs.map {
-                try ($0.insightID, consent($0))
+        let consents = try Dictionary(
+            uniqueKeysWithValues: journeyDTOs.consents.map {
+                ($0.insightID, try consent($0))
             }
         )
-        var responsesByInsight = try Dictionary(
-            grouping: responseDTOs.map(response),
+        let responses = try Dictionary(
+            grouping: journeyDTOs.responses.map(response),
             by: \.insightID
         )
-        for status in partnerAnswerStatusDTOs where status.hasAnswered {
-            guard !responsesByInsight[
-                status.insightID,
-                default: []
-            ].contains(where: { $0.profileID == status.profileID })
-            else { continue }
-            responsesByInsight[status.insightID, default: []].append(
-                InsightResponse(
-                    insightID: status.insightID,
-                    profileID: status.profileID,
-                    status: .submitted,
-                    choice: nil,
-                    note: nil
-                )
-            )
-        }
-        let dismissalsByInsight = Dictionary(
-            grouping: dismissalDTOs,
-            by: \.insightID
+        let directions = try Dictionary(
+            uniqueKeysWithValues: journeyDTOs.directions.map {
+                ($0.insightID, try sharedDirection($0))
+            }
         )
-        let declinesByInsight = Dictionary(
-            grouping: declineDTOs,
-            by: \.insightID
-        )
-        let insights = try insightDTOs.map { dto in
+        let insights = try journeyDTOs.insights.map { dto in
             let value = try insight(dto)
             return InsightRecord(
                 insight: value,
-                consent: consentByInsight[value.id],
-                responses: responsesByInsight[value.id] ?? [],
-                dismissedBy: Set(
-                    dismissalsByInsight[value.id, default: []].map(\.profileID)
-                ),
-                declinedBy: Set(
-                    declinesByInsight[value.id, default: []].map(\.profileID)
-                )
+                consent: consents[value.id],
+                responses: responses[value.id] ?? [],
+                sharedDirection: directions[value.id],
+                dismissedBy: [],
+                declinedBy: []
             )
         }
-        let dismissedSuggestionIDs = Set(
-            suggestionDismissalDTOs.map(\.suggestionID)
+        let confirmations = try journeyDTOs.confirmations.map(
+            directionConfirmation
         )
+        let passes = journeyDTOs.passes.map {
+            JourneyPass(
+                insightID: $0.insightID,
+                profileID: $0.profileID,
+                passedAt: $0.passedAt
+            )
+        }
+        let journeys = try journeyDTOs.journeys.map(sharedJourney)
 
-        return try RelationshipSnapshot(
+        return RelationshipSnapshot(
             profile: profile,
             membership: membership,
             couple: coupleDTOs.first.map {
-                Couple(id: $0.id, joinCode: $0.joinCode)
+                Couple(
+                    id: $0.id,
+                    joinCode: $0.joinCode,
+                    invitationExpiresAt: $0.invitationExpiry,
+                    departedAt: $0.departed,
+                    departureSeenAt: $0.departureSeen
+                )
             },
             members: members,
             insights: insights,
-            reflections: reflectionDTOs.map(reflection),
-            plans: planDTOs.map(plan),
-            responsibilities: responsibilityDTOs.map {
-                try responsibility($0, userID: user.id)
-            },
+            reflections: [],
+            plans: [],
+            responsibilities: [],
             archives: archives,
             syncedAt: Date(),
-            v2: V2RelationshipState(
-                presence: try presenceDTOs.first.map(presence),
-                signalConsents: try signalConsentDTOs.map(signalConsent),
-                anchors: try anchorDTOs.map(anchor),
-                handoffs: try handoffDTOs.map(handoff),
-                approaches: try approachDTOs.map(approach),
-                events: try eventDTOs.map(relationshipEvent),
-                seasons: seasonDTOs.map(season),
-                suggestions: try suggestionDTOs.map {
-                    try contextualSuggestion(
-                        $0,
-                        dismissed: dismissedSuggestionIDs.contains($0.id)
-                    )
-                },
-                declineGrace: graceDTOs.map(declineGrace)
-            )
+            v2: .empty,
+            directionConfirmations: confirmations,
+            journeyPasses: passes,
+            journeys: journeys
         )
     }
+
+    /// The feature flag gates the schema read as well as the interface. That
+    /// makes rollback safe while a migration or worker deployment is still
+    /// being staged: a live client with the flag off never references the new
+    /// tables or columns.
+    private func loadSharedJourneyDTOs(
+        client: SupabaseClient,
+        userID: String,
+        coupleID: String,
+        enabled: Bool
+    ) async throws -> SharedJourneyDTOBatch {
+        guard enabled else { return .empty }
+
+        async let insightsRequest: [InsightDTO] = client
+            .from("insights")
+            .select(
+                "id,seed_key,kind,domain,present,title,body,evidence,source,"
+                    + "options,sort,journey_scope,trigger_provenance,"
+                    + "subject_references,expires_at,context_snapshot"
+            )
+            .eq("couple_id", value: coupleID)
+            .eq("present", value: true)
+            .order("sort", ascending: true)
+            .execute()
+            .value
+        async let consentsRequest: [ConsentDTO] = client
+            .from("insight_consent")
+            .select(
+                "insight_id,visibility,owner_id,readiness,initiator_id,"
+                    + "requested_at,accepted_at,resolution_type,resolution_choice"
+            )
+            .execute()
+            .value
+        async let responsesRequest: [ResponseDTO] = client
+            .from("responses")
+            .select("insight_id,profile_id,status,choice,note")
+            .eq("profile_id", value: userID)
+            .execute()
+            .value
+        async let directionsRequest: [SharedDirectionDTO] = client
+            .from("shared_directions")
+            .select(
+                "insight_id,couple_id,direction_key,eyebrow,title,message,"
+                    + "symbol,created_at,summary,rationale,proposed_actions,"
+                    + "synthesis_version,expires_at,status"
+            )
+            .execute()
+            .value
+        async let confirmationsRequest: [DirectionConfirmationDTO] = client
+            .from("direction_confirmations")
+            .select("insight_id,profile_id,decision,decided_at")
+            .eq("profile_id", value: userID)
+            .execute()
+            .value
+        async let passesRequest: [JourneyPassDTO] = client
+            .from("journey_passes")
+            .select("insight_id,profile_id,passed_at")
+            .eq("profile_id", value: userID)
+            .execute()
+            .value
+        async let journeysRequest: [SharedJourneyDTO] = client
+            .from("field_journeys")
+            .select(
+                "id,insight_id,direction_id,scope,title,summary,rationale,"
+                    + "evidence,next_move,horizon_id,status,activated_at,"
+                    + "subject_references"
+            )
+            .eq("couple_id", value: coupleID)
+            .eq("status", value: "active")
+            .execute()
+            .value
+
+        return try await SharedJourneyDTOBatch(
+            insights: insightsRequest,
+            consents: consentsRequest,
+            responses: responsesRequest,
+            directions: directionsRequest,
+            confirmations: confirmationsRequest,
+            passes: passesRequest,
+            journeys: journeysRequest
+        )
+    }
+
+    /// The session lives in the Keychain, which the system does not remove
+    /// when the app is deleted.
+    var persistsCredentialsAcrossInstalls: Bool { true }
 
     private func configuredClient() throws -> SupabaseClient {
         guard let client else { throw RepositoryError.missingConfiguration }
@@ -915,7 +1000,9 @@ final class SupabaseRepository: Repository {
 
     private func authenticatedUser(_ user: User) -> AuthenticatedUser {
         AuthenticatedUser(
-            id: user.id.uuidString,
+            // Postgres renders UUIDs lowercase; Swift's uuidString is
+            // uppercase. Match Postgres so ID comparisons hold.
+            id: user.id.uuidString.lowercased(),
             email: user.email ?? ""
         )
     }
@@ -986,7 +1073,16 @@ final class SupabaseRepository: Repository {
             evidence: dto.evidence,
             source: dto.source,
             actionTitle: kind == .logistical ? "Shape a plan" : "Open together",
-            options: dto.options
+            options: dto.options,
+            journeyScope: dto.journeyScope.flatMap(JourneyScope.init(rawValue:))
+                ?? .longTerm,
+            triggerProvenance: dto.triggerProvenance.flatMap(
+                JourneyTriggerProvenance.init(rawValue:)
+            ),
+            subjectReferences: dto.subjectReferences ?? [],
+            expiresAt: dto.expiresAt,
+            contextSnapshot: dto.contextSnapshot,
+            sort: dto.sort
         )
     }
 
@@ -1025,9 +1121,81 @@ final class SupabaseRepository: Repository {
         return InsightResponse(
             insightID: dto.insightID,
             profileID: dto.profileID,
-            status: status,
+            status: status == .revealed ? .submitted : status,
             choice: dto.choice,
             note: dto.note
+        )
+    }
+
+    private func sharedDirection(
+        _ dto: SharedDirectionDTO
+    ) throws -> SharedDirection {
+        let status = dto.status.flatMap(SharedDirectionStatus.init(rawValue:))
+            ?? .proposed
+        let actions = try (dto.proposedActions ?? []).map { value in
+            guard let kind = JourneyActionKind(rawValue: value.kind) else {
+                throw RepositoryError.invalidData("unknown journey action kind")
+            }
+            return ProposedJourneyAction(
+                id: value.id,
+                kind: kind,
+                title: value.title,
+                category: value.category,
+                detail: value.detail,
+                dueOn: value.dueOn
+            )
+        }
+        return SharedDirection(
+            insightID: dto.insightID,
+            key: dto.key,
+            eyebrow: dto.eyebrow,
+            title: dto.title,
+            message: dto.message,
+            symbol: dto.symbol,
+            createdAt: dto.createdAt,
+            summary: dto.summary,
+            rationale: dto.rationale,
+            proposedActions: actions,
+            synthesisVersion: dto.synthesisVersion ?? "legacy",
+            expiresAt: dto.expiresAt,
+            status: status
+        )
+    }
+
+    private func directionConfirmation(
+        _ dto: DirectionConfirmationDTO
+    ) throws -> DirectionConfirmation {
+        guard let decision = DirectionDecision(rawValue: dto.decision) else {
+            throw RepositoryError.invalidData("unknown direction decision")
+        }
+        return DirectionConfirmation(
+            insightID: dto.insightID,
+            profileID: dto.profileID,
+            decision: decision,
+            decidedAt: dto.decidedAt
+        )
+    }
+
+    private func sharedJourney(_ dto: SharedJourneyDTO) throws -> SharedJourney {
+        guard let scope = JourneyScope(rawValue: dto.scope),
+              let status = SharedJourneyStatus(rawValue: dto.status)
+        else {
+            throw RepositoryError.invalidData("unknown shared journey state")
+        }
+        return SharedJourney(
+            id: dto.id,
+            insightID: dto.insightID,
+            directionID: dto.directionID,
+            scope: scope,
+            title: dto.title,
+            summary: dto.summary,
+            rationale: dto.rationale,
+            evidence: Array(dto.evidence.prefix(3)),
+            nextMove: dto.nextMove,
+            horizonID: dto.horizonID,
+            status: status,
+            activatedAt: dto.activatedAt,
+            subjectReferences: dto.subjectReferences ?? []
         )
     }
 
@@ -1167,7 +1335,6 @@ final class SupabaseRepository: Repository {
             profileID: dto.profileID,
             approach: value,
             note: dto.note,
-            revealedAt: dto.revealedAt,
             createdAt: dto.createdAt
         )
     }

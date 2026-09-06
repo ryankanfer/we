@@ -5,12 +5,32 @@ import Foundation
 final class SessionHost: ObservableObject {
     static let simulationEmail = "kanfer.ryan@gmail.com"
 
-    @Published private(set) var session: AppSession
+    @Published private(set) var session: AppSession {
+        didSet { observeSession() }
+    }
     @Published private(set) var mode: AppMode = .actual
     @Published private(set) var viewer: SimulationViewer = .ryan
 
     private let environment: AppEnvironment
     private let simulationStore: SimulationStore
+
+    /// Forwards the session's own changes as changes to the host.
+    ///
+    /// `@Published var session` only fires when the *reference* is replaced,
+    /// never when `session.state` changes inside it — so any view observing
+    /// `SessionHost` and reading `session.state` would never re-render.
+    /// `WEApp` is exactly that view, and the consequences were invisible
+    /// rather than obviously broken: signing out left the zones on screen,
+    /// and the Living Confluence Promise never appeared at all, because the
+    /// switch that chooses between them was evaluated once and never again.
+    private var sessionObserver: AnyCancellable?
+
+    private func observeSession() {
+        sessionObserver = session.objectWillChange.sink {
+            [weak self] _ in
+            self?.objectWillChange.send()
+        }
+    }
 
     convenience init() {
         self.init(environment: .current)
@@ -35,6 +55,10 @@ final class SessionHost: ObservableObject {
         } else {
             session = Self.makeActualSession(environment: environment)
         }
+
+        // `didSet` does not fire for assignments made during init, so the
+        // first session has to be subscribed to by hand.
+        observeSession()
     }
 
     var canUseSimulation: Bool {
@@ -175,18 +199,26 @@ actor SimulationStore {
                 insight: record.insight,
                 consent: record.consent,
                 responses: record.responses.map { response in
-                    guard response.profileID != viewer.userID,
-                          response.status != .revealed else {
-                        return response
+                    if response.profileID == viewer.userID {
+                        return InsightResponse(
+                            insightID: response.insightID,
+                            profileID: response.profileID,
+                            status: response.status == .revealed
+                                ? .submitted : response.status,
+                            choice: response.choice,
+                            note: response.note
+                        )
                     }
                     return InsightResponse(
                         insightID: response.insightID,
                         profileID: response.profileID,
-                        status: response.status,
+                        status: response.status == .revealed
+                            ? .submitted : response.status,
                         choice: nil,
                         note: nil
                     )
                 },
+                sharedDirection: record.sharedDirection,
                 dismissedBy: record.dismissedBy.intersection(
                     [viewer.userID]
                 ),
@@ -206,7 +238,7 @@ actor SimulationStore {
             anchors: v2.anchors,
             handoffs: v2.handoffs,
             approaches: v2.approaches.filter {
-                $0.profileID == viewer.userID || $0.revealedAt != nil
+                $0.profileID == viewer.userID
             },
             events: v2.events,
             seasons: v2.seasons,
@@ -570,25 +602,9 @@ actor SimulationStore {
                 profileID: viewer.userID,
                 approach: approach,
                 note: note,
-                revealedAt: nil,
                 createdAt: Self.timestamp
             )
         )
-        if values.filter({ $0.planID == planID }).count == 2 {
-            let revealedAt = Self.timestamp
-            values = values.map { value in
-                guard value.planID == planID else { return value }
-                return PlanApproach(
-                    id: value.id,
-                    planID: value.planID,
-                    profileID: value.profileID,
-                    approach: value.approach,
-                    note: value.note,
-                    revealedAt: value.revealedAt ?? revealedAt,
-                    createdAt: value.createdAt
-                )
-            }
-        }
         replace(approaches: values)
     }
 
@@ -812,6 +828,7 @@ actor SimulationStore {
                     note: $0.value.note
                 )
             },
+            sharedDirection: state.sharedDirection,
             dismissedBy: state.dismissedBy,
             declinedBy: state.declinedBy
         )
@@ -1139,6 +1156,24 @@ actor SimulationRepository: Repository {
 
     func createCouple() async throws {}
     func joinCouple(code: String) async throws {}
+    func createInvitation() async throws {}
+    func revokeInvitation() async throws {}
+    func declineInvitation(code: String) async throws {}
+    func registerDeviceToken(_ token: String) async throws {}
+    func forgetDeviceTokens() async throws {}
+
+    /// The other person in the simulation, which is who would be waiting.
+    func invitationGreeting(code: String) async throws -> InvitationGreeting? {
+        guard PendingInvitation.normalized(code) != nil else { return nil }
+        let snapshot = await store.load(viewer: viewer)
+        guard
+            let partner = snapshot.members.first(
+                where: { $0.id != viewer.userID }
+            )
+        else { return nil }
+        return InvitationGreeting(name: partner.name, hue: partner.hue)
+    }
+    func acknowledgeDeparture() async throws {}
 
     func updateProfile(name: String, userID: String) async throws {
         await store.updateProfile(viewer: viewer, name: name)
@@ -1246,14 +1281,29 @@ actor SimulationRepository: Repository {
     func submitResponse(
         insightID: String,
         choice: String,
-        note: String?
+        note: String?,
+        consentsToAIProcessing: Bool
     ) async throws {
+        guard consentsToAIProcessing else {
+            throw RepositoryError.invalidData(
+                "AI processing permission is required for a shared direction"
+            )
+        }
         try await store.mutateInsight(
             insightID,
             viewer: viewer,
             action: .submit(choice: choice, note: note)
         )
     }
+
+    func passJourneyQuestion(insightID: String) async throws {}
+
+    func confirmSharedDirection(
+        insightID: String,
+        decision: DirectionDecision
+    ) async throws {}
+
+    func completeFieldJourney(journeyID: String) async throws {}
 
     func resolveInsight(
         insightID: String,

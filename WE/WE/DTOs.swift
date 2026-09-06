@@ -156,14 +156,12 @@ nonisolated struct ApproachDTO: Decodable, Sendable {
     let profileID: String
     let approach: String
     let note: String?
-    let revealedAt: String?
     let createdAt: String
 
     enum CodingKeys: String, CodingKey {
         case id, approach, note
         case planID = "plan_id"
         case profileID = "profile_id"
-        case revealedAt = "revealed_at"
         case createdAt = "created_at"
     }
 }
@@ -380,9 +378,32 @@ nonisolated struct CoupleDTO: Decodable, Sendable {
     let id: String
     let joinCode: String
 
+    /// Decoded as a string and parsed at the edge, matching `yoursDate` in
+    /// `YoursSupabaseBackend.swift:69`: Postgres emits `timestamptz` with
+    /// fractional seconds sometimes and without them others, and guessing one
+    /// gives you a silent nil rather than an error.
+    let joinCodeExpiresAt: String?
+    let departedAt: String?
+    let departureSeenAt: String?
+
     enum CodingKeys: String, CodingKey {
         case id
         case joinCode = "join_code"
+        case joinCodeExpiresAt = "join_code_expires_at"
+        case departedAt = "departed_at"
+        case departureSeenAt = "departure_seen_at"
+    }
+
+    /// Absent rather than null when an older client's `select` list did not
+    /// ask for the column — decoding must not start failing for that.
+    var invitationExpiry: Date? { Self.parse(joinCodeExpiresAt) }
+    var departed: Date? { Self.parse(departedAt) }
+    var departureSeen: Date? { Self.parse(departureSeenAt) }
+
+    private static func parse(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        return ISO8601DateFormatter.weFlexible.date(from: value)
+            ?? ISO8601DateFormatter.we.date(from: value)
     }
 }
 
@@ -410,6 +431,11 @@ nonisolated struct InsightDTO: Decodable, Sendable {
     let source: String
     let options: [String]
     let sort: Int
+    let journeyScope: String?
+    let triggerProvenance: String?
+    let subjectReferences: [JourneySubjectReference]?
+    let expiresAt: String?
+    let contextSnapshot: JourneyContextSnapshot?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -423,6 +449,11 @@ nonisolated struct InsightDTO: Decodable, Sendable {
         case source
         case options
         case sort
+        case journeyScope = "journey_scope"
+        case triggerProvenance = "trigger_provenance"
+        case subjectReferences = "subject_references"
+        case expiresAt = "expires_at"
+        case contextSnapshot = "context_snapshot"
     }
 }
 
@@ -466,6 +497,123 @@ nonisolated struct ResponseDTO: Decodable, Sendable {
     }
 }
 
+nonisolated struct SharedDirectionDTO: Decodable, Sendable {
+    let insightID: String
+    let coupleID: String
+    let key: String
+    let eyebrow: String
+    let title: String
+    let message: String
+    let symbol: String
+    let createdAt: String
+    let summary: String?
+    let rationale: String?
+    let proposedActions: [JourneyActionDTO]?
+    let synthesisVersion: String?
+    let expiresAt: String?
+    let status: String?
+
+    enum CodingKeys: String, CodingKey {
+        case insightID = "insight_id"
+        case coupleID = "couple_id"
+        case key = "direction_key"
+        case eyebrow, title, message, symbol
+        case createdAt = "created_at"
+        case summary, rationale, status
+        case proposedActions = "proposed_actions"
+        case synthesisVersion = "synthesis_version"
+        case expiresAt = "expires_at"
+    }
+}
+
+nonisolated struct JourneyActionDTO: Decodable, Sendable {
+    let id: String
+    let kind: String
+    let title: String
+    let category: String
+    let detail: String?
+    let dueOn: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, kind, title, category, detail
+        case dueOn = "due_on"
+    }
+}
+
+nonisolated struct DirectionConfirmationDTO: Decodable, Sendable {
+    let insightID: String
+    let profileID: String
+    let decision: String
+    let decidedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case insightID = "insight_id"
+        case profileID = "profile_id"
+        case decision
+        case decidedAt = "decided_at"
+    }
+}
+
+nonisolated struct JourneyPassDTO: Decodable, Sendable {
+    let insightID: String
+    let profileID: String
+    let passedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case insightID = "insight_id"
+        case profileID = "profile_id"
+        case passedAt = "passed_at"
+    }
+}
+
+nonisolated struct SharedJourneyDTO: Decodable, Sendable {
+    let id: String
+    let insightID: String
+    let directionID: String
+    let scope: String
+    let title: String
+    let summary: String
+    let rationale: String
+    let evidence: [String]
+    let nextMove: String?
+    let horizonID: String?
+    let status: String
+    let activatedAt: String
+    let subjectReferences: [JourneySubjectReference]?
+
+    enum CodingKeys: String, CodingKey {
+        case id, scope, title, summary, rationale, evidence, status
+        case insightID = "insight_id"
+        case directionID = "direction_id"
+        case nextMove = "next_move"
+        case horizonID = "horizon_id"
+        case activatedAt = "activated_at"
+        case subjectReferences = "subject_references"
+    }
+}
+
+nonisolated struct PrivateProposalDTO: Decodable, Sendable {
+    let id: String
+    let ownerID: String
+    let title: String
+    let offeredTitle: String
+    let offeredQuestion: String
+    let offeredOptions: [String]
+    let preparationMethod: String
+    let preparedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case ownerID = "owner_id"
+        case title = "proposal_title"
+        case offeredTitle = "offered_title"
+        case offeredQuestion = "offered_question"
+        case offeredOptions = "offered_options"
+        case preparationMethod = "preparation_method"
+        case preparedAt = "prepared_at"
+    }
+}
+
 nonisolated struct ReflectionDTO: Decodable, Sendable {
     let id: String
     let coupleID: String
@@ -504,6 +652,19 @@ nonisolated struct InsightDeclineDTO: Decodable, Sendable {
     }
 }
 
+nonisolated struct InvitationGreetingDTO: Decodable, Sendable {
+    let name: String
+    let hue: String
+}
+
+nonisolated struct DeviceTokenParameters: Encodable, Sendable {
+    let token: String
+
+    enum CodingKeys: String, CodingKey {
+        case token = "p_token"
+    }
+}
+
 nonisolated struct JoinCoupleParameters: Encodable, Sendable {
     let code: String
 
@@ -524,11 +685,53 @@ nonisolated struct SubmitResponseParameters: Encodable, Sendable {
     let insightID: String
     let choice: String
     let note: String?
+    let consentsToAIProcessing: Bool
 
     enum CodingKeys: String, CodingKey {
         case insightID = "p_insight"
         case choice = "p_choice"
         case note = "p_note"
+        case consentsToAIProcessing = "p_ai_processing_consent"
+    }
+}
+
+nonisolated struct DirectionDecisionParameters: Encodable, Sendable {
+    let insightID: String
+    let decision: String
+
+    enum CodingKeys: String, CodingKey {
+        case insightID = "p_insight"
+        case decision = "p_decision"
+    }
+}
+
+nonisolated struct ClaimPrivateProposalParameters: Encodable, Sendable {
+    let localID: UUID
+    let sourceNote: String
+    let title: String
+    let offeredTitle: String
+    let offeredQuestion: String
+    let offeredOptions: [String]
+    let preparationMethod: String
+    let createdAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case localID = "p_local_id"
+        case sourceNote = "p_source_note"
+        case title = "p_title"
+        case offeredTitle = "p_offered_title"
+        case offeredQuestion = "p_offered_question"
+        case offeredOptions = "p_offered_options"
+        case preparationMethod = "p_preparation_method"
+        case createdAt = "p_created_at"
+    }
+}
+
+nonisolated struct OfferPrivateProposalParameters: Encodable, Sendable {
+    let proposalID: String
+
+    enum CodingKeys: String, CodingKey {
+        case proposalID = "p_proposal"
     }
 }
 

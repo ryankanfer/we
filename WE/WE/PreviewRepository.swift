@@ -10,6 +10,8 @@ actor PreviewRepository: Repository {
     private let choosingHueSnapshot: RelationshipSnapshot
     private let configuredSignUpResult: SignUpResult?
     private let acceptedDeletionPassword: String?
+    private var privateProposals: [String: PrivateProposal] = [:]
+    private var offeredProposalIDs: Set<String> = []
 
     init(
         scenario: PreviewScenario = .ready,
@@ -37,6 +39,9 @@ actor PreviewRepository: Repository {
         case .waiting: PreviewData.waitingSnapshot
         case .archived, .signedOut: PreviewData.archivedSnapshot
         case .choosingHue: PreviewData.choosingHueSnapshot
+        case .journeyHeld: PreviewData.journeyHeldSnapshot
+        case .journeyProposal: PreviewData.journeyProposalSnapshot
+        case .journeyActive: PreviewData.journeyActiveSnapshot
         }
     }
 
@@ -106,11 +111,59 @@ actor PreviewRepository: Repository {
 
     func createCouple() async throws {
         snapshot = waitingSnapshot
+        try await createInvitation()
     }
 
     func joinCouple(code: String) async throws {
         snapshot = choosingHueSnapshot
     }
+
+    /// A fresh window on the existing preview code. The preview fixture has
+    /// no invitation table behind it, so this moves the only thing the
+    /// screens actually read.
+    func createInvitation() async throws {
+        snapshot = replacing(
+            couple: snapshot.couple.map {
+                Couple(
+                    id: $0.id,
+                    joinCode: $0.joinCode,
+                    invitationExpiresAt: Date().addingTimeInterval(7 * 86_400)
+                )
+            }
+        )
+    }
+
+    /// The fixture's own inviter, for any code the field will accept.
+    ///
+    /// There is no invitation table behind the preview, so this answers from
+    /// the same snapshot every other preview screen is drawn from — which is
+    /// what makes the invited person's first screen previewable at all.
+    func invitationGreeting(code: String) async throws -> InvitationGreeting? {
+        guard PendingInvitation.normalized(code) != nil else { return nil }
+        guard let member = waitingSnapshot.members.first else { return nil }
+        return InvitationGreeting(name: member.name, hue: member.hue)
+    }
+
+    func declineInvitation(code: String) async throws {
+        try await revokeInvitation()
+    }
+
+    func registerDeviceToken(_ token: String) async throws {}
+    func forgetDeviceTokens() async throws {}
+
+    func revokeInvitation() async throws {
+        snapshot = replacing(
+            couple: snapshot.couple.map {
+                Couple(
+                    id: $0.id,
+                    joinCode: $0.joinCode,
+                    invitationExpiresAt: nil
+                )
+            }
+        )
+    }
+
+    func acknowledgeDeparture() async throws {}
 
     func updateProfile(name: String, userID: String) async throws {
         snapshot = replacing(profile: Profile(id: userID, name: name))
@@ -127,6 +180,49 @@ actor PreviewRepository: Repository {
             hueChosenAt: ISO8601DateFormatter().string(from: Date())
         )
         snapshot = replacing(membership: updated)
+    }
+
+    func loadPrivateProposals(
+        for user: AuthenticatedUser
+    ) async throws -> [SavedPrivateProposal] {
+        guard currentUser?.id == user.id else {
+            throw RepositoryError.invalidSession(user)
+        }
+        return privateProposals.values
+            .map {
+                SavedPrivateProposal(
+                    serverID: $0.id.uuidString.lowercased(),
+                    proposal: $0
+                )
+            }
+            .sorted { $0.preparedAt > $1.preparedAt }
+    }
+
+    func claimPrivateProposal(_ proposal: PrivateProposal) async throws
+        -> String
+    {
+        guard currentUser != nil else {
+            throw RepositoryError.invalidData(
+                "an account is required to keep this proposal"
+            )
+        }
+        let id = proposal.id.uuidString.lowercased()
+        privateProposals[id] = proposal
+        return id
+    }
+
+    func offerPrivateProposal(id: String) async throws {
+        guard privateProposals[id] != nil else {
+            throw RepositoryError.invalidData(
+                "the private proposal has not been kept"
+            )
+        }
+        guard snapshot.couple != nil else {
+            throw RepositoryError.invalidData(
+                "a WE space is required before offering this"
+            )
+        }
+        offeredProposalIDs.insert(id)
     }
 
     func createPlan(_ input: PlanInput, coupleID: String) async throws {
@@ -327,8 +423,14 @@ actor PreviewRepository: Repository {
     func submitResponse(
         insightID: String,
         choice: String,
-        note: String?
+        note: String?,
+        consentsToAIProcessing: Bool
     ) async throws {
+        guard consentsToAIProcessing else {
+            throw RepositoryError.invalidData(
+                "AI processing permission is required for a shared direction"
+            )
+        }
         try updateInsight(insightID) { state, userID in
             try TrustCore.submitResponse(
                 state,
@@ -337,6 +439,84 @@ actor PreviewRepository: Repository {
                 note: note
             )
         }
+        synthesizePreviewDirectionIfReady(insightID: insightID)
+    }
+
+    func passJourneyQuestion(insightID: String) async throws {
+        guard let userID = currentUser?.id else {
+            throw RepositoryError.invalidData("an account is required")
+        }
+        let pass = JourneyPass(
+            insightID: insightID,
+            profileID: userID,
+            passedAt: ISO8601DateFormatter.we.string(from: Date())
+        )
+        snapshot = replacing(
+            journeyPasses: snapshot.journeyPasses
+                .filter { !($0.insightID == insightID && $0.profileID == userID) }
+                + [pass]
+        )
+    }
+
+    /// Completes outright rather than waiting for a second call. The preview
+    /// repository has one person in it, and modelling a handshake that cannot
+    /// be completed would make the gallery show a state a real couple leaves
+    /// in a moment.
+    func completeFieldJourney(journeyID: String) async throws {
+        snapshot.journeys = snapshot.journeys.map { journey in
+            guard journey.id == journeyID else { return journey }
+            var completed = journey
+            completed.status = .completed
+            return completed
+        }
+    }
+
+    func confirmSharedDirection(
+        insightID: String,
+        decision: DirectionDecision
+    ) async throws {
+        guard let userID = currentUser?.id else {
+            throw RepositoryError.invalidData("an account is required")
+        }
+        let value = DirectionConfirmation(
+            insightID: insightID,
+            profileID: userID,
+            decision: decision,
+            decidedAt: ISO8601DateFormatter.we.string(from: Date())
+        )
+        let confirmations = snapshot.directionConfirmations
+            .filter { !($0.insightID == insightID && $0.profileID == userID) }
+            + [value]
+        var journeys = snapshot.journeys
+        if decision == .choose,
+           Set(confirmations.filter {
+               $0.insightID == insightID && $0.decision == .choose
+           }.map(\.profileID)).count >= 2,
+           !journeys.contains(where: { $0.insightID == insightID }),
+           let record = snapshot.insights.first(where: { $0.id == insightID }),
+           let direction = record.sharedDirection {
+            journeys.append(SharedJourney(
+                id: "preview-journey-\(insightID)",
+                insightID: insightID,
+                directionID: insightID,
+                scope: record.insight.journeyScope,
+                title: direction.title,
+                summary: direction.displaySummary,
+                rationale: direction.displayRationale,
+                evidence: Array(
+                    (record.insight.contextSnapshot?.evidence
+                        ?? [record.insight.evidence]).prefix(3)
+                ),
+                nextMove: direction.proposedActions.first?.title,
+                horizonID: nil,
+                status: .active,
+                activatedAt: ISO8601DateFormatter.we.string(from: Date())
+            ))
+        }
+        snapshot = replacing(
+            directionConfirmations: confirmations,
+            journeys: journeys
+        )
     }
 
     func resolveInsight(
@@ -467,25 +647,9 @@ actor PreviewRepository: Repository {
                 profileID: userID,
                 approach: approach,
                 note: note,
-                revealedAt: nil,
                 createdAt: ISO8601DateFormatter.we.string(from: Date())
             )
         )
-        if values.filter({ $0.planID == planID }).count == 2 {
-            let revealedAt = ISO8601DateFormatter.we.string(from: Date())
-            values = values.map { value in
-                guard value.planID == planID else { return value }
-                return PlanApproach(
-                    id: value.id,
-                    planID: value.planID,
-                    profileID: value.profileID,
-                    approach: value.approach,
-                    note: value.note,
-                    revealedAt: value.revealedAt ?? revealedAt,
-                    createdAt: value.createdAt
-                )
-            }
-        }
         snapshot = replacing(v2: replacingV2(current, approaches: values))
     }
 
@@ -708,6 +872,7 @@ actor PreviewRepository: Repository {
             insight: current.insight,
             consent: consent,
             responses: responses,
+            sharedDirection: next.sharedDirection,
             dismissedBy: next.dismissedBy,
             declinedBy: next.declinedBy
         )
@@ -721,16 +886,20 @@ actor PreviewRepository: Repository {
     private func replacing(
         profile: Profile? = nil,
         membership: Membership? = nil,
+        couple: Couple? = nil,
         insights: [InsightRecord]? = nil,
         reflections: [Reflection]? = nil,
         plans: [PlanItem]? = nil,
         responsibilities: [Responsibility]? = nil,
-        v2: V2RelationshipState? = nil
+        v2: V2RelationshipState? = nil,
+        directionConfirmations: [DirectionConfirmation]? = nil,
+        journeyPasses: [JourneyPass]? = nil,
+        journeys: [SharedJourney]? = nil
     ) -> RelationshipSnapshot {
         RelationshipSnapshot(
             profile: profile ?? snapshot.profile,
             membership: membership ?? snapshot.membership,
-            couple: snapshot.couple,
+            couple: couple ?? snapshot.couple,
             members: snapshot.members,
             insights: insights ?? snapshot.insights,
             reflections: reflections ?? snapshot.reflections,
@@ -738,8 +907,49 @@ actor PreviewRepository: Repository {
             responsibilities: responsibilities ?? snapshot.responsibilities,
             archives: snapshot.archives,
             syncedAt: Date(),
-            v2: v2 ?? snapshot.v2
+            v2: v2 ?? snapshot.v2,
+            directionConfirmations: directionConfirmations
+                ?? snapshot.directionConfirmations,
+            journeyPasses: journeyPasses ?? snapshot.journeyPasses,
+            journeys: journeys ?? snapshot.journeys
         )
+    }
+
+    private func synthesizePreviewDirectionIfReady(insightID: String) {
+        guard let index = snapshot.insights.firstIndex(where: { $0.id == insightID }),
+              snapshot.insights[index].sharedDirection == nil,
+              snapshot.insights[index].responses.filter({
+                  $0.status == .submitted
+              }).count >= 2
+        else { return }
+
+        let record = snapshot.insights[index]
+        var insights = snapshot.insights
+        insights[index].sharedDirection = SharedDirection(
+            insightID: insightID,
+            key: "preview-grounded",
+            eyebrow: "A DIRECTION TO CHOOSE",
+            title: "Protect an easy beginning",
+            message: "The answers support a beginning with room to adjust together.",
+            symbol: "circle.circle",
+            createdAt: ISO8601DateFormatter.we.string(from: Date()),
+            summary: "Begin simply, then leave the rest of the shape open.",
+            rationale: "This stays within the preferences held in both private answers and the shared evidence already named here.",
+            proposedActions: [
+                ProposedJourneyAction(
+                    id: "first-move",
+                    kind: .lifeItem,
+                    title: "Choose the first hour together",
+                    category: "talk",
+                    detail: nil,
+                    dueOn: nil
+                ),
+            ],
+            synthesisVersion: "preview-deterministic-v1",
+            expiresAt: record.insight.expiresAt,
+            status: .proposed
+        )
+        snapshot = replacing(insights: insights)
     }
 
     private var availableSuggestions: [ContextualSuggestion] {

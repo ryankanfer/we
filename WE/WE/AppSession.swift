@@ -26,6 +26,7 @@ final class AppSession: ObservableObject {
     @Published private(set) var connectionState: ConnectionState
     @Published private(set) var user: AuthenticatedUser?
     @Published private(set) var snapshot: RelationshipSnapshot?
+    @Published private(set) var privateProposals: [SavedPrivateProposal] = []
     @Published private(set) var isWorking = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var noticeMessage: String?
@@ -33,6 +34,13 @@ final class AppSession: ObservableObject {
 
     private let repository: any Repository
     private let cache: any RelationshipCache
+    /// Everything this device holds beyond the relationship cache. Injectable
+    /// so a test can point it at a temporary container and assert that
+    /// signing out leaves nothing behind.
+    private let localData: WELocalData
+    /// Separate from `WELocalData`: sign-out seals this account's private
+    /// intake instead of destroying it, while account deletion purges it.
+    private let shareVault: ShareVaultController
     private let connectivity: ConnectivityMonitor
     private var didRestore = false
     private var authRoutingGeneration = 0
@@ -43,11 +51,15 @@ final class AppSession: ObservableObject {
     init(
         repository: any Repository,
         cache: (any RelationshipCache)? = nil,
+        localData: WELocalData? = nil,
+        shareVault: ShareVaultController? = nil,
         connectivity: ConnectivityMonitor? = nil
     ) {
         let resolvedConnectivity = connectivity ?? ConnectivityMonitor()
         self.repository = repository
         self.cache = cache ?? FileRelationshipCache()
+        self.localData = localData ?? WELocalData()
+        self.shareVault = shareVault ?? .shared
         self.connectivity = resolvedConnectivity
         connectionState = resolvedConnectivity.isOnline ? .online : .offline
 
@@ -111,6 +123,33 @@ final class AppSession: ObservableObject {
     var isReady: Bool { state == .ready }
     var canMutate: Bool { connectionState == .online && !isWorking }
 
+    /// Deleting the app does not delete its Keychain items, and that is where
+    /// the Supabase session lives — so a reinstall came back already signed
+    /// in as whoever used the phone last. Deleting an app is the one gesture
+    /// everyone understands as "start over", and it has to mean that.
+    ///
+    /// `UserDefaults` *is* removed with the app, so a missing marker is a
+    /// reliable signal that this install has never run before.
+    private func clearCredentialsIfFreshlyInstalled() async {
+        guard repository.persistsCredentialsAcrossInstalls else { return }
+
+        let marker = "hasRunSinceInstall"
+        guard !UserDefaults.standard.bool(forKey: marker) else { return }
+        UserDefaults.standard.set(true, forKey: marker)
+
+        // The same gesture, applied to the other thing that outlives the app.
+        // The sealed drafts themselves went with the app group container; what
+        // survives is the key and vault id that opened them, which without
+        // this sit in the keychain for every account that ever signed in here.
+        // Ordered before the sign-out because it depends on nothing and must
+        // happen even if the network call below does not.
+        shareVault.purgeEveryAccount()
+
+        // Best effort. If it fails there is nothing useful to say — the
+        // person is about to be asked to sign in either way.
+        try? await repository.signOut()
+    }
+
     func restoreIfNeeded() async {
         guard !didRestore else { return }
         didRestore = true
@@ -119,6 +158,8 @@ final class AppSession: ObservableObject {
             state = .unconfigured
             return
         }
+
+        await clearCredentialsIfFreshlyInstalled()
 
         state = .loading
         let generation = authRoutingGeneration
@@ -156,12 +197,14 @@ final class AppSession: ObservableObject {
             case .verificationPending(let email):
                 self.user = nil
                 self.snapshot = nil
+                self.privateProposals = []
                 self.state = .verificationPending(email)
             }
         }
     }
 
     func returnToSignIn(message: String? = nil) {
+        shareVault.deactivate()
         noticeMessage = message
         errorMessage = nil
         state = .signedOut
@@ -200,6 +243,7 @@ final class AppSession: ObservableObject {
                 self.stopObservingRelationship()
                 self.user = recoveringUser
                 self.snapshot = nil
+                self.privateProposals = []
                 self.state = .resettingPassword
             }
         }
@@ -221,6 +265,7 @@ final class AppSession: ObservableObject {
         noticeMessage = nil
         defer { isWorking = false }
         stopObservingRelationship()
+        shareVault.deactivate()
 
         do {
             if let signingOutUser {
@@ -231,6 +276,18 @@ final class AppSession: ObservableObject {
             return
         }
 
+        // And everything else this device holds. One list, in `WELocalData`,
+        // shared with account deletion — the queue of unsent writes, the
+        // cached field state, stored crash reports, the held join code, and
+        // any scheduled notification.
+        localData.purge()
+
+        // Before the sign out, while there is still a session to authorise
+        // the delete. Failure is ignored on purpose: it must not stand between
+        // somebody and leaving.
+        try? await repository.forgetDeviceTokens()
+        WEDeviceTokenStore.shared.forget()
+
         do {
             try await repository.signOut()
         } catch {
@@ -238,6 +295,7 @@ final class AppSession: ObservableObject {
         }
         user = nil
         snapshot = nil
+        privateProposals = []
         cachedAt = nil
         state = .signedOut
     }
@@ -252,8 +310,14 @@ final class AppSession: ObservableObject {
                 email: deletingUser.email,
                 password: password
             )
+            // Do not destroy a private vault on a failed password or failed
+            // server deletion. Once deletion is confirmed, purge it before
+            // rendering the signed-out state.
+            self.shareVault.purge(accountID: deletingUser.id)
+            self.localData.purge()
             self.user = nil
             self.snapshot = nil
+            self.privateProposals = []
             self.cachedAt = nil
             self.noticeMessage = "Your account and live WE space were deleted."
             self.state = .signedOut
@@ -282,6 +346,63 @@ final class AppSession: ObservableObject {
         await perform { try await self.repository.joinCouple(code: code) }
     }
 
+    // MARK: The device
+
+    /// Takes whatever token the delegate is holding and writes it down.
+    ///
+    /// Called on every authenticated route in, and idempotent on the server,
+    /// because iOS reissues tokens whenever it likes and the only wrong answer
+    /// is a stale one. Failure is silent: a device that could not be written
+    /// down is a device that will not be woken, and being woken was never what
+    /// made the ceremony work.
+    func listenForDeviceToken() {
+        WEDeviceTokenStore.shared.onToken = { [weak self] token in
+            guard let self else { return }
+            Task { [weak self] in
+                try? await self?.repository.registerDeviceToken(token)
+            }
+        }
+        Task { await WEArrivalNotifications.registerIfPermitted() }
+    }
+
+    /// Who is waiting, for the person holding a code.
+    ///
+    /// Deliberately not routed through `perform`. That reloads the snapshot
+    /// and publishes failures into the session message, and this call happens
+    /// before there is an account, a snapshot, or anything a failure could be
+    /// reported about. A code that answers nothing is simply a code that
+    /// answers nothing: the screen says less, and never says something is
+    /// wrong with an invitation somebody else made.
+    func invitationGreeting(for code: String) async -> InvitationGreeting? {
+        try? await repository.invitationGreeting(code: code)
+    }
+
+    /// Declines, from the side that was invited.
+    ///
+    /// Not routed through `perform` and deliberately indifferent to failure,
+    /// for the same reason the greeting is: there is no account here to report
+    /// anything to, and somebody who has said no is owed a screen that closes,
+    /// not an error about the state of somebody else's invitation.
+    func declineInvitation(code: String) async {
+        try? await repository.declineInvitation(code: code)
+    }
+
+    func createInvitation() async {
+        await perform { try await self.repository.createInvitation() }
+    }
+
+    func revokeInvitation() async {
+        await perform { try await self.repository.revokeInvitation() }
+    }
+
+    /// Told once, then never again. The write is what makes the "once" true,
+    /// so a failure here must not be swallowed into a silent second telling —
+    /// `perform` reloads the snapshot, which is what moves
+    /// `couple.departureSeenAt` and takes the surface off screen.
+    func acknowledgeDeparture() async {
+        await perform { try await self.repository.acknowledgeDeparture() }
+    }
+
     func updateProfile(name: String) async {
         guard let user else { return }
         await perform {
@@ -293,6 +414,59 @@ final class AppSession: ObservableObject {
         guard let membership = snapshot?.membership else { return }
         await perform {
             try await self.repository.updateHue(hue, membership: membership)
+        }
+    }
+
+    /// Moves a pre-account proposal into owner-only storage. This deliberately
+    /// does not reload the shared relationship snapshot because the claimed
+    /// source remains outside couple membership.
+    func claimPrivateProposal(_ proposal: PrivateProposal) async -> String? {
+        guard user != nil else { return nil }
+        guard connectionState == .online else {
+            errorMessage = RepositoryError.offline.localizedDescription
+            return nil
+        }
+        isWorking = true
+        errorMessage = nil
+        defer { isWorking = false }
+        do {
+            let proposalID = try await repository.claimPrivateProposal(
+                proposal
+            )
+            privateProposals.removeAll { $0.id == proposalID }
+            privateProposals.insert(
+                SavedPrivateProposal(
+                    serverID: proposalID,
+                    proposal: proposal
+                ),
+                at: 0
+            )
+            noticeMessage = "Your proposal is protected on your side."
+            return proposalID
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    /// Publishes only the frozen safe preview created during the claim. The
+    /// repository cannot derive an offer from the source note at this step.
+    func offerPrivateProposal(id: String) async -> Bool {
+        guard user != nil else { return false }
+        guard connectionState == .online else {
+            errorMessage = RepositoryError.offline.localizedDescription
+            return false
+        }
+        isWorking = true
+        errorMessage = nil
+        defer { isWorking = false }
+        do {
+            try await repository.offerPrivateProposal(id: id)
+            noticeMessage = "Only the approved topic was offered."
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
         }
     }
 
@@ -487,14 +661,45 @@ final class AppSession: ObservableObject {
     func submitResponse(
         insightID: String,
         choice: String,
-        note: String? = nil
+        note: String? = nil,
+        consentsToAIProcessing: Bool
     ) async {
         await perform {
             try await self.repository.submitResponse(
                 insightID: insightID,
                 choice: choice,
-                note: note
+                note: note,
+                consentsToAIProcessing: consentsToAIProcessing
             )
+        }
+    }
+
+    func passJourneyQuestion(insightID: String) async {
+        await perform {
+            try await self.repository.passJourneyQuestion(insightID: insightID)
+        }
+    }
+
+    func recordJourneyQuestionShown(insightID: String) async {
+        guard connectionState == .online else { return }
+        try? await repository.recordJourneyQuestionShown(insightID: insightID)
+    }
+
+    func confirmSharedDirection(
+        insightID: String,
+        decision: DirectionDecision
+    ) async {
+        await perform {
+            try await self.repository.confirmSharedDirection(
+                insightID: insightID,
+                decision: decision
+            )
+        }
+    }
+
+    func completeFieldJourney(journeyID: String) async {
+        await perform {
+            try await self.repository.completeFieldJourney(journeyID: journeyID)
         }
     }
 
@@ -583,18 +788,33 @@ final class AppSession: ObservableObject {
         authRoutingGeneration expectedGeneration: Int? = nil
     ) async throws {
         do {
-            let loaded = try await repository.loadRelationship(for: user)
+            async let relationshipRequest =
+                repository.loadRelationship(for: user)
+            async let proposalsRequest =
+                repository.loadPrivateProposals(for: user)
+            let (loaded, loadedPrivateProposals) = try await (
+                relationshipRequest,
+                proposalsRequest
+            )
             if let expectedGeneration,
                expectedGeneration != authRoutingGeneration {
                 return
             }
             self.user = user
             snapshot = loaded
+            privateProposals = loadedPrivateProposals
             cachedAt = nil
             connectionState = connectivity.isOnline ? .online : .offline
             try? await cache.save(loaded, userID: user.id)
+            _ = try? shareVault.activate(
+                accountID: user.id,
+                hueToken: loaded.membership?.hue.rawValue ?? "burgundy"
+            )
             route(loaded)
             observeRelationshipIfNeeded()
+            // Every authenticated route in, because a token can arrive before
+            // there is a session and iOS reissues them without warning.
+            listenForDeviceToken()
         } catch {
             if let expectedGeneration,
                expectedGeneration != authRoutingGeneration {
@@ -605,8 +825,14 @@ final class AppSession: ObservableObject {
                let cached = try? await cache.load(userID: user.id) {
                 self.user = user
                 snapshot = cached.snapshot
+                privateProposals = []
                 cachedAt = cached.savedAt
                 connectionState = .offline
+                _ = try? shareVault.activate(
+                    accountID: user.id,
+                    hueToken: cached.snapshot.membership?.hue.rawValue
+                        ?? "burgundy"
+                )
                 route(cached.snapshot)
                 return
             }
@@ -620,7 +846,17 @@ final class AppSession: ObservableObject {
             stopObservingRelationship()
             return
         }
-        if snapshot.members.count < 2 {
+        // A one-member couple has two entirely different shapes, and only the
+        // couple row can tell them apart. Somebody who has never paired is
+        // waiting for a partner, and the invitation screen is the whole
+        // product for them. Somebody whose partner deleted their account is
+        // not waiting for anything — they have a field two people built, and
+        // `20260808000000` deliberately left it standing. Routing them to
+        // `.waitingForPartner` on member count alone would hide all of it
+        // behind a screen offering them a join code.
+        let hasDeparted = snapshot.couple?.departedAt != nil
+
+        if snapshot.members.count < 2 && !hasDeparted {
             state = .waitingForPartner
         } else if !membership.hasChosenHue {
             state = .choosingHue
@@ -636,6 +872,7 @@ final class AppSession: ObservableObject {
            let cached = try? await cache.load(userID: storedUser.id) {
             user = storedUser
             snapshot = cached.snapshot
+            privateProposals = []
             cachedAt = cached.savedAt
             connectionState = .offline
             route(cached.snapshot)
@@ -643,6 +880,7 @@ final class AppSession: ObservableObject {
         }
 
         stopObservingRelationship()
+        shareVault.deactivate()
         do {
             try await cache.remove(userID: storedUser.id)
         } catch {
@@ -653,6 +891,7 @@ final class AppSession: ObservableObject {
         try? await repository.signOut()
         user = nil
         snapshot = nil
+        privateProposals = []
         cachedAt = nil
         noticeMessage = "Your session expired. Sign in again."
         state = .signedOut

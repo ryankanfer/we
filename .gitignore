@@ -10,3 +10,9 @@ xcuserdata/
 # Local Xcode scheme carries Supabase development credentials.
 WE/WE.xcodeproj/xcshareddata/xcschemes/WE.xcscheme
 supabase/.temp/
+
+# Xcode build output
+.build/
+
+# Local output from scripts/qa; GitHub Actions uploads this as evidence.
+artifacts/

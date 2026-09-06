@@ -1,7 +1,9 @@
 import Foundation
 
 nonisolated struct CachedRelationship: Codable, Sendable {
-    static let currentVersion = 2
+    // Version 2 could contain a partner's historical raw response. Never
+    // decode that shape after the owner-only response migration.
+    static let currentVersion = 3
 
     let version: Int
     let snapshot: RelationshipSnapshot

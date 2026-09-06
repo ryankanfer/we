@@ -227,7 +227,6 @@ nonisolated struct PlanApproach: Identifiable, Codable, Hashable, Sendable {
     let profileID: String
     let approach: ApproachKind
     let note: String?
-    let revealedAt: String?
     let createdAt: String
 }
 
@@ -378,9 +377,9 @@ nonisolated enum QuestionPrimaryAction: Equatable, Sendable {
     var explanation: String {
         switch self {
         case .hold(let partnerName):
-            "Your answer stays private until \(partnerName) answers."
+            "Your answer is never shown to \(partnerName). If they answer too, WE opens a separate shared direction."
         case .openTogether(let partnerName):
-            "\(partnerName) has answered. Continuing opens the shared result on both sides."
+            "\(partnerName) has answered. Continuing opens a separate shared direction on both sides."
         }
     }
 }

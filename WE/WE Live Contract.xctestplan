@@ -1,0 +1,30 @@
+{
+  "configurations" : [
+    {
+      "id" : "41860436-3E39-4F77-945D-1C3F5ECA1F95",
+      "name" : "Live QA",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : false,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:WE.xcodeproj",
+      "identifier" : "79C3EB343013C00A00394313",
+      "name" : "WE"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : false,
+      "target" : {
+        "containerPath" : "container:WE.xcodeproj",
+        "identifier" : "79C3EB413013C00D00394313",
+        "name" : "WETests"
+      }
+    }
+  ],
+  "version" : 1
+}

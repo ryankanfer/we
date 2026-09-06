@@ -3,12 +3,15 @@ import SwiftUI
 struct ProfileView: View {
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var host: SessionHost
+    @EnvironmentObject private var externalSurfaces:
+        ExternalSurfaceController
+    @EnvironmentObject private var walkthrough: WalkthroughPresenter
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var selectedArchive: RelationshipArchive?
     @State private var showsDelete = false
     @State private var didSaveName = false
-    let onReplayWalkthrough: () -> Void
+    let onReplayPromise: () -> Void
 
     var body: some View {
         NavigationStack {
@@ -56,6 +59,29 @@ struct ProfileView: View {
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !session.canMutate)
                 }
 
+                if !session.privateProposals.isEmpty {
+                    Section {
+                        ForEach(session.privateProposals) { proposal in
+                            NavigationLink {
+                                SavedPrivateProposalView(
+                                    proposal: proposal
+                                )
+                            } label: {
+                                Label(
+                                    proposal.title,
+                                    systemImage: "lock.fill"
+                                )
+                            }
+                        }
+                    } header: {
+                        Text("Your side")
+                    } footer: {
+                        Text(
+                            "Only you can retrieve these proposals. Their original notes are not loaded into this list."
+                        )
+                    }
+                }
+
                 Section("Shared space") {
                     if session.snapshot?.membership != nil {
                         NavigationLink("Appearance") {
@@ -65,23 +91,61 @@ struct ProfileView: View {
                             )
                         }
                     }
-                    Button("Replay the walkthrough") {
+                    // The same dismiss-then-present dance as the promise
+                    // below: both are full-screen, and presenting one over a
+                    // sheet that is still on its way out drops the
+                    // presentation entirely.
+                    Button("See how WE works") {
                         dismiss()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { onReplayWalkthrough() }
-                    }
-                    if let code = session.snapshot?.couple?.joinCode {
-                        ShareLink(item: "Join me in WE with code \(code)") {
-                            Label("Share our join code", systemImage: "square.and.arrow.up")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                            walkthrough.replay()
                         }
                     }
-                    NavigationLink("How WE notices") {
+                    .accessibilityIdentifier("account.walkthrough")
+
+                    Button(WEGateCopy.replayPromise) {
+                        dismiss()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { onReplayPromise() }
+                    }
+                    if let invitation = session.snapshot?.couple?
+                        .activeInvitation()
+                    {
+                        ShareLink(item: invitation.shareMessage) {
+                            Label("Share partner invitation", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                    NavigationLink(WEGateCopy.interruptions) {
                         SignalConsentView()
+                    }
+                    NavigationLink("Privacy policy") {
+                        WEPrivacyPolicyView()
                     }
                     if host.canUseSimulation {
                         NavigationLink("Mode") {
                             ModeSettingsView()
                         }
                     }
+                }
+
+                Section {
+                    Toggle(
+                        "Show approved shared wording",
+                        isOn: Binding(
+                            get: {
+                                externalSurfaces.specificWordingOptedIn
+                            },
+                            set: {
+                                externalSurfaces
+                                    .setSpecificWordingOptIn($0)
+                            }
+                        )
+                    )
+                } header: {
+                    Text("Outside WE")
+                } footer: {
+                    Text(
+                        "Lock Screen, widgets, StandBy, and Live Activities use generic reassurance by default. Turn this on only if wording you approved inside WE may also appear there. Answers, names, invitation details, pending states, and read receipts never appear."
+                    )
                 }
 
                 if !session.archives.isEmpty {
@@ -148,6 +212,84 @@ struct ProfileView: View {
     }
 }
 
+private struct SavedPrivateProposalView: View {
+    let proposal: SavedPrivateProposal
+
+    var body: some View {
+        ZStack {
+            WEJourneyBackdrop(state: .privateState)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    Label("ONLY ON YOUR SIDE", systemImage: "lock.fill")
+                        .font(.weCaption)
+                        .tracking(1.6)
+                        .foregroundStyle(Color.wePearl.opacity(0.64))
+
+                    Text(proposal.title)
+                        .font(.weLargeTitle)
+                        .foregroundStyle(Color.wePearl)
+
+                    WEContinuityLine(state: .privateState)
+                        .frame(height: 52)
+                        .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("IF YOU CHOOSE TO OFFER")
+                            .font(.weCaption)
+                            .tracking(1.4)
+                            .foregroundStyle(Color.wePearl.opacity(0.58))
+                        Text(proposal.offeredTopic.title)
+                            .font(.weTitle)
+                            .foregroundStyle(Color.wePearl)
+                        Text(proposal.offeredTopic.question)
+                            .font(.weBody)
+                            .foregroundStyle(Color.wePearl.opacity(0.76))
+                        Text(
+                            proposal.offeredTopic.options.joined(
+                                separator: " · "
+                            )
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(Color.wePearl.opacity(0.62))
+                    }
+                    .padding(18)
+                    .background(
+                        Color.white.opacity(0.07),
+                        in: RoundedRectangle(
+                            cornerRadius: 20,
+                            style: .continuous
+                        )
+                    )
+                    .overlay(alignment: .trailing) {
+                        Rectangle()
+                            .fill(Color.weChampagne)
+                            .frame(width: 1)
+                    }
+
+                    Label(
+                        "Prepared on this iPhone and kept in owner-only storage",
+                        systemImage: "iphone.gen3"
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(Color.wePearl.opacity(0.64))
+
+                    Text(
+                        "The original note is not returned to this screen. Nothing here crosses unless you separately approve an offer."
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(Color.wePearl.opacity(0.64))
+                }
+                .frame(maxWidth: 430, alignment: .leading)
+                .padding(26)
+            }
+        }
+        .preferredColorScheme(.dark)
+        .navigationTitle("Private proposal")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 private struct DeleteAccountView: View {
     @EnvironmentObject private var session: AppSession
     @Environment(\.dismiss) private var dismiss
@@ -161,13 +303,13 @@ private struct DeleteAccountView: View {
                 Section {
                     Label("This cannot be undone", systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.red)
-                    Text("Your private reflections, unrevealed responses, pending requests, and dismissals will be deleted. They are never placed in your partner’s archive.")
+                    Text("Your private reflections, answers, plan approaches, pending requests, and dismissals will be deleted. They are never placed in your partner’s archive.")
                 }
                 Section("Confirm your identity") {
                     SecureField("Current password", text: $password)
                         .textContentType(
                             disablesCredentialPrompts
-                                ? .oneTimeCode
+                                ? nil
                                 : .password
                         )
                     TextField("Type DELETE", text: $confirmation)
@@ -217,7 +359,7 @@ struct RelationshipArchiveView: View {
             List {
                 Section {
                     Label("Read-only", systemImage: "lock.fill")
-                    Text("This archive contains only things that were genuinely shared. Private and unrevealed material was excluded.")
+                    Text("This archive contains only things that were genuinely shared. Private reflections, answers, and plan approaches were excluded.")
                         .foregroundStyle(.secondary)
                 }
                 if !archive.snapshot.plans.isEmpty {
@@ -283,16 +425,6 @@ struct RelationshipArchiveView: View {
                         }
                     }
                 }
-                if !archive.snapshot.approaches.isEmpty {
-                    Section("Opened approaches") {
-                        ForEach(archive.snapshot.approaches) { approach in
-                            ArchiveRow(
-                                title: planTitle(approach.planID),
-                                detail: approach.approach.title
-                            )
-                        }
-                    }
-                }
                 if isEmpty {
                     ContentUnavailableView("Nothing was archived", systemImage: "archivebox", description: Text("There were no completed shared records to retain."))
                 }
@@ -311,19 +443,12 @@ struct RelationshipArchiveView: View {
             && archive.snapshot.events.isEmpty
             && archive.snapshot.seasons.isEmpty
             && archive.snapshot.handoffs.isEmpty
-            && archive.snapshot.approaches.isEmpty
     }
 
     private func responsibilityTitle(_ id: String) -> String {
         archive.snapshot.responsibilities.first {
             $0.id == id
         }?.title ?? "Shared care"
-    }
-
-    private func planTitle(_ id: String) -> String {
-        archive.snapshot.plans.first {
-            $0.id == id
-        }?.title ?? "Shared plan"
     }
 }
 
@@ -352,7 +477,7 @@ private extension ResolutionType {
 }
 
 #Preview {
-    ProfileView(onReplayWalkthrough: {})
+    ProfileView(onReplayPromise: {})
         .environmentObject(AppSession(repository: PreviewRepository()))
         .environmentObject(
             SessionHost(
@@ -364,4 +489,6 @@ private extension ResolutionType {
                 )
             )
         )
+        .environmentObject(ExternalSurfaceController())
+        .environmentObject(WalkthroughPresenter())
 }
