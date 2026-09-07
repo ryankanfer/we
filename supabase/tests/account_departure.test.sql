@@ -194,6 +194,51 @@ insert into public.insight_consent (
     '94000000-0000-0000-0000-000000000002', 'idle', null, null
   );
 
+-- MARK: A cannot forge a departure while B is still here ---------------------
+--
+-- `private.is_departure_attribution` recognises the cascade by its shape: an
+-- UPDATE where only attribution columns changed and each went to NULL. The
+-- Field tables are directly client-writable — `20260730120000_field_zones.sql`
+-- gives each a `for all` policy whose entire predicate is
+-- `couple_id = my_couple_id()` — so A can type that shape at B's row. Shape
+-- alone is therefore not enough, and this is the assertion that says so.
+--
+-- Not a `throws_ok`: `field_preserve_actor` restores attribution from `old`
+-- rather than raising, which is the same thing it does to any other attempt
+-- to rewrite who authored something. The proof is that B's name is still on
+-- it afterwards.
+
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"94000000-0000-0000-0000-000000000001","role":"authenticated"}',
+  true
+);
+
+select lives_ok(
+  $$
+    update public.field_life_items
+    set created_by = null
+    where title = 'B shared: the move'
+  $$,
+  'A may issue the update — RLS scopes it to their own space'
+);
+
+select is(
+  (select i.created_by from public.field_life_items i
+   where i.title = 'B shared: the move'),
+  '94000000-0000-0000-0000-000000000002'::uuid,
+  'but A cannot take B''s name off B''s work while B is still here'
+);
+
+reset role;
+
+-- The cascade's own claim is asserted after the departure below: once B's
+-- profile is gone, the same column does go to NULL. The two together are what
+-- distinguish "the database tidying up after somebody who left" from "a
+-- partner erasing attribution", which is the whole distinction this guard
+-- exists to draw.
+
 -- MARK: B leaves ------------------------------------------------------------
 
 set local role authenticated;

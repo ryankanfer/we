@@ -29,15 +29,45 @@ begin;
 -- MARK: What a departure looks like -----------------------------------------
 
 -- Deliberately narrow, and named so both triggers agree on it: an UPDATE
--- where nothing but attribution changed, and every attribution column that
--- changed went to NULL. That is the shape of `on delete set null` and
--- nothing else. It cannot move a row between spaces, retitle it, reassign
--- it, or hand attribution to somebody new, because any of those fail the
--- equality test.
+-- where nothing but attribution changed, every attribution column that
+-- changed went to NULL, and the person each of those columns named is
+-- already gone. That is the shape of `on delete set null` and nothing else.
+-- It cannot move a row between spaces, retitle it, reassign it, or hand
+-- attribution to somebody new, because any of those fail the equality test.
 --
 -- Read through jsonb rather than record fields: the columns differ per table
 -- — `owner_id` is on responsibilities and not on plans — and naming one that
 -- is absent is exactly what made every plan write fail before 20260904120000.
+--
+-- THE CLAUSE THAT IS NOT ABOUT SHAPE
+--
+-- The first version of this recognised a departure by its form alone, and a
+-- partner could type that form. `public.field_life_items` and its neighbours
+-- are directly client-writable — `20260730120000_field_zones.sql` gives each
+-- one a `for all` policy whose whole predicate is `couple_id =
+-- my_couple_id()` — so
+--
+--     update public.field_life_items set created_by = null where id = <theirs>
+--
+-- changed only an attribution column, changed it only to NULL, passed RLS,
+-- and returned from `field_preserve_actor` before a single check. Either
+-- partner could strip authorship from anything in their own space. Not a
+-- disclosure and not data loss, but it is the provenance the Field shows and
+-- the attribution a survivor is supposed to keep.
+--
+-- So the shape is no longer sufficient: every column that went to NULL must
+-- have named a profile that no longer exists. Attribution columns all
+-- reference `public.profiles(id) on delete set null`, and
+-- `profiles.id references auth.users(id) on delete cascade`, so account
+-- deletion removes the profile row *first* and the `set null` cascade reaches
+-- these tables as an AFTER DELETE trigger — by which time the profile is
+-- already gone and this passes. A client cannot arrange the same thing,
+-- because it cannot make a living partner's profile disappear.
+--
+-- `security definer` so the existence check is the truth rather than
+-- whatever RLS shows the caller: `prepare_shared_item` is `security invoker`,
+-- and a profiles row hidden from the caller must not read as a departure.
+-- `stable` rather than `immutable`, because it now reads a table.
 create or replace function private.is_departure_attribution(
   p_op text,
   p_new jsonb,
@@ -45,17 +75,35 @@ create or replace function private.is_departure_attribution(
 )
 returns boolean
 language sql
-immutable
+stable
+security definer
 set search_path = ''
 as $$
   select p_op = 'UPDATE'
     and p_old is not null
     and (p_new - v.names) = (p_old - v.names)
+    -- Something must actually have changed. An UPDATE that alters nothing is
+    -- not a departure, and letting it through would hand a client a way to
+    -- skip the guard by writing a row back over itself.
+    and exists (
+      select 1
+      from unnest(v.names) as attribution(name)
+      where p_new -> attribution.name is distinct from p_old -> attribution.name
+    )
     and not exists (
       select 1
       from unnest(v.names) as attribution(name)
       where p_new -> attribution.name is distinct from p_old -> attribution.name
-        and p_new ->> attribution.name is not null
+        and (
+          -- It did not go to NULL, so it is a reassignment, not a departure.
+          p_new ->> attribution.name is not null
+          -- Or the person it named is still here, so nobody departed.
+          or exists (
+            select 1
+            from public.profiles p
+            where p.id = (p_old ->> attribution.name)::uuid
+          )
+        )
     )
   from (
     select array[
