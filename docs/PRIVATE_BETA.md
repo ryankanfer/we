@@ -32,6 +32,11 @@ no `aps-environment`.
 The build number is 2 because three earlier local archives are all 1.0 (1) and
 an upload has to be distinguishable from them.
 
+`34c5bd1` is the commit the archive was built from and the commit CI run
+`34140931271` verified. Any commit after it on this branch edits this file and
+nothing else — no iOS source, no migration, no test. If that ever stops being
+true, the archive has to be rebuilt before it is uploaded.
+
 ### What is in it
 
 - Everyday capture, retrieval, correction
