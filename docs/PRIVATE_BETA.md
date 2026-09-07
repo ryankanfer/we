@@ -19,7 +19,7 @@ new relationships starting empty) is preserved for later.
 | | |
 | --- | --- |
 | Version / build | **1.0 (2)** |
-| Source commit | `bc8cd5e` on `beta/p0-p1-execution` (PR #14) |
+| Source commit | `34c5bd1` on `beta/p0-p1-execution` (PR #14) |
 | Backend | production `tizunrayxyorzrvopnsw` (we-round1) |
 | Minimum iOS | 26.2 |
 | Archive | `~/Library/Developer/Xcode/Archives/2026-09-07/WE 1.0 (2).xcarchive` |
@@ -173,7 +173,8 @@ them worth anything.
 
 ### On the real CI, against the exact code
 
-Run `34136805479` on the database commit: **all four checks green.**
+Run `34140931271` on `34c5bd1` — the exact commit the archive was built from
+— **all four checks green**, and all seven PR checks including Vercel.
 
 - Schema + privacy contract — `supabase test db` from a from-scratch database
   plus `db lint --fail-on warning`. This is what proves the rewritten migration
