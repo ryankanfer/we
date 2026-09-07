@@ -54,8 +54,20 @@ struct FieldMention: Identifiable, Hashable, Sendable {
     var text: String
     var kind: Kind
     var owner: FieldOwner
-    /// How many separate things point at this. Never shown as a number.
+    /// How many accumulated records point at this. Never shown as a number.
+    ///
+    /// One unit throughout: *a record the couple already has*. A horizon
+    /// counts the distinct shared Life items linked to it plus the evidence
+    /// referencing it; a rhythm counts the times it happened; an anchor counts
+    /// the one agreement it is. Nothing is inferred from language, nothing is
+    /// counted twice, and nothing private is counted at all.
     var weight: Int
+    /// The records behind the weight, in the couple's own words, for the
+    /// person who taps the word and asks why it is that big.
+    ///
+    /// Everything in here is already visible to both of them. See
+    /// `mentions(in:)` for what that costs.
+    var support: [String]
     /// The one line of provenance, carried only by the largest.
     var provenance: String?
 }
@@ -85,28 +97,64 @@ enum FieldUsMentions {
     static let offsets: [CGFloat] = [0, 34, 12, 58, 26]
 
     /// Read the field out of what the couple already has.
+    ///
+    /// ## What may be counted
+    ///
+    /// Only records both people can reach. A horizon's `linkedLifeItemIDs` is
+    /// a list of ids, and some of those items may be private — solo-era
+    /// history its owner has not crossed. Counting them would make a word on a
+    /// screen *both* people look at get visibly bigger because of something
+    /// only one of them can see, and a size is a channel like any other. The
+    /// ids are resolved against `state.lifeItems` and filtered on
+    /// `isSharedPresence` before anything is counted, and an id that resolves
+    /// to nothing is not counted either — an unresolvable reference is not
+    /// evidence.
+    ///
+    /// Duplicated ids collapse. A horizon that lists the same item twice has
+    /// one thing pointing at it, not two.
     static func mentions(in state: FieldState) -> [FieldMention] {
         var result: [FieldMention] = []
+
+        // One pass over Life, so a couple with a long list does not pay for a
+        // lookup per link per horizon.
+        let shared = state.lifeItems.reduce(into: [String: LifeItem]()) {
+            guard $1.isSharedPresence else { return }
+            $0[$1.id] = $1
+        }
 
         for horizon in state.horizons {
             // The things in Life pointing at it, plus the evidence that says
             // an ordinary week moved it. Both are already stored links, so
             // this counts facts rather than guessing at language.
-            let linked = horizon.linkedLifeItemIDs.count
-            let evidence = state.evidence.count { $0.horizonID == horizon.id }
+            var seen: Set<String> = []
+            let linked = horizon.linkedLifeItemIDs.compactMap { id -> String? in
+                guard seen.insert(id).inserted,
+                      let item = shared[id]
+                else { return nil }
+                return item.title
+            }
+            let evidence = state.evidence
+                .filter { $0.horizonID == horizon.id }
+                .map(\.statement)
+
             result.append(
                 FieldMention(
                     id: "horizon-\(horizon.id)",
                     text: horizon.title,
                     kind: .horizon,
                     owner: horizon.owner,
-                    weight: linked + evidence,
+                    weight: linked.count + evidence.count,
+                    support: linked + evidence,
                     provenance: horizon.window
                 )
             )
         }
 
         for rhythm in state.rhythms {
+            // The one place the records themselves cannot be listed: a rhythm
+            // stores how many times it has happened, not a row per time. So
+            // the support says the count in words rather than pretending to
+            // enumerate something that was never kept.
             result.append(
                 FieldMention(
                     id: "rhythm-\(rhythm.id)",
@@ -114,6 +162,11 @@ enum FieldUsMentions {
                     kind: .rhythm,
                     owner: .shared,
                     weight: rhythm.occurrences,
+                    support: [
+                        rhythm.occurrences == 1
+                            ? "It has happened once."
+                            : "It has happened \(rhythm.occurrences) times.",
+                    ],
                     provenance: rhythm.cadence
                 )
             )
@@ -122,7 +175,8 @@ enum FieldUsMentions {
         for anchor in state.anchors {
             // Agreed once, and not up for discussion again. It belongs on the
             // screen — it is part of what the couple is — but it is not
-            // something that keeps coming up, so it sits at the floor.
+            // something that keeps coming up, so it sits at the floor: one
+            // record, the agreement itself.
             result.append(
                 FieldMention(
                     id: "anchor-\(anchor.id)",
@@ -130,6 +184,7 @@ enum FieldUsMentions {
                     kind: .anchor,
                     owner: .shared,
                     weight: 1,
+                    support: ["Agreed once, and not brought up since."],
                     provenance: nil
                 )
             )
@@ -137,6 +192,12 @@ enum FieldUsMentions {
 
         // Heaviest first, then by text so the field is stable across launches
         // rather than reordering on a dictionary's whim.
+        //
+        // The alphabetical tiebreak decides *reading order only*. It used to
+        // decide size as well, because the step was keyed to array index: two
+        // subjects with identical evidence rendered at visibly different sizes
+        // because of their first letter, under a header promising that size
+        // meant frequency. See `steps(for:)`.
         return result.sorted {
             $0.weight == $1.weight
                 ? $0.text < $1.text
@@ -144,19 +205,46 @@ enum FieldUsMentions {
         }
     }
 
-    /// Which of the five steps a mention sits at, by its rank in the field.
+    /// Which step each mention sits at, for a field already in weight order.
+    ///
+    /// Keyed to the *distinct* weights present rather than to position, which
+    /// is what makes the header's claim true: equal evidence, equal size.
     ///
     /// Rank rather than raw weight, deliberately. A couple whose heaviest
     /// thing has been mentioned four times and one whose heaviest has been
     /// mentioned forty times should both get a readable field; keying the
     /// sizes to absolute counts would give the first a page of uniformly tiny
-    /// words and the second one enormous word and nothing else.
-    static func step(forRank rank: Int, of total: Int) -> Int {
-        guard total > 1 else { return 0 }
-        // The top item always gets the top step; the rest spread across what
+    /// words and the second one enormous word and nothing else. It also means
+    /// adding something unrelated cannot resize the whole field — only adding
+    /// a *new distinct weight* changes the ramp.
+    static func steps(for mentions: [FieldMention]) -> [Int] {
+        // One word is not a hierarchy. It gets the top step rather than the
+        // middle one, because there is nothing for it to be quieter than.
+        guard mentions.count > 1 else { return mentions.map { _ in 0 } }
+
+        // Distinct weights, heaviest first, matching the sort above.
+        var distinct: [Int] = []
+        for mention in mentions where distinct.last != mention.weight {
+            distinct.append(mention.weight)
+        }
+
+        return mentions.map { mention in
+            let rank = distinct.firstIndex(of: mention.weight) ?? 0
+            return step(forDenseRank: rank, ofDistinct: distinct.count)
+        }
+    }
+
+    /// Which of the five steps a given distinct weight sits at.
+    static func step(forDenseRank rank: Int, ofDistinct distinct: Int) -> Int {
+        // Nothing distinguishes them, so nothing may be emphasised over
+        // anything else — and a whole page at 42px is not "equal", it is
+        // shouting. The middle of the ramp is the one honest answer.
+        guard distinct > 1 else { return sizes.count / 2 }
+
+        // The heaviest always gets the top step; the rest spread across what
         // is left, so a field of three does not skip straight to the floor.
-        let span = min(total, sizes.count)
-        let scaled = Double(rank) / Double(max(total - 1, 1))
+        let span = min(distinct, sizes.count)
+        let scaled = Double(rank) / Double(distinct - 1)
         return min(sizes.count - 1, Int(scaled * Double(span - 1) + 0.5))
     }
 }
@@ -166,12 +254,17 @@ enum FieldUsMentions {
 struct FieldUsFieldSurface: View {
     @Environment(FieldStore.self) private var store
 
+    /// The word somebody asked about. Nothing is open by default — the field
+    /// is a thing to look at before it is a thing to interrogate.
+    @State private var asking: FieldMention?
+
     private var mentions: [FieldMention] {
         FieldUsMentions.mentions(in: store.state)
     }
 
     var body: some View {
         let mentions = self.mentions
+        let steps = FieldUsMentions.steps(for: mentions)
 
         VStack(alignment: .leading, spacing: 0) {
             // §4: the rule is stated, not left to be inferred.
@@ -186,10 +279,7 @@ struct FieldUsFieldSurface: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(mentions.enumerated()), id: \.element.id) { index, mention in
-                    let step = FieldUsMentions.step(
-                        forRank: index,
-                        of: mentions.count
-                    )
+                    let step = steps[index]
 
                     word(mention, step: step, isLead: index == 0)
                         .padding(.leading, FieldUsMentions.offsets[
@@ -203,6 +293,7 @@ struct FieldUsFieldSurface: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("field.us.field")
+        .sheet(item: $asking) { FieldMentionSheet(mention: $0) }
     }
 
     private func spacing(for step: Int) -> CGFloat {
@@ -223,7 +314,10 @@ struct FieldUsFieldSurface: View {
     ) -> some View {
         let size = FieldUsMentions.sizes[step]
 
-        VStack(alignment: .leading, spacing: 5) {
+        Button {
+            asking = mention
+        } label: {
+            VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline, spacing: 9) {
                 Text(mention.text)
                     .font(FieldType.usFieldSteps[step])
@@ -254,8 +348,84 @@ struct FieldUsFieldSurface: View {
                     .tracking(FieldTracking.subLabel)
                     .foregroundStyle(.fieldInk(.dateCount))
             }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(mention.text)
+        .accessibilityHint("Shows what makes this one bigger")
+        .accessibilityIdentifier("field.us.field.word")
+    }
+}
+
+// MARK: - Why that big
+
+/// The records behind one word.
+///
+/// A size that encodes something is a lie if the reader has to guess what, and
+/// the header saying `SIZE IS HOW OFTEN IT COMES UP` is a claim rather than
+/// proof of one. This is the proof: the actual things the couple accumulated
+/// that point at this subject, in their own words.
+///
+/// Every line here is already on a screen both of them can open — see
+/// `FieldUsMentions.mentions(in:)`, which does the filtering, so that this
+/// view cannot be the place where a private item leaks by being explained.
+private struct FieldMentionSheet: View {
+    let mention: FieldMention
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack {
+            FieldPalette.bgElevated.ignoresSafeArea()
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    FieldLabel("What keeps bringing this up")
+                        .padding(.bottom, 16)
+
+                    Text(mention.text)
+                        .font(FieldType.listItemLarge)
+                        .foregroundStyle(.fieldInk(.headline))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.bottom, 28)
+
+                    if mention.support.isEmpty {
+                        // Honest about the floor. A word with nothing behind
+                        // it is on the screen because the couple named it, and
+                        // saying so is better than an empty list implying the
+                        // records were lost.
+                        Text("Nothing else in Life or Us points at this one "
+                             + "yet. It is here because you named it.")
+                            .font(FieldType.reasoning)
+                            .foregroundStyle(.fieldInk(.reasoning))
+                            .fieldLineHeight(1.6, size: 14)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        VStack(alignment: .leading, spacing: 14) {
+                            ForEach(Array(mention.support.enumerated()), id: \.offset) {
+                                _, line in
+                                Text(line)
+                                    .font(FieldType.body)
+                                    .foregroundStyle(.fieldInk(.headline))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+
+                    Spacer(minLength: 40)
+
+                    Button("Close") { dismiss() }
+                        .buttonStyle(FieldQuietButtonStyle())
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 40)
+                .padding(.horizontal, FieldMetrics.screenSide)
+                .padding(.bottom, 48)
+            }
+        }
+        .preferredColorScheme(.dark)
+        .accessibilityIdentifier("field.us.mention")
     }
 }

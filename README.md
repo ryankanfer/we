@@ -11,28 +11,15 @@ material only; native development has no parity or maintenance obligation to it.
 
 The iPhone app has three primary destinations:
 
-- **WE** — shared intelligence, private reflection, consent, and mutual reveal.
-- **Life** — responsibilities owned by Me, Partner, or Together.
-- **Ahead** — scheduled and unscheduled plans.
-- **Profile** — account, appearance, archives, privacy, and walkthrough replay, opened from
-  the avatar rather than a tab.
+- **Life**: practical information, plans and commitments, with visible Search and Calendar.
+- **WE / Today**: one relevant next action and a persistent capture entrance.
+- **Us**: shared questions, proposals and agreed directions.
 
-First use follows:
+**Yours** is a labelled private writing entrance on Today. **Account** is visibly reachable from each main screen.
 
-> The Threshold → create account or sign in → pair → choose personal hue → enter WE
+First use follows a skippable fictional practice story: capture, review visibility and date, correct, save, and retrieve. It never writes to a real account. Registration, invitation entry and sign-in follow; the joint Promise remains at partner arrival. An optional account-scoped first-save guide teaches the same loop with a real item.
 
-The Threshold is a six-beat walkthrough that demonstrates the trust model rather than narrating
-it. WE names what it refuses to be; the person writes one private line, held on the device; they
-try to push it across and feel the boundary refuse; they meet a second consent pad that is not
-theirs to press; they set the four signals the shared field may notice; they hold to cross. The
-partner's side of the field stays dark throughout, because it is — it resolves only when the
-partner actually arrives.
-
-The private line and the signal choices are held on the device and delivered once the two people
-are paired: the line becomes the first private reflection, the choices become signal consent.
-Nothing leaves the phone before pairing. The walkthrough is skippable, shown only on first use,
-replayable from Profile, linear under VoiceOver, and uses crossfades when Reduce Motion is
-enabled.
+The walkthrough can be replayed from Account and preserves pending invitation context. The current beta does not introduce a fourth main destination.
 
 ## Trust model
 
@@ -42,7 +29,7 @@ Privacy is enforced in Supabase as well as Swift:
 - Each person answers privately; answers appear only after both submit.
 - A decline is owner-only. The initiator continues to see quiet waiting.
 - A withdrawal leaves no partner-side trace.
-- Completed mutual-reveal resolutions may enter a sanitized relationship archive.
+- Departure currently preserves shared records for the remaining member. Relationship archive support and replacement-partner visibility require explicit confirmation before destructive beta tests.
 - Private reflections, unrevealed responses, pending requests, declines, and dismissals never
   enter an archive.
 
@@ -74,23 +61,17 @@ partner identity, ownership, dates, or history is added to the query.
 - [x] Build Ahead, Life, Profile, complete Auth, the Threshold walkthrough, Pairing, WE, and
   Insight Detail.
 - [ ] Adapt information density for Mac — **deferred / N/A for this iPhone-first milestone**.
-- [x] Add loading, empty, offline, inline error/retry, partner-waiting, and
-  relationship-ended/archive states.
+- [x] Add loading, empty, offline, inline error/retry and partner-waiting states.
+- [ ] Reconcile departure/archive behavior with the private-beta decision and verify it.
 - [x] Keep the frozen web tag for comparison only.
 
-Pull requests now gate schema/privacy, native build/unit, and serial critical UI flows. Nightly
-automation exercises Partner A, Partner B, and an outsider against an isolated live Supabase
-stack, then renders small/large/max-accessibility iPhone contracts with reviewable `.xcresult`
-and visual-diff evidence. Two authenticated sessions through the full lifecycle also run
-locally:
-
-```bash
-./supabase/tests/local/run_dual_sided.sh
-```
-
-See [`supabase/tests/local/README.md`](supabase/tests/local/README.md). The remaining manual
-gates are VoiceOver and widget judgment, the Supabase security-advisor/callback review, and
-five target-couple usability sessions.
+Pull requests define schema/privacy, native build/unit, and serial critical UI checks.
+For this private beta, additional hosted two-account suites and their QA secrets are deferred.
+Their presence in the repository is not proof that they ran. Current executed, skipped, and
+pending checks are recorded in [docs/PRIVATE_BETA.md](docs/PRIVATE_BETA.md).
+Direct negative authorization and concurrency checks remain release gates; the two-person
+UI checklist cannot substitute for them. Existing local contract tools are documented in
+[`supabase/probes/dual-sided/README.md`](supabase/probes/dual-sided/README.md).
 
 ## Running the iPhone app
 
@@ -143,3 +124,10 @@ See `supabase/functions/announce-arrival/README.md`.
 AI chat, advertisements, A/B infrastructure, external calendar accounts, finance integrations,
 relationship scores, recurrence, priorities, reminders, and Mac adaptation
 are outside this milestone.
+
+
+## Private beta implementation
+
+The current beta work and verification gates are tracked in [docs/PRIVATE_BETA.md](docs/PRIVATE_BETA.md). The entry walkthrough now follows one fictional thought through capture, date correction and retrieval, followed by a brief explanation of privacy. It is skippable and replayable. After entry, an optional account-scoped guide supports a first real save.
+
+The main destinations remain Life, WE (Today), and Us. Life and practical utilities use warm cream; Today, Us, and Yours retain their dark canvases. Yours and Account have visible routes. A fixed capture entrance opens composition without answering Today’s featured question first.

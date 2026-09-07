@@ -48,18 +48,42 @@ struct FieldOutboxEntry: Codable, Sendable {
     /// violates a constraint, a mutation from a build two versions ago —
     /// cannot retry at the head of the queue forever.
     var attempts: Int
+    /// When this write was set aside after `maximumAttempts`.
+    ///
+    /// Set aside, not discarded. It stays in the queue and stays replayed over
+    /// every load, so the thing the person wrote is still on their screen and
+    /// still in this file after a relaunch. What it loses is its place at the
+    /// head of the queue: `flush()` steps over it, so one write the server
+    /// keeps refusing cannot hold up every write behind it.
+    ///
+    /// Optional, and decoded with `decodeIfPresent` by synthesis, so a queue
+    /// written by a build that predates this field still reads.
+    var blockedAt: Date?
 
     init(
         id: UUID = UUID(),
         mutation: FieldMutation,
         queuedAt: Date,
-        attempts: Int = 0
+        attempts: Int = 0,
+        blockedAt: Date? = nil
     ) {
         self.id = id
         self.mutation = mutation
         self.queuedAt = queuedAt
         self.attempts = attempts
+        self.blockedAt = blockedAt
     }
+}
+
+/// What the app may honestly say about one item's write.
+enum FieldDeliveryState: Sendable, Equatable {
+    /// The server has it.
+    case shared
+    /// On this phone and owed to the server. The ordinary state on a train.
+    case savedLocally
+    /// Set aside after repeated refusals. Still here, still on screen, and
+    /// waiting for somebody to ask for it again.
+    case needsAttention
 }
 
 /// The file's envelope.
@@ -78,6 +102,28 @@ struct FieldOutboxLog: Codable, Sendable {
         self.version = version
         self.entries = entries
     }
+}
+
+/// What reading the queue found, and what reading it cost.
+///
+/// The second half exists because the first used to be the whole answer. A
+/// queue that could not be decoded was moved aside and an empty array was
+/// returned, which is correct as far as it goes and is not something the app
+/// may keep to itself: those entries are writes somebody believes they made,
+/// and they are not coming back. The person has to be told, so the fact has to
+/// travel out of this type rather than stopping at a log line.
+struct FieldOutboxRecovery: Sendable {
+    var entries: [FieldOutboxEntry]
+    /// A file was unreadable and has been set aside. Its contents are lost.
+    var quarantined: Bool
+
+    static let none = FieldOutboxRecovery(entries: [], quarantined: false)
+}
+
+/// An unfinished capture, protected and scoped exactly like its outbox.
+struct FieldCaptureDraft: Codable {
+    var text: String
+    var receipt: FieldReceipt?
 }
 
 /// Whose queue this is.
@@ -129,9 +175,13 @@ struct FieldOutboxStore: Sendable {
 
     /// Never throws. A queue that cannot be read is empty, and the file is
     /// moved aside rather than deleted — see `quarantine`.
-    func load(_ partition: FieldOutboxPartition) -> [FieldOutboxEntry] {
+    ///
+    /// The absence of a file is not a loss: it is what a fresh install, a
+    /// signed-out account and a fully drained queue all look like. Only a file
+    /// that existed and could not be understood is reported as one.
+    func load(_ partition: FieldOutboxPartition) -> FieldOutboxRecovery {
         let url = url(for: partition)
-        guard let data = try? Data(contentsOf: url) else { return [] }
+        guard let data = try? Data(contentsOf: url) else { return .none }
 
         guard let log = try? decoder.decode(FieldOutboxLog.self, from: data)
         else {
@@ -139,7 +189,7 @@ struct FieldOutboxStore: Sendable {
                 "Outbox file could not be read; quarantining it."
             )
             quarantine(partition)
-            return []
+            return FieldOutboxRecovery(entries: [], quarantined: true)
         }
 
         guard log.version == FieldOutboxLog.currentVersion else {
@@ -155,40 +205,56 @@ struct FieldOutboxStore: Sendable {
                 """
             )
             quarantine(partition)
-            return []
+            return FieldOutboxRecovery(entries: [], quarantined: true)
         }
 
-        return log.entries
+        return FieldOutboxRecovery(entries: log.entries, quarantined: false)
     }
 
-    func save(
-        _ entries: [FieldOutboxEntry],
-        for partition: FieldOutboxPartition
-    ) {
-        do {
-            try FileManager.default.createDirectory(
-                at: directory,
-                withIntermediateDirectories: true,
-                attributes: [.protectionKey: FileProtectionType.complete]
-            )
-            let data = try encoder.encode(FieldOutboxLog(entries: entries))
-            try data.write(
-                to: url(for: partition),
-                options: [.atomic, .completeFileProtection]
-            )
-        } catch {
-            // Nothing useful to do: the write is still in memory and will be
-            // retried. Saying so is the point — this is the failure that
-            // silently costs somebody their sentence.
-            WELog.persistence.error(
-                "Could not persist the outbox: \(error.localizedDescription, privacy: .public)"
-            )
+    func save(_ entries: [FieldOutboxEntry], for partition: FieldOutboxPartition) {
+        do { try write(entries, for: partition) }
+        catch { WELog.persistence.error("Could not persist the outbox") }
+    }
+
+    /// A caller acknowledging a save must observe disk errors.
+    func write(_ entries: [FieldOutboxEntry], for partition: FieldOutboxPartition) throws {
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.complete]
+        )
+        let data = try encoder.encode(FieldOutboxLog(entries: entries))
+        try data.write(to: url(for: partition), options: [.atomic, .completeFileProtection])
+    }
+
+    private func draftURL(_ partition: FieldOutboxPartition) -> URL {
+        directory.appending(path: "draft-" + partition.filename)
+    }
+
+    func loadDraft(_ partition: FieldOutboxPartition) -> FieldCaptureDraft? {
+        guard let data = try? Data(contentsOf: draftURL(partition)) else { return nil }
+        return try? JSONDecoder().decode(FieldCaptureDraft.self, from: data)
+    }
+
+    func writeDraft(_ draft: FieldCaptureDraft, for partition: FieldOutboxPartition) throws {
+        if draft.text.isEmpty && draft.receipt == nil {
+            if FileManager.default.fileExists(atPath: draftURL(partition).path) {
+                try FileManager.default.removeItem(at: draftURL(partition))
+            }
+            return
         }
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.complete]
+        )
+        try JSONEncoder().encode(draft).write(
+            to: draftURL(partition), options: [.atomic, .completeFileProtection]
+        )
     }
 
     /// Part of the Phase 1d purge contract.
     func remove(_ partition: FieldOutboxPartition) {
         try? FileManager.default.removeItem(at: url(for: partition))
+        try? FileManager.default.removeItem(at: draftURL(partition))
     }
 
     /// Everything, for sign-out and account deletion — including partitions
@@ -214,6 +280,21 @@ struct FieldOutboxStore: Sendable {
 
     func url(for partition: FieldOutboxPartition) -> URL {
         directory.appending(path: partition.filename)
+    }
+
+    /// How many unreadable queues are sitting in the directory.
+    ///
+    /// A count, deliberately, and never a name or a byte of one. The filenames
+    /// carry account and relationship identifiers and the files themselves
+    /// carry whatever somebody wrote; the only thing a feedback report needs
+    /// is that this happened at all and how often. `WEFeedbackReport` is
+    /// readable in full before it sends, and it stays readable because every
+    /// line in it is this shape.
+    func quarantinedCount() -> Int {
+        let contents = try? FileManager.default.contentsOfDirectory(
+            atPath: directory.path
+        )
+        return contents?.filter { $0.hasPrefix("quarantined-") }.count ?? 0
     }
 }
 
@@ -247,6 +328,10 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
     private let lock = NSLock()
     private var _entries: [FieldOutboxEntry]
     private var isFlushing = false
+    /// Set at init if the queue on disk could not be read, and cleared only
+    /// when somebody has been shown it. Not persisted: a person who was told
+    /// once has been told, and a relaunch has nothing new to add.
+    private var _lostUnsentWriting: Bool
 
     init(
         wrapping base: any FieldBackend,
@@ -261,7 +346,31 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
         self.store = store
         self.cache = cache
         self.now = now
-        self._entries = store.load(partition)
+        let recovered = store.load(partition)
+        self._entries = recovered.entries
+        self._lostUnsentWriting = recovered.quarantined
+    }
+
+    // MARK: What could not be read
+    //
+    // Separate from `needsAttention`, which is about a write the server keeps
+    // refusing and which is still in the queue and still on screen. This is the
+    // other thing entirely: writes that are gone, that no retry reaches, and
+    // that the app cannot name because it could not read them. The only honest
+    // action is to say so.
+
+    /// Unsent writing was found unreadable and set aside, and nobody has been
+    /// told yet.
+    var lostUnsentWriting: Bool { lock.withLock { _lostUnsentWriting } }
+
+    /// Somebody has now been told.
+    func acknowledgeLostUnsentWriting() {
+        lock.withLock { _lostUnsentWriting = false }
+    }
+
+    func captureDraft() -> FieldCaptureDraft? { store.loadDraft(partition) }
+    func saveCaptureDraft(_ draft: FieldCaptureDraft) throws {
+        try store.writeDraft(draft, for: partition)
     }
 
     // MARK: What to draw before the network answers (1c)
@@ -447,16 +556,26 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
     /// the mutation recoverable. The send is still attempted immediately,
     /// because the overwhelmingly common case is that it works and nobody
     /// should wait for a flush to notice.
-    private func enqueue(_ mutation: FieldMutation) async throws {
-        let snapshot: [FieldOutboxEntry] = lock.withLock {
-            _entries.append(
-                FieldOutboxEntry(mutation: mutation, queuedAt: now())
-            )
-            _entries = Self.compacted(_entries)
-            return _entries
+    /// Persist a logical save atomically before the interface acknowledges it.
+    /// Network delivery is separate; all constituent mutations survive a restart.
+    func stage(_ mutations: [FieldMutation]) throws {
+        try lock.withLock {
+            let next = Self.compacted(_entries + mutations.map {
+                FieldOutboxEntry(mutation: $0, queuedAt: now())
+            })
+            try store.write(next, for: partition)
+            _entries = next
         }
-        store.save(snapshot, for: partition)
+    }
 
+    func replayPending(over state: FieldState) -> FieldState {
+        var result = state
+        for entry in pending { entry.mutation.apply(to: &result) }
+        return result
+    }
+
+    private func enqueue(_ mutation: FieldMutation) async throws {
+        try stage([mutation])
         try await flush()
     }
 
@@ -477,58 +596,145 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
         guard shouldFlush else { return }
         defer { lock.withLock { isFlushing = false } }
 
-        while let entry = pending.first {
+        while let entry = pending.first(where: { $0.blockedAt == nil }) {
             do {
                 try await entry.mutation.send(to: base)
                 remove(entry.id)
             } catch {
-                recordFailure(of: entry.id)
+                // Losing connectivity is not evidence that a write is invalid.
+                // Leave it eligible for the next reconnect/foreground flush.
+                if !(error is CancellationError),
+                   (error as NSError).domain != NSURLErrorDomain {
+                    recordFailure(of: entry.id)
+                }
                 throw error
             }
         }
     }
 
+    /// Ask again for writes that were set aside.
+    ///
+    /// `itemID` nil means all of them. Attempts reset, because the person
+    /// asking is new information: the last five failures may have been a
+    /// server that was down, and holding the count against them would mean one
+    /// bad afternoon permanently disabled the retry.
+    func retryDelivery(itemID: String? = nil) async {
+        lock.withLock {
+            for index in _entries.indices
+            where _entries[index].blockedAt != nil
+                && (itemID == nil
+                    || Self.subjectID(of: _entries[index].mutation) == itemID) {
+                _entries[index].blockedAt = nil
+                _entries[index].attempts = 0
+            }
+            store.save(_entries, for: partition)
+        }
+        try? await flush()
+    }
+
+    /// Drain the queue. Called when connectivity returns and when the app
+    /// comes back to the foreground; both are moments when the reason a write
+    /// failed may have just stopped being true.
+    ///
+    /// Deliberately does not clear `blockedAt`: an automatic retry may not
+    /// resurrect a write the server has refused five times, or a phone
+    /// reconnecting would retry it forever. Only a person can.
+    func flushPending() async {
+        try? await flush()
+    }
+
+    // MARK: What the app may say about one item
+
+    /// The item id a mutation is about, when it is about one.
+    ///
+    /// A capture and the item it becomes share an id, so both answer here and
+    /// an item's status covers the whole life of the thing that was typed.
+    private static func subjectID(of mutation: FieldMutation) -> String? {
+        switch mutation.subject {
+        case .item(let id), .capture(let id): id
+        default: nil
+        }
+    }
+
+    func deliveryState(forItem id: String) -> FieldDeliveryState {
+        let mine = pending.filter { Self.subjectID(of: $0.mutation) == id }
+        guard !mine.isEmpty else { return .shared }
+        return mine.contains { $0.blockedAt != nil }
+            ? .needsAttention
+            : .savedLocally
+    }
+
+    /// Every item the app currently owes the server something for, split by
+    /// what it may say about them. One pass, because a zone asks about every
+    /// row it draws and `deliveryState(forItem:)` per row is quadratic.
+    func deliveryStates() -> [String: FieldDeliveryState] {
+        var result: [String: FieldDeliveryState] = [:]
+        for entry in pending {
+            guard let id = Self.subjectID(of: entry.mutation) else { continue }
+            if entry.blockedAt != nil {
+                result[id] = .needsAttention
+            } else if result[id] == nil {
+                result[id] = .savedLocally
+            }
+        }
+        return result
+    }
+
     /// Everything, gone. The outbox half of the Phase 1d purge contract.
     func purge() {
-        lock.withLock { _entries = [] }
+        lock.withLock {
+            _entries = []
+            // Nothing is owed to anyone any more, so there is nothing left to
+            // apologise for. Carrying the notice past a purge would tell
+            // somebody who just signed out that they had lost writing.
+            _lostUnsentWriting = false
+        }
         store.remove(partition)
     }
 
     // MARK: -
 
     private func remove(_ id: UUID) {
-        let snapshot: [FieldOutboxEntry] = lock.withLock {
+        lock.withLock {
             _entries.removeAll { $0.id == id }
-            return _entries
+            store.save(_entries, for: partition)
         }
-        store.save(snapshot, for: partition)
     }
 
     private func recordFailure(of id: UUID) {
-        var abandoned: FieldOutboxEntry?
+        var abandoned: FieldOutboxEntry?  // set aside, not dropped
 
-        let snapshot: [FieldOutboxEntry] = lock.withLock {
+        lock.withLock {
             guard let index = _entries.firstIndex(where: { $0.id == id })
-            else { return _entries }
+            else { return }
 
             _entries[index].attempts += 1
-            if _entries[index].attempts >= Self.maximumAttempts {
+            if _entries[index].attempts >= Self.maximumAttempts,
+               _entries[index].blockedAt == nil {
                 // Set aside rather than retried forever. This is a write the
                 // server has refused five times; leaving it at the head of the
                 // queue means every *later* write is stuck behind it, which
                 // turns one rejected mutation into all of them.
-                abandoned = _entries.remove(at: index)
+                //
+                // It used to be *removed* here, which solved that and created
+                // a worse problem: the write was gone, the person was never
+                // told, and the item stayed on screen because the local state
+                // still had it — the app quietly disagreeing with the server
+                // about something somebody wrote. It stays in the queue now,
+                // marked, so `deliveryState(forItem:)` can say so on the item
+                // itself and `retryDelivery` can pick it up again.
+                _entries[index].blockedAt = now()
+                abandoned = _entries[index]
             }
-            return _entries
+            store.save(_entries, for: partition)
         }
-
-        store.save(snapshot, for: partition)
 
         if let abandoned {
             WELog.persistence.error(
                 """
-                Giving up on a queued write after \
-                \(abandoned.attempts, privacy: .public) attempts.
+                Setting a queued write aside after \
+                \(abandoned.attempts, privacy: .public) attempts. It stays in \
+                the queue and the item now reports needsAttention.
                 """
             )
         }

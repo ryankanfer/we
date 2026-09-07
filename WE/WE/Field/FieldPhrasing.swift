@@ -64,7 +64,10 @@ enum FieldPhrasing {
 
     /// Prepositions that only exist to attach the day, and read as debris once
     /// it is gone: "call mom on" → "call mom".
-    private static let dayPrepositions = ["on", "by", "for", "this", "next", "before"]
+    /// Internal rather than private for the same reason `dayPhrases` is:
+    /// `FieldLookupQuery` strips the identical debris when it turns a title
+    /// into something to search for.
+    static let dayPrepositions = ["on", "by", "for", "this", "next", "before"]
 
     static func tidy(
         _ input: String,

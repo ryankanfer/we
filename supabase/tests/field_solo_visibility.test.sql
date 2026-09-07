@@ -67,6 +67,12 @@ create temp table ctx on commit drop as
 select couple_id from public.couple_members
 where profile_id = '91000000-0000-0000-0000-000000000001';
 
+-- The fixture is built as the owning role; the assertions below read it
+-- back as `authenticated`, which has no privilege on a temp table it
+-- does not own. Without this the file aborts on first read and every
+-- assertion after it silently never runs.
+grant select on ctx to authenticated;
+
 set local role authenticated;
 select set_config(
   'request.jwt.claims',
@@ -292,6 +298,12 @@ select is(
 create temp table named on commit drop as
   select public.field_solo_history_count() as n;
 
+-- The fixture is built as the owning role; the assertions below read it
+-- back as `authenticated`, which has no privilege on a temp table it
+-- does not own. Without this the file aborts on first read and every
+-- assertion after it silently never runs.
+grant select on named to authenticated;
+
 select is(
   (select n from named), 5,
   'the disclosure can name what would cross before anybody commits'
@@ -335,10 +347,23 @@ select is(
 -- MARK: Presence is never shared --------------------------------------------
 
 reset role;
+-- `request.jwt.claims` is transaction-local and survives `reset role`, so
+-- without this the claims still name B — and `field_preserve_actor` stamps
+-- `profile_id` from `auth.uid()`, not from the column written here. The row
+-- would become B's own window, which B can of course see, and the assertion
+-- below would fail while the policy it tests is working perfectly.
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"91000000-0000-0000-0000-000000000001","role":"authenticated"}',
+  true
+);
 insert into public.field_away_windows (
   couple_id, profile_id, starts_at, ends_at, reason
 )
-select couple_id, '91000000-0000-0000-0000-000000000001', now(), now(), 'Away'
+-- `field_away_window_ordered` requires ends_at > starts_at; a window of
+-- zero length is not a window.
+select couple_id, '91000000-0000-0000-0000-000000000001',
+       now(), now() + interval '1 day', 'Away'
 from ctx;
 
 set local role authenticated;

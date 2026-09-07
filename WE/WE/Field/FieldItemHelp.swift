@@ -93,7 +93,7 @@ private struct FieldLookupReview: View {
 
     var body: some View {
         ZStack {
-            FieldPalette.bgElevated.ignoresSafeArea()
+            WECanvas.cream.bgElevated.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 fixedHeader
@@ -132,7 +132,8 @@ private struct FieldLookupReview: View {
                 .scrollDismissesKeyboard(.interactively)
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
+        .environment(\.weCanvas, WECanvas.cream)
         .presentationDragIndicator(.visible)
         .accessibilityIdentifier("field.item.lookup.review")
     }
@@ -141,7 +142,7 @@ private struct FieldLookupReview: View {
         HStack {
             FieldLabel("Exact review")
             Spacer(minLength: 12)
-            Button("DONE ✕") { dismiss() }
+            Button("Done") { dismiss() }
                 .font(FieldType.button)
                 .tracking(FieldTracking.button)
                 .foregroundStyle(.fieldInk(.legend))
@@ -153,8 +154,8 @@ private struct FieldLookupReview: View {
         .frame(minHeight: 56)
         .background(
             reduceTransparency
-                ? FieldPalette.bgElevated
-                : FieldPalette.bgElevated.opacity(0.97)
+                ? WECanvas.cream.bgElevated
+                : WECanvas.cream.bgElevated.opacity(0.97)
         )
     }
 

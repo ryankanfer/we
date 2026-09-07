@@ -176,6 +176,11 @@ private struct SharedJourneyUsSurface: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.bottom, 24)
 
+            Text("Your answer is private. A shared direction is a separate proposal for both of you to review.")
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.headline))
+                .padding(.bottom, 20)
+
             VStack(spacing: 10) {
                 ForEach(Array(record.insight.options.prefix(4)), id: \.self) { option in
                     Button {
@@ -219,7 +224,10 @@ private struct SharedJourneyUsSurface: View {
                     .buttonStyle(FieldQuietButtonStyle())
             }
 
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Before processing your answer")
+                    .font(FieldType.body)
+                    .foregroundStyle(.fieldInk(.headline))
                 Text(
                     "To look for a shared direction, WE sends your selected "
                         + "answer, this question and its available choices, "
@@ -251,7 +259,7 @@ private struct SharedJourneyUsSurface: View {
             }
             .padding(.vertical, 22)
 
-            Button("Hold my answer") {
+            Button("Save my private answer") {
                 guard let selectedChoice else { return }
                 Task {
                     await session.submitResponse(
@@ -279,6 +287,7 @@ private struct SharedJourneyUsSurface: View {
             .padding(.top, 8)
             .accessibilityIdentifier("field.us.pass")
         }
+        .onChange(of: selectedChoice) { _, _ in allowsAIProcessing = false }
         .onChange(of: record.id) { _, _ in resetAnswer() }
         .task(id: record.id) {
             await session.recordJourneyQuestionShown(insightID: record.id)
@@ -330,6 +339,11 @@ private struct SharedJourneyUsSurface: View {
                 .frame(maxWidth: .infinity)
                 .padding(.top, 24)
                 .padding(.bottom, 32)
+
+            Text("Proposed direction")
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.headline))
+                .padding(.bottom, 12)
 
             WEDisplayText(direction.displaySummary, role: .majorQuestion)
                 .padding(.bottom, 18)
@@ -402,6 +416,11 @@ private struct SharedJourneyUsSurface: View {
                 .frame(maxWidth: .infinity)
                 .padding(.top, 30)
                 .padding(.bottom, 34)
+
+            Text("Agreed direction")
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.headline))
+                .padding(.bottom, 12)
 
             WEDisplayText(journey.title, role: .hero)
                 .padding(.bottom, 18)

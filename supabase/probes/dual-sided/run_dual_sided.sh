@@ -5,7 +5,7 @@
 # supabase/migrations, then drives two authenticated sessions through the whole
 # relationship lifecycle and prints a pass/fail report.
 #
-#   ./supabase/tests/local/run_dual_sided.sh
+#   ./supabase/probes/dual-sided/run_dual_sided.sh
 #
 # Requires a PostgreSQL 16 server binary set (initdb, pg_ctl, psql) on the host.
 # It does not touch any hosted project.
@@ -49,7 +49,7 @@ PSQL="psql -X -q -v ON_ERROR_STOP=1 -h $BASE/sock -p $PORT -U $PG_USER"
 
 $PSQL -d postgres -c "create database we;" >/dev/null
 echo "==> supabase shim"
-$PSQL -d we -f "$ROOT/supabase/tests/local/supabase_shim.sql" >/dev/null
+$PSQL -d we -f "$ROOT/supabase/probes/dual-sided/supabase_shim.sql" >/dev/null
 
 echo "==> migrations"
 for f in "$ROOT"/supabase/migrations/*.sql; do
@@ -58,7 +58,7 @@ for f in "$ROOT"/supabase/migrations/*.sql; do
 done
 
 echo "==> dual-sided lifecycle"
-$PSQL -d we -f "$ROOT/supabase/tests/local/dual_sided_lifecycle.sql" >/dev/null
+$PSQL -d we -f "$ROOT/supabase/probes/dual-sided/dual_sided_lifecycle.sql" >/dev/null
 
 $PSQL -d we -P pager=off -c "
   select case when passed then 'PASS' else 'FAIL' end as result,

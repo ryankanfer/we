@@ -55,7 +55,7 @@ struct WEFeedbackView: View {
 
     var body: some View {
         ZStack {
-            FieldPalette.bg.ignoresSafeArea()
+            WECanvas.cream.bg.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -75,10 +75,11 @@ struct WEFeedbackView: View {
                 .padding(.bottom, 60)
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
         .accessibilityIdentifier("field.feedback")
         .overlay(alignment: .topTrailing) { closeButton }
-        .task { diagnosticLines = Self.summaries(in: store) }
+        .environment(\.weCanvas, WECanvas.cream)
+        .task { diagnosticLines = Self.summaries(in: store) + Self.lostWriting() }
         .sheet(isPresented: $showsMail) {
             WEMailComposer(
                 report: report,
@@ -111,7 +112,7 @@ struct WEFeedbackView: View {
             Text("Done")
                 .font(FieldType.subLabel)
                 .tracking(FieldTracking.subLabel)
-                .textCase(.uppercase)
+                .textCase(nil)
                 .foregroundStyle(.fieldInk(.recessive))
                 .padding(18)
                 .contentShape(Rectangle())
@@ -132,8 +133,7 @@ struct WEFeedbackView: View {
                 .fieldLineHeight(1.16, size: 32)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text("Say it however you'd say it out loud. What you were doing "
-                 + "matters more than what you think broke.")
+            Text("Tell us what you tried, what you expected, what happened, and whether it blocked you. The build version is added below. Screenshots and private details are optional.")
                 .font(FieldType.body)
                 .foregroundStyle(.fieldInk(.sectionSubtitle))
                 .fieldLineHeight(1.6, size: 14.5)
@@ -149,7 +149,7 @@ struct WEFeedbackView: View {
             .frame(minHeight: 140, alignment: .topLeading)
             .padding(14)
             .background(
-                FieldPalette.ink.opacity(0.06),
+                WECanvas.cream.ink.opacity(0.06),
                 in: RoundedRectangle(
                     cornerRadius: FieldMetrics.cardRadius,
                     style: .continuous
@@ -235,7 +235,7 @@ struct WEFeedbackView: View {
                 Text("Read it")
                     .font(FieldType.subLabel)
                     .tracking(FieldTracking.subLabel)
-                    .textCase(.uppercase)
+                    .textCase(nil)
                     .foregroundStyle(.fieldInk(.recessive))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -317,6 +317,23 @@ struct WEFeedbackView: View {
             }
         }
         return items
+    }
+
+    /// The one loss MetricKit cannot see.
+    ///
+    /// A crash and a hang are both recorded by the system and arrive through
+    /// `WEDiagnosticsStore`. An outbox file that could not be decoded is
+    /// neither — the app carried on working perfectly and somebody's unsent
+    /// writing went away. A count and nothing else; see
+    /// `FieldOutboxStore.quarantinedCount`.
+    private static func lostWriting() -> [String] {
+        let count = FieldOutboxStore().quarantinedCount()
+        guard count > 0 else { return [] }
+        return [
+            count == 1
+                ? "1 unsent-writing file could not be read and was set aside"
+                : "\(count) unsent-writing files could not be read and were set aside"
+        ]
     }
 
     private static func summaries(in store: WEDiagnosticsStore) -> [String] {
@@ -458,7 +475,7 @@ private struct WEAttachmentPreview: View {
 
     var body: some View {
         ZStack {
-            FieldPalette.bg.ignoresSafeArea()
+            WECanvas.cream.bg.ignoresSafeArea()
 
             ScrollView {
                 Text(data.flatMap { String(data: $0, encoding: .utf8) }
@@ -470,7 +487,7 @@ private struct WEAttachmentPreview: View {
                     .padding(20)
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
         .accessibilityIdentifier("field.feedback.attachment.preview")
     }
 }

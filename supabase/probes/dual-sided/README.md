@@ -6,7 +6,7 @@ release: does the trust model hold when two real people use it, not just when
 one does.
 
 ```bash
-./supabase/tests/local/run_dual_sided.sh
+./supabase/probes/dual-sided/run_dual_sided.sh
 ```
 
 The script creates a fresh cluster, applies `supabase_shim.sql` (the small part
@@ -39,3 +39,8 @@ location with `PGBIN`.
 
 This complements the pgTAP suites in `supabase/tests`, which assert schema and
 policy shape. This one asserts lived behavior across two sessions.
+
+These files live under `supabase/probes/`, not `supabase/tests/`, because
+`supabase test db` runs pg_prove over everything in the tests directory. A
+helper that is not a pgTAP test fails the whole schema lane when it lands
+there — which is exactly what it did.

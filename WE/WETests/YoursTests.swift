@@ -323,6 +323,7 @@ struct YoursDestroyQueueTests {
 private final class YoursOfflineLetGoBackend: YoursBackend {
     private let wrapped: YoursMemoryBackend
     private(set) var letGoAttempts = 0
+    var dropNextSaveResponse = false
 
     init(_ wrapped: YoursMemoryBackend) { self.wrapped = wrapped }
 
@@ -340,7 +341,12 @@ private final class YoursOfflineLetGoBackend: YoursBackend {
     /// Everything else is the real thing.
     func load() async throws -> YoursSnapshot { try await wrapped.load() }
     func save(clientID: String, body: String) async throws -> YoursEntry {
-        try await wrapped.save(clientID: clientID, body: body)
+        let entry = try await wrapped.save(clientID: clientID, body: body)
+        if dropNextSaveResponse {
+            dropNextSaveResponse = false
+            throw Offline()
+        }
+        return entry
     }
     func edit(entryID: String, body: String) async throws -> YoursEntry {
         try await wrapped.edit(entryID: entryID, body: body)
@@ -546,17 +552,9 @@ struct YoursCopyTests {
     /// metrics about its users. Durations are spelled — "six weeks", "ninety
     /// days" — exactly as the rest of the app spells them.
     ///
-    /// One exemption, and it is the interesting one. §8 mandates the deletion
-    /// assurance verbatim — "unrecoverable within 24 hours" — and that string
-    /// contains a digit. It is exempt because it is not a measurement *of the
-    /// person*: it is a claim about infrastructure, and the whole reason it is
-    /// worded that way is that a rounder promise would be one the
-    /// infrastructure cannot yet demonstrate. Spelling it "twenty-four" to
-    /// satisfy this rule would be dressing a service-level guarantee up as
-    /// prose.
-    @Test("Nothing in the copy contains a digit, bar the deletion guarantee")
+    @Test("Nothing in the copy contains a digit")
     func noDigits() {
-        for line in Self.everything where line != YoursCopy.deletionAssurance {
+        for line in Self.everything {
             #expect(
                 line.rangeOfCharacter(from: .decimalDigits) == nil,
                 "\(line) contains a numeral"
@@ -590,12 +588,12 @@ struct YoursCopyTests {
         #expect(YoursCopy.accessibilityName == "Yours")
     }
 
-    /// §8 and §14. Until the key service closes, the product may not claim a
-    /// thing is gone the instant it is asked to be.
-    @Test("Deletion copy promises a measurable outcome, not an instant one")
+    /// Backup/key destruction has not been verified. Describe removal from
+    /// the private space without asserting an infrastructure guarantee.
+    @Test("Deletion copy does not promise unverified irrecoverability")
     func deletionCopyIsCapped() {
         let lowered = YoursCopy.deletionAssurance.lowercased()
-        #expect(lowered.contains("unrecoverable"))
+        #expect(!lowered.contains("unrecoverable"))
         #expect(!lowered.contains("instant"))
         #expect(!lowered.contains("immediately"))
     }
@@ -627,5 +625,27 @@ struct YoursDateSentenceTests {
         )
         #expect(sentence.contains(YoursDates.spoken(returnsOn)))
         #expect(sentence.contains(YoursDates.spoken(letGoOn)))
+    }
+}
+
+@Suite("Private writing recovery")
+@MainActor
+struct YoursSaveRecoveryTests {
+    @Test func lostResponseRetainsWordsAndRetryDoesNotDuplicate() async throws {
+        let (memory, clock) = backend()
+        let connection = YoursOfflineLetGoBackend(memory)
+        connection.dropNextSaveResponse = true
+        let store = YoursStore(backend: connection, clock: clock)
+        store.draft = "Something I want to keep private"
+        await store.save()
+        #expect(store.draft == "Something I want to keep private")
+        #expect(store.saveError != nil)
+        #expect(store.justSaved == nil)
+        await store.save()
+        #expect(store.draft.isEmpty)
+        #expect(store.saveError == nil)
+        let snapshot = try await memory.load()
+        #expect(snapshot.living.count == 1)
+        #expect(store.justSaved?.body == "Something I want to keep private")
     }
 }

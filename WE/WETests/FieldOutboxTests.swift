@@ -28,6 +28,7 @@ private final class FakeFieldServer: FieldBackend, @unchecked Sendable {
     /// How many sends to reject before accepting anything. Models a phone
     /// that is simply offline.
     var failuresRemaining = 0
+    var transportOffline = false
 
     /// Commit, *then* fail. The dangerous case: the write landed and the
     /// client will never know it.
@@ -43,6 +44,7 @@ private final class FakeFieldServer: FieldBackend, @unchecked Sendable {
 
     private func receive(_ mutation: FieldMutation) throws {
         receivedCount += 1
+        if transportOffline { throw URLError(.notConnectedToInternet) }
 
         if commitsBeforeFailing {
             mutation.apply(to: &state)
@@ -171,6 +173,120 @@ struct FieldOutboxTests {
             isTimeCritical: false,
             isDone: false
         )
+    }
+
+    @Test func captureIsDurableBeforeSendReturnsAndSurvivesWithoutCache() throws {
+        let disk = store()
+        let server = FakeFieldServer(state: emptyState())
+        let queue = FieldOutbox(wrapping: server, partition: partition(), store: disk)
+        let field = FieldStore(state: emptyState(), now: Self.now, backend: queue)
+        field.captureDraft = "Call the plumber Friday"
+        field.submitCapture()
+        let id = try #require(field.lastReceipt?.id)
+        field.send()
+        // No suspension: the asynchronous delivery task cannot have run yet.
+        #expect(field.lastReceipt == nil)
+        #expect(queue.deliveryState(forItem: id) == .savedLocally)
+        let relaunched = FieldOutbox(wrapping: server, partition: partition(), store: disk)
+        let restored = relaunched.replayPending(over: emptyState())
+        #expect(restored.lifeItems.contains { $0.id == id })
+        #expect(restored.captures.contains { $0.id == id })
+    }
+
+    @Test func failedDiskWriteDoesNotAcknowledgeOrDiscardCapture() throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try Data("not a directory".utf8).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let queue = FieldOutbox(wrapping: FakeFieldServer(state: emptyState()),
+            partition: partition(), store: FieldOutboxStore(directory: file))
+        let field = FieldStore(state: emptyState(), now: Self.now, backend: queue)
+        field.captureDraft = "Call the plumber Friday"
+        field.submitCapture()
+        field.send()
+        #expect(field.lastReceipt != nil)
+        #expect(field.captureSaveError != nil)
+        #expect(field.state.lifeItems.isEmpty)
+        #expect(queue.isEmpty)
+    }
+
+    @Test func repeatedOfflineAttemptsStillRecoverAutomatically() async throws {
+        let disk = store()
+        defer { disk.removeAll() }
+        let server = FakeFieldServer(state: emptyState())
+        server.transportOffline = true
+        let queue = FieldOutbox(wrapping: server, partition: partition(), store: disk)
+        try queue.stage([.upsertItem(item())])
+        for _ in 0..<8 { await queue.flushPending() }
+        #expect(queue.pending.first?.blockedAt == nil)
+        #expect(queue.deliveryState(forItem: "item-1") == .savedLocally)
+        server.transportOffline = false
+        await queue.flushPending()
+        #expect(queue.isEmpty)
+        #expect(server.state.lifeItems.count == 1)
+    }
+
+    @Test func completionAndRemovalSurviveImmediateTermination() {
+        let disk = store()
+        defer { disk.removeAll() }
+        let server = FakeFieldServer(state: emptyState())
+        let queue = FieldOutbox(wrapping: server, partition: partition(), store: disk)
+        var initial = emptyState()
+        initial.lifeItems = [item(id: "complete"), item(id: "remove")]
+        let field = FieldStore(state: initial, now: Self.now, backend: queue)
+        field.complete("complete")
+        field.remove("remove")
+        let restored = FieldOutbox(wrapping: server, partition: partition(), store: disk)
+            .replayPending(over: initial)
+        #expect(restored.lifeItems.count == 1)
+        #expect(restored.lifeItems.first?.id == "complete")
+        #expect(restored.lifeItems.first?.isDone == true)
+    }
+
+    @Test func correctionsSurviveImmediateTermination() throws {
+        let disk = store()
+        defer { disk.removeAll() }
+        let server = FakeFieldServer(state: emptyState())
+        let queue = FieldOutbox(wrapping: server, partition: partition(), store: disk)
+        var initial = emptyState()
+        initial.lifeItems = [item()]
+        let field = FieldStore(state: initial, now: Self.now, backend: queue)
+        field.refile("item-1", to: .food)
+        field.redate("item-1", to: Self.now)
+        let relaunched = FieldOutbox(wrapping: server, partition: partition(), store: disk)
+        let recovered = relaunched.replayPending(over: initial)
+        #expect(recovered.lifeItems.first?.category == .food)
+        #expect(recovered.lifeItems.first?.dueOn == Calendar.gregorianUS.startOfDay(for: Self.now))
+        #expect(recovered.corrections.count == 1)
+    }
+
+    @Test func failedCorrectionKeepsOriginalItem() throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try Data("not a directory".utf8).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let queue = FieldOutbox(wrapping: FakeFieldServer(state: emptyState()),
+            partition: partition(), store: FieldOutboxStore(directory: file))
+        var initial = emptyState()
+        initial.lifeItems = [item()]
+        let field = FieldStore(state: initial, now: Self.now, backend: queue)
+        field.refile("item-1", to: .food)
+        #expect(field.state.lifeItems.first?.category == .notes)
+        #expect(field.state.corrections.isEmpty)
+        #expect(field.itemSaveError != nil)
+        #expect(queue.isEmpty)
+    }
+
+    @Test func unfinishedCaptureIsPartitionedAndPurged() throws {
+        let disk = store()
+        let server = FakeFieldServer(state: emptyState())
+        let queue = FieldOutbox(wrapping: server, partition: partition(), store: disk)
+        let field = FieldStore(state: emptyState(), now: Self.now, backend: queue)
+        field.captureDraft = "A private unfinished draft"
+        let restored = FieldStore(state: emptyState(), now: Self.now, backend: queue)
+        #expect(restored.captureDraft == field.captureDraft)
+        let other = FieldOutbox(wrapping: server, partition: partition(user: "other"), store: disk)
+        #expect(other.captureDraft() == nil)
+        queue.purge()
+        #expect(queue.captureDraft() == nil)
     }
 
     // MARK: 1. Committed, then timed out
@@ -486,6 +602,51 @@ struct FieldOutboxTests {
         )
     }
 
+    // MARK: A crash between the send and the shrink
+
+    /// The seam `remove(_:)` sits on: the mutation is accepted, and the write
+    /// that takes it back out of the queue is lost — a crash, or a disk error
+    /// `store.save` swallows by design. The queue on the next launch still has
+    /// it, so it is sent a second time.
+    ///
+    /// That is safe, and it is safe for exactly one reason: every backend
+    /// write is an upsert on a client-generated id
+    /// (`20260803120000_field_mutation_idempotency.sql`). This asserts the
+    /// consequence rather than trusting the comment — if a single mutation
+    /// case ever stopped upserting, one relaunch would silently double
+    /// somebody's item and nothing else here would notice.
+    @Test func aQueueShrinkLostToACrashResendsWithoutDuplicating() async throws {
+        let disk = store()
+        defer { disk.removeAll() }
+        let server = FakeFieldServer(state: emptyState())
+        let queue = FieldOutbox(wrapping: server, partition: partition(), store: disk)
+
+        try queue.stage([.upsertItem(item())])
+        let beforeTheSend = try Data(contentsOf: disk.url(for: partition()))
+
+        try await queue.flush()
+        #expect(queue.isEmpty, "the send succeeded and the queue was shrunk")
+        #expect(server.state.lifeItems.filter { $0.id == "item-1" }.count == 1)
+
+        // The shrink never reached the disk. Put the file back the way the
+        // crash would have left it and start the app again.
+        try beforeTheSend.write(to: disk.url(for: partition()))
+        let relaunched = FieldOutbox(
+            wrapping: server, partition: partition(), store: disk
+        )
+        #expect(!relaunched.isEmpty, "the queue still owes the write")
+
+        try await relaunched.flush()
+        #expect(
+            server.receivedCount == 2,
+            "and sends it a second time, because it cannot know it landed"
+        )
+        #expect(
+            server.state.lifeItems.filter { $0.id == "item-1" }.count == 1,
+            "which writes once, because the mutation carries its own identity"
+        )
+    }
+
     // MARK: 5. Files that cannot be read
 
     @Test
@@ -500,7 +661,16 @@ struct FieldOutboxTests {
         )
         try Data("{ not json".utf8).write(to: store.url(for: partition))
 
-        #expect(store.load(partition).isEmpty)
+        let recovered = store.load(partition)
+        #expect(recovered.entries.isEmpty)
+        #expect(
+            recovered.quarantined,
+            """
+            and says so. Returning an empty queue without this is the whole \
+            defect: the app carried on perfectly and somebody's unsent \
+            writing was gone with no reason given.
+            """
+        )
         #expect(
             !FileManager.default.fileExists(
                 atPath: store.url(for: partition).path
@@ -533,7 +703,88 @@ struct FieldOutboxTests {
         """
         try Data(fromTheFuture.utf8).write(to: store.url(for: partition))
 
-        #expect(store.load(partition).isEmpty)
+        let recovered = store.load(partition)
+        #expect(recovered.entries.isEmpty)
+        #expect(
+            recovered.quarantined,
+            "a queue from another build is lost writing too, not a clean start"
+        )
+    }
+
+    /// The half of the fix that is not about files.
+    ///
+    /// Quarantining was already correct; being silent about it was not. The
+    /// queue carries the fact out to `FieldStore`, which is what puts it in
+    /// front of somebody instead of in a log nobody reads.
+    @Test func lostUnsentWritingIsReportedOnceAndThenAcknowledged() throws {
+        let disk = store()
+        defer { disk.removeAll() }
+
+        let partition = partition()
+        try FileManager.default.createDirectory(
+            at: disk.directory, withIntermediateDirectories: true
+        )
+        try Data("{ not json".utf8).write(to: disk.url(for: partition))
+
+        let queue = FieldOutbox(
+            wrapping: FakeFieldServer(state: emptyState()),
+            partition: partition, store: disk
+        )
+        #expect(queue.lostUnsentWriting)
+
+        let field = FieldStore(state: emptyState(), now: Self.now, backend: queue)
+        field.refreshDeliveryStates()
+        #expect(field.lostUnsentWriting, "and the surface can say so")
+
+        field.acknowledgeLostUnsentWriting()
+        #expect(!field.lostUnsentWriting)
+        #expect(
+            !queue.lostUnsentWriting,
+            "told once. A relaunch has nothing to add and must not ask again."
+        )
+    }
+
+    /// The negative, which is the one that keeps this honest: an ordinary
+    /// queue — and the absent file a fresh install has — must never raise it.
+    @Test func anOrdinaryQueueReportsNoLoss() throws {
+        let disk = store()
+        defer { disk.removeAll() }
+        let server = FakeFieldServer(state: emptyState())
+
+        let fresh = FieldOutbox(
+            wrapping: server, partition: partition(), store: disk
+        )
+        #expect(!fresh.lostUnsentWriting, "no file is not a loss")
+
+        try fresh.stage([.upsertItem(item())])
+        let relaunched = FieldOutbox(
+            wrapping: server, partition: partition(), store: disk
+        )
+        #expect(!relaunched.lostUnsentWriting)
+        #expect(!relaunched.isEmpty, "and the queue is intact")
+    }
+
+    /// Signing out takes the queue and the apology with it.
+    @Test func purgeClearsTheNotice() throws {
+        let disk = store()
+        defer { disk.removeAll() }
+
+        let partition = partition()
+        try FileManager.default.createDirectory(
+            at: disk.directory, withIntermediateDirectories: true
+        )
+        try Data("{ not json".utf8).write(to: disk.url(for: partition))
+
+        let queue = FieldOutbox(
+            wrapping: FakeFieldServer(state: emptyState()),
+            partition: partition, store: disk
+        )
+        #expect(queue.lostUnsentWriting)
+        queue.purge()
+        #expect(
+            !queue.lostUnsentWriting,
+            "nothing is owed to anyone, so there is nothing to apologise for"
+        )
     }
 
     @Test
@@ -682,7 +933,163 @@ struct FieldOutboxTests {
             try? await outbox.flush()
         }
 
-        #expect(outbox.isEmpty, "it gave up rather than retrying forever")
+        // Set aside, and still here. Discarding it was the old behaviour and
+        // it was a quiet data loss: the write vanished, the person was never
+        // told, and the item stayed on screen because local state still had
+        // it. What the queue gives up is the retrying, not the writing.
+        #expect(outbox.pending.count == 1, "the write must not be discarded")
+        #expect(
+            outbox.deliveryState(forItem: "item-1") == .needsAttention,
+            "and the item must be able to say so"
+        )
+    }
+
+    /// The reason it was ever removed: one refused write must not strand every
+    /// write behind it. Setting aside has to buy that too, or it is just a
+    /// worse version of retrying forever.
+    @Test
+    func aWriteSetAsideDoesNotBlockTheOnesBehindIt() async throws {
+        let store = store()
+        defer { store.removeAll() }
+
+        let server = FakeFieldServer(state: emptyState())
+        server.failuresRemaining = .max
+
+        let outbox = FieldOutbox(
+            wrapping: server,
+            partition: partition(),
+            store: store,
+            now: { Self.now }
+        )
+
+        await #expect(throws: (any Error).self) {
+            try await outbox.upsert(self.item())
+        }
+        for _ in 1..<FieldOutbox.maximumAttempts {
+            try? await outbox.flush()
+        }
+
+        // The server recovers, and a later, unrelated write is made.
+        server.failuresRemaining = 0
+        try await outbox.upsert(item(id: "item-2", title: "Book the table"))
+
+        #expect(
+            server.state.lifeItems.contains { $0.id == "item-2" },
+            "the write behind the set-aside one must still land"
+        )
+        #expect(
+            outbox.deliveryState(forItem: "item-2") == .shared,
+            "and must report itself as landed"
+        )
+        #expect(
+            outbox.deliveryState(forItem: "item-1") == .needsAttention,
+            "while the set-aside one still waits to be asked for again"
+        )
+    }
+
+    /// The person asking again is new information, so the attempt count that
+    /// set it aside is forgiven. Without that, one afternoon of a server being
+    /// down would permanently disable the only control they have.
+    @Test
+    func askingAgainSendsAWriteThatWasSetAside() async throws {
+        let store = store()
+        defer { store.removeAll() }
+
+        let server = FakeFieldServer(state: emptyState())
+        server.failuresRemaining = .max
+
+        let outbox = FieldOutbox(
+            wrapping: server,
+            partition: partition(),
+            store: store,
+            now: { Self.now }
+        )
+
+        await #expect(throws: (any Error).self) {
+            try await outbox.upsert(self.item())
+        }
+        for _ in 1..<FieldOutbox.maximumAttempts {
+            try? await outbox.flush()
+        }
+        #expect(outbox.deliveryState(forItem: "item-1") == .needsAttention)
+
+        server.failuresRemaining = 0
+        await outbox.retryDelivery(itemID: "item-1")
+
+        #expect(server.state.lifeItems.contains { $0.id == "item-1" })
+        #expect(outbox.isEmpty, "and it leaves the queue once it lands")
+        #expect(outbox.deliveryState(forItem: "item-1") == .shared)
+    }
+
+    /// An automatic flush may not resurrect a write the server has refused
+    /// five times, or a phone with patchy signal would retry it on every
+    /// reconnection for as long as the app is installed.
+    @Test
+    func anAutomaticFlushLeavesASetAsideWriteAlone() async throws {
+        let store = store()
+        defer { store.removeAll() }
+
+        let server = FakeFieldServer(state: emptyState())
+        server.failuresRemaining = .max
+
+        let outbox = FieldOutbox(
+            wrapping: server,
+            partition: partition(),
+            store: store,
+            now: { Self.now }
+        )
+
+        await #expect(throws: (any Error).self) {
+            try await outbox.upsert(self.item())
+        }
+        for _ in 1..<FieldOutbox.maximumAttempts {
+            try? await outbox.flush()
+        }
+
+        // The network comes back and the app foregrounds. Both call this.
+        server.failuresRemaining = 0
+        await outbox.flushPending()
+
+        #expect(
+            server.state.lifeItems.isEmpty,
+            "an automatic flush must not retry it on its own"
+        )
+        #expect(outbox.deliveryState(forItem: "item-1") == .needsAttention)
+    }
+
+    /// It survives a relaunch as something set aside, rather than coming back
+    /// as an ordinary queued write and starting its five attempts over.
+    @Test
+    func aWriteSetAsideIsStillSetAsideAfterARelaunch() async throws {
+        let store = store()
+        defer { store.removeAll() }
+
+        let server = FakeFieldServer(state: emptyState())
+        server.failuresRemaining = .max
+
+        let outbox = FieldOutbox(
+            wrapping: server,
+            partition: partition(),
+            store: store,
+            now: { Self.now }
+        )
+
+        await #expect(throws: (any Error).self) {
+            try await outbox.upsert(self.item())
+        }
+        for _ in 1..<FieldOutbox.maximumAttempts {
+            try? await outbox.flush()
+        }
+
+        let after = FieldOutbox(
+            wrapping: server,
+            partition: partition(),
+            store: store,
+            now: { Self.now }
+        )
+
+        #expect(after.pending.count == 1)
+        #expect(after.deliveryState(forItem: "item-1") == .needsAttention)
     }
 
     // MARK: The circle, offline
@@ -787,6 +1194,6 @@ struct FieldOutboxTests {
         outbox.purge()
 
         #expect(outbox.isEmpty)
-        #expect(store.load(partition).isEmpty)
+        #expect(store.load(partition).entries.isEmpty)
     }
 }

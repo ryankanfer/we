@@ -72,6 +72,12 @@ create temp table ctx on commit drop as
 select couple_id from public.couple_members
 where profile_id = '92000000-0000-0000-0000-000000000001';
 
+-- The fixture is built as the owning role; the assertions below read it
+-- back as `authenticated`, which has no privilege on a temp table it
+-- does not own. Without this the file aborts on first read and every
+-- assertion after it silently never runs.
+grant select on ctx to authenticated;
+
 -- The temp table belongs to the session role, and everything below reads it
 -- while impersonating `authenticated`. Without this the assertions fail with
 -- "permission denied for table ctx" — which looks like a policy rejecting the

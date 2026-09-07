@@ -171,16 +171,25 @@ final class YoursSupabaseBackend: YoursBackend, @unchecked Sendable {
     // MARK: Writing
 
     func save(clientID: String, body: String) async throws -> YoursEntry {
-        // A plain insert rather than an RPC: the trigger stamps the owner, the
-        // state and both dates, so there is nothing for a function to add.
-        let row: YoursEntryRow = try await client
-            .from("yours_entries")
-            .insert(["client_id": clientID, "body": body])
-            .select()
-            .single()
-            .execute()
-            .value
-        return row.entry
+        do {
+            let row: YoursEntryRow = try await client
+                .from("yours_entries")
+                .insert(["client_id": clientID, "body": body])
+                .select().single().execute().value
+            return row.entry
+        } catch {
+            // A committed insert can lose its response. Read only the same
+            // owner-visible client identity; never overwrite its lifecycle.
+            let originalError = error
+            if let row: YoursEntryRow = try? await client
+                .from("yours_entries")
+                .select().eq("client_id", value: clientID)
+                .single().execute().value,
+               row.body == body {
+                return row.entry
+            }
+            throw originalError
+        }
     }
 
     func edit(entryID: String, body: String) async throws -> YoursEntry {

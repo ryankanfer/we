@@ -67,6 +67,11 @@ case "$lane" in
       "-only-testing:WEUITests/FieldZoneUITests/testAccountIsReachableAndOffersDeletion"
       "-only-testing:WEUITests/FieldZoneUITests/testSigningOutLeavesTheZones"
       "-only-testing:WEUITests/WEUITests/testAAuthRecoveryPairingAndHueRoutes"
+      "-only-testing:WEUITests/WalkthroughUITests/testEveryScreenIsExplicitAndCanBeReadToTheEnd"
+      "-only-testing:WEUITests/WalkthroughUITests/testItPlaysOnceOnAFirstRunAndNotAgain"
+      "-only-testing:WEUITests/FieldZoneUITests/testUsQuestionIsOnePrivateEvidenceBackedChoice"
+      "-only-testing:WEUITests/FieldZoneUITests/testUsHeldRevealsNoPartnerStatus"
+      "-only-testing:WEUITests/FieldZoneUITests/testUsProposalAndActiveJourneyStayFocused"
     )
     ;;
   full-ui)
@@ -76,6 +81,8 @@ case "$lane" in
     selectors+=(
       "-only-testing:WEUITests/FieldZoneUITests/testEmptyUsAtMaximumAccessibilitySettings"
       "-only-testing:WEUITests/FieldZoneUITests/testCriticalZonesPassAccessibilityAudit"
+      "-only-testing:WEUITests/WalkthroughUITests/testTodayPassesTheAuditAtAccessibilityTextSize"
+      "-only-testing:WEUITests/WalkthroughUITests/testUsPassesTheAuditAtAccessibilityTextSize"
     )
     ;;
   live-contract)

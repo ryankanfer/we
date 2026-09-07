@@ -101,10 +101,21 @@ values (public.my_couple_id(), 'a alone capture', '', '');
 
 reset role;
 
+-- The join code is captured here, as the owner. B cannot read it: an
+-- invitation is redeemed by someone who is not yet a member, and the
+-- `couples` policy quite correctly shows them nothing. Selecting it under
+-- B's role returns NULL and the fixture calls `join_couple(NULL)`.
 create temp table ctx on commit drop as
-select cm.couple_id
+select cm.couple_id, c.join_code
 from public.couple_members cm
+join public.couples c on c.id = cm.couple_id
 where cm.profile_id = '94000000-0000-0000-0000-000000000001';
+
+-- The fixture is built as the owning role; the assertions below read it
+-- back as `authenticated`, which has no privilege on a temp table it
+-- does not own. Without this the file aborts on first read and every
+-- assertion after it silently never runs.
+grant select on ctx to authenticated;
 
 -- MARK: B joins, and the two of them build something ------------------------
 
@@ -118,8 +129,7 @@ select set_config(
 select lives_ok(
   format(
     $$select public.join_couple(%L)$$,
-    (select c.join_code from public.couples c
-     where c.id = (select couple_id from ctx))
+    (select join_code from ctx)
   ),
   'B redeems A''s invitation'
 );
@@ -183,6 +193,51 @@ insert into public.insight_consent (
     '94000000-0000-0000-0000-0000000000a2', 'private',
     '94000000-0000-0000-0000-000000000002', 'idle', null, null
   );
+
+-- MARK: A cannot forge a departure while B is still here ---------------------
+--
+-- `private.is_departure_attribution` recognises the cascade by its shape: an
+-- UPDATE where only attribution columns changed and each went to NULL. The
+-- Field tables are directly client-writable — `20260730120000_field_zones.sql`
+-- gives each a `for all` policy whose entire predicate is
+-- `couple_id = my_couple_id()` — so A can type that shape at B's row. Shape
+-- alone is therefore not enough, and this is the assertion that says so.
+--
+-- Not a `throws_ok`: `field_preserve_actor` restores attribution from `old`
+-- rather than raising, which is the same thing it does to any other attempt
+-- to rewrite who authored something. The proof is that B's name is still on
+-- it afterwards.
+
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"94000000-0000-0000-0000-000000000001","role":"authenticated"}',
+  true
+);
+
+select lives_ok(
+  $$
+    update public.field_life_items
+    set created_by = null
+    where title = 'B shared: the move'
+  $$,
+  'A may issue the update — RLS scopes it to their own space'
+);
+
+select is(
+  (select i.created_by from public.field_life_items i
+   where i.title = 'B shared: the move'),
+  '94000000-0000-0000-0000-000000000002'::uuid,
+  'but A cannot take B''s name off B''s work while B is still here'
+);
+
+reset role;
+
+-- The cascade's own claim is asserted after the departure below: once B's
+-- profile is gone, the same column does go to NULL. The two together are what
+-- distinguish "the database tidying up after somebody who left" from "a
+-- partner erasing attribution", which is the whole distinction this guard
+-- exists to draw.
 
 -- MARK: B leaves ------------------------------------------------------------
 
@@ -349,6 +404,17 @@ select lives_ok(
 
 reset role;
 
+-- `create_invitation()` mints a fresh code and rotates `couples.join_code` to
+-- match (20260808010000). The code captured into `ctx` at the top of this file
+-- is the one the departed partner already consumed, so redeeming it again is
+-- refused with 'that invitation has already been used' — correctly. Take the
+-- new one, as a person reading it off the survivor's screen would.
+create temp table reinvite on commit drop as
+select c.join_code
+from public.couples c
+where c.id = (select couple_id from ctx);
+grant select on reinvite to authenticated;
+
 select isnt(
   (select c.departure_seen_at from public.couples c
    where c.id = (select couple_id from ctx)),
@@ -370,8 +436,7 @@ select set_config(
 select lives_ok(
   format(
     $$select public.join_couple(%L)$$,
-    (select c.join_code from public.couples c
-     where c.id = (select couple_id from ctx))
+    (select join_code from reinvite)
   ),
   'somebody new can take the vacated slot'
 );
@@ -413,6 +478,12 @@ create temp table solo_ctx on commit drop as
 select cm.couple_id
 from public.couple_members cm
 where cm.profile_id = '94000000-0000-0000-0000-000000000003';
+
+-- The fixture is built as the owning role; the assertions below read it
+-- back as `authenticated`, which has no privilege on a temp table it
+-- does not own. Without this the file aborts on first read and every
+-- assertion after it silently never runs.
+grant select on solo_ctx to authenticated;
 
 set local role authenticated;
 select set_config(

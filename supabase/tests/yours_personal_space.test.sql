@@ -163,23 +163,35 @@ select ok(
 );
 
 -- MARK: What a client may not do --------------------------------------------
+--
+-- Refused, not neutralised. These used to write the column and then assert
+-- that the trigger had put it back, which was true and was the weaker claim:
+-- it rested entirely on an ambient setting being off, and 20260907020000
+-- describes two separate ways that assumption came apart. `authenticated` now
+-- holds `update (body)` and `insert (client_id, body)` and nothing else, so
+-- naming a lifecycle column is a privilege error before any trigger runs.
 
-update public.yours_entries
-set ready_at = now() + interval '10 years'
-where client_id = '92100000-0000-0000-0000-000000000001';
-
-select ok(
-  (
-    select ready_at < now() + interval '7 weeks'
-    from public.yours_entries
+select throws_ok(
+  $$
+    update public.yours_entries
+    set ready_at = now() + interval '10 years'
     where client_id = '92100000-0000-0000-0000-000000000001'
-  ),
+  $$,
+  '42501',
+  null,
   'a client cannot buy itself a longer life by writing ready_at'
 );
 
-update public.yours_entries
-set state = 'held', held_at = now()
-where client_id = '92100000-0000-0000-0000-000000000001';
+select throws_ok(
+  $$
+    update public.yours_entries
+    set state = 'held', held_at = now()
+    where client_id = '92100000-0000-0000-0000-000000000001'
+  $$,
+  '42501',
+  null,
+  'nor grant itself permanence by writing state'
+);
 
 select is(
   (
@@ -187,7 +199,97 @@ select is(
     where client_id = '92100000-0000-0000-0000-000000000001'
   ),
   'living',
-  'nor grant itself permanence by writing state'
+  'and the entry is untouched by the attempt'
+);
+
+-- The same door, from the other side. An INSERT that names a lifecycle column
+-- is a client asserting a lifetime it was never granted.
+select throws_ok(
+  $$
+    insert into public.yours_entries (client_id, body, ready_at)
+    values (
+      '92100000-0000-0000-0000-00000000009f',
+      'a lifetime I granted myself',
+      now() + interval '10 years'
+    )
+  $$,
+  '42501',
+  null,
+  'nor assert one on the way in'
+);
+
+-- THE BYPASS 20260907020000 EXISTS FOR
+--
+-- Both statements in one submission. `statement_timestamp()` does not advance
+-- between them — it is set once per Query message — so the statement-scoped
+-- door the previous version of that migration built was open here, and this
+-- assertion is the one it could not have passed. Under column privileges the
+-- second statement never reaches a trigger to ask.
+select throws_ok(
+  $$
+    select public.yours_hold(
+      (
+        select id from public.yours_entries
+        where client_id = '92100000-0000-0000-0000-000000000002'
+      )
+    );
+    update public.yours_entries
+    set state = 'held', ready_at = now() + interval '10 years'
+    where client_id = '92100000-0000-0000-0000-000000000001'
+  $$,
+  '42501',
+  null,
+  'an RPC in the same submission does not hold the door for a direct write'
+);
+
+-- THE CLOSE ITSELF
+--
+-- Asserted after an RPC that *succeeded*, deliberately. `throws_ok` runs its
+-- statement in a subtransaction, so an announcement made by a call that then
+-- raised is rolled back with it — checking the setting after a failed call
+-- would pass whether or not the close exists.
+
+select public.yours_hold(
+  (
+    select id from public.yours_entries
+    where client_id = '92100000-0000-0000-0000-000000000002'
+  )
+);
+
+select is(
+  nullif(current_setting('we.yours_lifecycle', true), ''),
+  null,
+  'a lifecycle RPC closes the door before it returns'
+);
+
+-- Put that entry back the way the rest of the file expects to find it.
+-- `yours_let_this_return` is the sanctioned way out of held, so this restores
+-- the fixture and asserts the way back in one go.
+select public.yours_let_this_return(
+  (
+    select id from public.yours_entries
+    where client_id = '92100000-0000-0000-0000-000000000002'
+  )
+);
+
+select is(
+  (
+    select state from public.yours_entries
+    where client_id = '92100000-0000-0000-0000-000000000002'
+  ),
+  'living',
+  'and held is a state with a way back out of it'
+);
+
+-- The zero-row path. `yours_let_go` on an entry that is not there announces
+-- itself, matches nothing, and returns silently — §11's "a second attempt is
+-- a success". It still has to close.
+select public.yours_let_go('00000000-0000-0000-0000-0000000000ff');
+
+select is(
+  nullif(current_setting('we.yours_lifecycle', true), ''),
+  null,
+  'and closes it even when its write matched no rows'
 );
 
 delete from public.yours_entries
@@ -242,11 +344,21 @@ create temp table ctx on commit drop as
 select couple_id from public.couple_members
 where profile_id = '92000000-0000-0000-0000-000000000001';
 
-insert into public.couple_members (couple_id, profile_id, hue)
+-- The fixture is built as the owning role; the assertions below read it
+-- back as `authenticated`, which has no privilege on a temp table it
+-- does not own. Without this the file aborts on first read and every
+-- assertion after it silently never runs.
+grant select on ctx to authenticated;
+
+-- `member_slot` is NOT NULL and is the database's stable A/B contract, so
+-- the second member has to say which side it is. `create_couple()` above
+-- took slot 1.
+insert into public.couple_members (couple_id, profile_id, hue, member_slot)
 values (
   (select couple_id from ctx),
   '92000000-0000-0000-0000-000000000002',
-  'sage'
+  'sage',
+  2
 );
 
 set local role authenticated;
@@ -277,6 +389,9 @@ select ok(
 
 -- Move the entries into the past. See the note at the top of this file.
 reset role;
+-- Opened once and closed once, which is what 20260907020000 made the RPCs do.
+-- The door stays open for the statements between, so a fixture fast-forwarding
+-- two rows announces itself once — exactly as an RPC does.
 select set_config('we.yours_lifecycle', 'on', true);
 update public.yours_entries
 set ready_at = now() - interval '2 days', state = 'ready'
@@ -379,6 +494,37 @@ select ok(
     where client_id = '92100000-0000-0000-0000-000000000002'
   ),
   'it returns in seven days and ends fourteen days out — exactly one week more'
+);
+
+-- Asking again straight away is refused by the state check, not the snooze
+-- check: a snoozed entry is 'ready', so `yours_snooze` says 'nothing was
+-- asked about this entry' and 'one week, once' is never reached. The guard is
+-- for the *second cycle* — the week elapses, the entry is presented again,
+-- and it is that ask that must be refused. Put it in that state, which is the
+-- only state where the assertion means anything.
+reset role;
+select set_config('we.yours_lifecycle', 'on', true);
+update public.yours_entries
+set state = 'presented',
+    presented_at = now(),
+    decide_by = now() + interval '7 days'
+where client_id = '92100000-0000-0000-0000-000000000002';
+select set_config('we.yours_lifecycle', '', true);
+
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"92000000-0000-0000-0000-000000000001","role":"authenticated"}',
+  true
+);
+
+select ok(
+  (
+    select snoozed_at is not null
+    from public.yours_entries
+    where client_id = '92100000-0000-0000-0000-000000000002'
+  ),
+  'the week it was already given survives being presented again'
 );
 
 select throws_ok(
@@ -569,9 +715,13 @@ select is(
 
 -- MARK: Why somebody let go (§13) -------------------------------------------
 
+-- pgTAP's third argument is the expected message, not the description; the
+-- sentence below was being matched against Postgres's own wording and could
+-- never hold. The code is the assertion.
 select throws_ok(
   $$select count(*) from public.yours_releases$$,
   '42501',
+  null::text,
   'no client reads the release table, including its owner'
 );
 

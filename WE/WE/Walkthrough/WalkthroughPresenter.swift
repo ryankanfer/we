@@ -20,6 +20,7 @@
 
 import Combine
 import Foundation
+import Observation
 import SwiftUI
 
 enum WalkthroughGate {
@@ -108,5 +109,43 @@ final class WalkthroughPresenter: ObservableObject {
         hasSeen = true
         isReplaying = false
         isPresented = false
+    }
+}
+
+/// Guidance stores only a phase and a record identifier, never captured text.
+/// Both account and couple scope matter when someone changes relationships.
+@MainActor
+@Observable
+final class FirstSaveGuide {
+    enum Phase: String, Codable { case offered, started, saved, completed, skipped }
+    struct Progress: Codable {
+        var phase: Phase = .offered
+        var itemID: String?
+    }
+    private let defaults: UserDefaults
+    private let key: String
+    private(set) var progress: Progress
+
+    init(accountID: String, coupleID: String, defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        key = "we.firstSave.v1.\(accountID).\(coupleID)"
+        progress = defaults.data(forKey: key).flatMap {
+            try? JSONDecoder().decode(Progress.self, from: $0)
+        } ?? Progress()
+    }
+
+    func start() { update(.started) }
+    func skip() { update(.skipped) }
+    func saved(_ id: String) {
+        guard progress.phase == .started || progress.phase == .saved else { return }
+        update(.saved, itemID: id)
+    }
+    func retrieved(_ id: String) {
+        guard progress.itemID == id else { return }
+        update(.completed, itemID: id)
+    }
+    private func update(_ phase: Phase, itemID: String? = nil) {
+        progress = Progress(phase: phase, itemID: itemID)
+        if let data = try? JSONEncoder().encode(progress) { defaults.set(data, forKey: key) }
     }
 }

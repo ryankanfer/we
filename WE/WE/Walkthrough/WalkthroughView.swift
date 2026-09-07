@@ -1,43 +1,153 @@
-//
-//  WalkthroughView.swift
-//  WE
-//
-//  "See how WE works" — a three-screen orientation to Today, Life, and Us.
-//
-//  The walkthrough starts where the app starts and gives each space one
-//  screen. It teaches the navigation and the expectation of each space; the
-//  deeper intelligence stays where it belongs, in the moment it is useful.
-//
-//  Nothing here is skippable-once. `WalkthroughPresenter.replay()` always
-//  plays, and every screen carries Skip. See that file for when it opens by
-//  itself, which is: signed out, first install, and not under test.
-//
-
 import SwiftUI
 
+/// A fictional practice session. No backend, session, outbox, or network resolver
+/// is injected: every interaction is confined to this view's in-memory store.
+@MainActor
 struct WalkthroughView: View {
     let onFinish: () -> Void
+    @State private var step = 0
+    @State private var store = WalkthroughPractice.makeStore()
+    @State private var openedItem: FieldItemReference?
+    @State private var hasOpenedItem = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Resolved once, at the moment the walkthrough opens, and passed down.
-    /// Every journey has to agree about what day it is — a journey that read
-    /// `Date()` per step could cross midnight mid-explanation and start
-    /// describing a different week than the one it opened with.
-    @State private var now = Date()
-    @State private var journey: WalkthroughJourney = .today
+    private var canvas: WECanvas { step == 3 ? .cream : .ground }
 
     var body: some View {
-        WalkthroughJourneyView(
-            journey: journey,
-            now: now,
-            onNextJourney: { self.journey = $0 },
-            onClose: onFinish
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    Text("An example. Nothing here is saved to your account.")
+                        .font(FieldType.body)
+                        .foregroundStyle(.fieldInk(.reasoning))
+                    content
+                }
+                .padding(FieldMetrics.screenSide)
+            }
+            .safeAreaInset(edge: .bottom) {
+                if step != 1 {
+                    Button(actionLabel) { advance() }
+                        .buttonStyle(FieldFilledButtonStyle())
+                        .disabled(step == 3 && !hasOpenedItem)
+                        .accessibilityIdentifier("walkthrough.next")
+                        .padding(20)
+                        .frame(maxWidth: .infinity)
+                        .background(canvas.bg)
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Skip", action: onFinish)
+                        .accessibilityIdentifier("walkthrough.skip")
+                }
+            }
+            .weCanvas(canvas)
+            .environment(store)
+            .preferredColorScheme(canvas == .cream ? .light : .dark)
+            .sheet(item: $openedItem) { reference in
+                FieldItemSheet(itemID: reference.id)
+                    .environment(store)
+            }
+            .onChange(of: store.state.lifeItems.count) { _, count in
+                if step == 1 && count > 0 { step = 2 }
+            }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: step)
+        }
+    }
+
+    @ViewBuilder private var content: some View {
+        switch step {
+        case 0:
+            Text("A little less to carry.").font(FieldType.hero)
+            Text("Put a thought down. See where it goes. Find it when you need it.")
+                .font(FieldType.body)
+            Text(WalkthroughPractice.input).font(FieldType.pageHeadline)
+        case 1:
+            Text("One thought, a place for it.").font(FieldType.pageHeadline)
+            Text("Try this example. Review the date and who can see it before saving. Change Friday to Saturday if that works better.")
+                .font(FieldType.body)
+            FieldCaptureField()
+        case 2:
+            Text("Your thought has a place.").font(FieldType.pageHeadline)
+            Text("Saved in this example. Now use Life to find the same item again.")
+                .font(FieldType.body)
+            if let item = store.state.lifeItems.first {
+                Text(item.title).font(FieldType.pageHeadline)
+                if let date = item.dueOn {
+                    Text(date, format: .dateTime.weekday(.wide).month().day())
+                        .font(FieldType.body)
+                }
+            }
+        case 3:
+            Text("Find it in Life.").font(FieldType.pageHeadline)
+            Text("The same thought is here, with the date you chose. Open it to review or correct it.")
+                .font(FieldType.body)
+            ForEach(store.state.lifeItems) { item in
+                Button {
+                    hasOpenedItem = true
+                    openedItem = FieldItemReference(id: item.id)
+                } label: {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(item.title).font(FieldType.pageHeadline)
+                        Text("Life · " + item.category.word).font(FieldType.body)
+                        if let date = item.dueOn {
+                            Text(date, format: .dateTime.weekday(.wide).month().day())
+                                .font(FieldType.body)
+                        }
+                        Text("Shared example").font(FieldType.body)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 20)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("walkthrough.savedItem")
+            }
+        default:
+            Text("Space for you. Room for both.").font(FieldType.hero)
+            Text("Yours is your private writing space. Life holds practical things you can find again. Check each item's visibility before saving or sharing.")
+                .font(FieldType.body)
+            Text("Us is where a shared question can become a direction you both choose. Joining WE does not give blanket permission to share your private writing.")
+                .font(FieldType.body)
+            Text("Next, you can try with something from your own life.")
+                .font(FieldType.body)
+        }
+    }
+
+    private var actionLabel: String {
+        switch step {
+        case 0: "Try the example"
+        case 2: "Find it in Life"
+        case 3: "What stays private?"
+        default: "Continue to WE"
+        }
+    }
+
+    private func advance() {
+        if step == 0 {
+            store.captureDraft = WalkthroughPractice.input
+            step = 1
+        } else if step == 2 || step == 3 {
+            step += 1
+        } else {
+            onFinish()
+        }
+    }
+}
+
+@MainActor
+enum WalkthroughPractice {
+    static let input = "That little Italian place for Friday."
+    // Monday, September 7, 2026. Fixed noon avoids midnight/DST ambiguity.
+    static let date = Calendar.gregorianUS.date(from: DateComponents(
+        year: 2026, month: 9, day: 7, hour: 12
+    ))!
+
+    static func makeStore() -> FieldStore {
+        FieldStore(
+            state: .empty(nameA: "You", nameB: "Your partner", now: date),
+            now: date
         )
-        .id(journey.id)
-        // No container identifier here. `.accessibilityIdentifier` on a view
-        // wrapping this much hierarchy does not label the container — it
-        // stamps itself onto descendants, and both of the scaffold's buttons
-        // came back identified as "walkthrough" instead of as themselves. The
-        // journeys were unreachable from a test and from Voice Control alike.
     }
 }
 

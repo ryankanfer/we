@@ -818,11 +818,38 @@ enum FieldClassifier {
         "schedule", "renew", "cancel", "email", "text", "order", "return",
         "drop off", "clean", "fix", "file", "pack", "confirm", "rsvp", "wrap",
     ]
-    static let dayWords = [
-        "today", "tonight", "tomorrow", "monday", "tuesday", "wednesday",
-        "thursday", "friday", "saturday", "sunday", "this week", "next week",
-        "weekend",
-    ]
+    /// The day words routing reads, which are `FieldPhrasing`'s.
+    ///
+    /// There used to be a second, shorter list here, and the two disagreed in
+    /// the way that mattered most: `FieldPhrasing` has always understood
+    /// "tues", and this did not. Since a date only survives when routing sends
+    /// the capture to a category that carries one, "dentist tues" lost its day
+    /// *and* fell through to the greedy title heuristic — filed as a film,
+    /// with the Tuesday thrown away. One list, for the same reason
+    /// `FieldPhrasing.dayPhrases` gives: the copies drift the first time
+    /// anybody edits either.
+    static var dayWords: [String] { FieldPhrasing.dayPhrases }
+
+    /// Whether a sentence names a day, on word boundaries.
+    ///
+    /// Boundaries are not fussiness. The abbreviations this now includes are
+    /// three letters long, and a plain `contains` would read a day out of
+    /// "the **wed**ding budget", "**sun**screen" and "**mon**itor" — which
+    /// would file a question as an errand, since a day word is exactly what
+    /// disqualifies `.talk`. A trailing plural is allowed through, because
+    /// "mondays" is a Monday.
+    static func namesADay(_ lowered: String) -> Bool {
+        if FieldPhrasing.dayPhrases.contains(where: {
+            $0.contains(" ") && lowered.contains($0)
+        }) { return true }
+
+        let words = Set(
+            lowered.split(whereSeparator: { !$0.isLetter }).map(String.init)
+        )
+        return FieldPhrasing.dayPhrases.contains {
+            !$0.contains(" ") && (words.contains($0) || words.contains($0 + "s"))
+        }
+    }
     /// How a question opens when it is one. Checked alongside a literal "?",
     /// because most people do not type the mark on a phone.
     private static let questionOpeners = [
@@ -843,9 +870,13 @@ enum FieldClassifier {
     ]
     private static let eatWords = [
         "steak", "dinner", "lunch", "restaurant", "eat", "hungry", "craving",
-        "pizza", "ramen", "sushi", "brunch", "cook",
+        "pizza", "ramen", "sushi", "brunch", "cook", "italian place",
     ]
     private static let moneyWords = ["rent", "bill", "invoice", "insurance", "fund", "save"]
+    // "dentist" is deliberately absent. The app grows a Health category for
+    // it — see `anUnfamiliarObligationGrowsACategory` — and naming it here
+    // would have quietly deleted that, which is a worse answer arrived at by a
+    // shorter route.
     private static let careWords = ["mom", "dad", "birthday", "vet", "doctor", "appointment", "gift"]
     static let homeWords = ["filter", "laundry", "trash", "repair", "super", "lease"]
     static let buyWords = [
@@ -862,7 +893,7 @@ enum FieldClassifier {
     /// asks about it. See `FieldPromotion`.
     static func route(_ lowered: String, context: Context) -> LifeCategory {
         let hasTaskShape = taskVerbs.contains { lowered.contains($0) }
-        let hasDay = dayWords.contains { lowered.contains($0) }
+        let hasDay = namesADay(lowered)
         let isAspiration = aspirationWords.contains { lowered.contains($0) }
 
         // A trip named as a wish, or a place already on a horizon, is still a
@@ -1035,7 +1066,7 @@ enum FieldClassifier {
         // couple ends up with thirty categories of one item each.
         //
         // Not everything needs a new category. This is the line.
-        if dayWords.contains(where: { lowered.contains($0) }) { return .notes }
+        if namesADay(lowered) { return .notes }
 
         return invented(from: lowered) ?? .notes
     }
@@ -1081,7 +1112,7 @@ enum FieldClassifier {
         let words = lowered.split(separator: " ")
         guard (1...5).contains(words.count) else { return false }
         return !taskVerbs.contains { lowered.contains($0) }
-            && !dayWords.contains { lowered.contains($0) }
+            && !namesADay(lowered)
     }
 
     private static func matchesHorizon(
@@ -1110,7 +1141,7 @@ enum FieldClassifier {
         // started — that is the whole point of routing it here — and because
         // the only thing the person needs to know is that the date landed.
         if category == .notes,
-           dayWords.contains(where: { lowered.contains($0) }),
+           namesADay(lowered),
            let dueOn = FieldPhrasing.tidy(
                lowered,
                now: context.now,
@@ -1133,7 +1164,7 @@ enum FieldClassifier {
                 + "\(category.word). If that's wrong, move it and I'll drop it."
         }
 
-        let hasDay = dayWords.contains { lowered.contains($0) }
+        let hasDay = namesADay(lowered)
 
         switch category {
         case .watchlist:

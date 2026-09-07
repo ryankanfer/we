@@ -119,6 +119,9 @@ nonisolated struct YoursSnapshot: Codable, Hashable, Sendable {
 final class YoursStore {
     private(set) var snapshot: YoursSnapshot = .empty
     private(set) var loadFailed = false
+    private(set) var isSaving = false
+    private(set) var saveError: String?
+    private var pendingSave: (body: String, clientID: String)?
 
     /// The entry currently under question, if one has been presented. At most
     /// one, ever — §5: "Only one entry can be presented at a time."
@@ -211,18 +214,33 @@ final class YoursStore {
 
     // MARK: Writing
 
-    func save() async {
+    func save() async { await saveDraft(holding: false) }
+
+    private func saveDraft(holding: Bool) async {
         let body = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.isEmpty else { return }
-        draft = ""
+        guard !body.isEmpty, !isSaving else { return }
+        if pendingSave?.body != body {
+            pendingSave = (body, UUID().uuidString)
+        }
+        guard let pendingSave else { return }
+        isSaving = true
+        saveError = nil
+        defer { isSaving = false }
+        var savedEntry: YoursEntry?
         do {
-            justSaved = try await backend.save(
-                clientID: UUID().uuidString,
-                body: body
-            )
+            let saved = try await backend.save(clientID: pendingSave.clientID, body: body)
+            savedEntry = saved
+            if holding {
+                _ = try await backend.hold(entryID: saved.id, visit: nil)
+            }
+            if draft.trimmingCharacters(in: .whitespacesAndNewlines) == body { draft = "" }
+            self.pendingSave = nil
+            if !holding { justSaved = saved }
             await reload()
         } catch {
-            loadFailed = true
+            saveError = savedEntry == nil
+                ? "Saving could not be confirmed. Your words are still here. Keep this screen open and try again."
+                : "Your writing was saved, but keeping it indefinitely could not be confirmed. Try again to finish that choice."
         }
     }
 
@@ -258,21 +276,7 @@ final class YoursStore {
     /// about an entry and an entry has to exist to be decided about — and
     /// because a combined write would need a second insert path into a table
     /// whose whole safety comes from having one.
-    func saveAndHold() async {
-        let body = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.isEmpty else { return }
-        draft = ""
-        do {
-            let saved = try await backend.save(
-                clientID: UUID().uuidString,
-                body: body
-            )
-            _ = try await backend.hold(entryID: saved.id, visit: nil)
-            await reload()
-        } catch {
-            loadFailed = true
-        }
-    }
+    func saveAndHold() async { await saveDraft(holding: true) }
 
     func keepForNow(_ entry: YoursEntry) async {
         await resolve { try await $0.keepForNow(entryID: entry.id, visit: self.visit) }
@@ -470,6 +474,11 @@ final class YoursMemoryBackend: YoursBackend {
     }
 
     func save(clientID: String, body: String) async throws -> YoursEntry {
+        if let existing = entries.first(where: { $0.clientID == clientID }) {
+            guard existing.body == body else { throw YoursError.notFound }
+            return existing
+        }
+
         let now = clock.now
         let readyAt = YoursDates.projectedReadyAt(from: now)
         let entry = YoursEntry(

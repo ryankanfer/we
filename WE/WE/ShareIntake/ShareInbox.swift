@@ -24,8 +24,15 @@ enum WEFeatureFlags {
         if let string = value as? String, !string.isEmpty {
             return ["1", "true", "yes"].contains(string.lowercased())
         }
-        // Seeded modes are explicit product fixtures. Live remains off until
-        // the deployment has the migration, worker secret, and ZDR project.
+        // Reached only where no Info.plist is configured — a unit-test host
+        // or an extension. The app itself is decided by
+        // `WE_SHARED_JOURNEYS_ENABLED`, YES in Debug and in Release, because
+        // a Release archive that fell through to this returned false and
+        // showed testers `LegacyFieldUsZone()` instead of the Us field.
+        // The preconditions that made this cautious are met: the migrations
+        // are applied, and `refresh_shared_journey_question`, `insights`,
+        // `insight_consent`, `responses` and `shared_directions` are all
+        // present in the deployed schema.
         return FieldEntry.Mode.current != .live
     }
 }

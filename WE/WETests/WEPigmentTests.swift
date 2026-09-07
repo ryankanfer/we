@@ -154,10 +154,10 @@ struct WEPigmentTests {
     /// through the cut so that the call sites keep naming their ground; this
     /// is what stops that signature from quietly growing a second answer again
     /// without the cream canvas's contrast solve behind it.
-    @Test func everyGroundSelectsTheSoftTone() {
+    @Test func eachGroundSelectsItsLegiblePigmentVariant() {
         for swatch in FieldSwatch.allCases {
             for canvas in WECanvas.allCases {
-                #expect(swatch.color(on: canvas) == swatch.soft)
+                #expect(swatch.color(on: canvas) == (canvas == .cream ? swatch.deep : swatch.soft))
             }
             #expect(swatch.color == swatch.soft)
         }

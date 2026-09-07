@@ -54,17 +54,8 @@ enum FieldZone: Int, CaseIterable, Codable, Sendable, Identifiable {
     ///
     /// All three zones stand on the same ground.
     ///
-    /// Life used to take a cream canvas, on the argument that the ground was
-    /// a claim about what kind of material a zone holds. V2 §3 cuts that:
-    /// "an earlier light treatment for Life was cut so that geometry alone
-    /// carries differentiation." The zones are now told apart by their
-    /// structure — a read, strata, a field — and by which corner the glow
-    /// pools in, not by the colour of the page.
-    ///
-    /// Kept as a property rather than deleted because the deviations in
-    /// `WECanvas` are real and a zone is still the thing that answers this
-    /// question. It just answers it the same way three times.
-    var canvas: WECanvas { .ground }
+    /// Practical reading uses cream; Today and Us retain the dark ground.
+    var canvas: WECanvas { self == .life ? .cream : .ground }
 
     /// Which way the light falls here.
     ///
@@ -359,6 +350,27 @@ struct LifeItem: Identifiable, Codable, Hashable, Sendable {
     /// directly so that absence resolves to the column default — `shared` —
     /// in exactly one place.
     var visibility: FieldVisibility?
+
+    /// When somebody confirmed they actually made the outward move.
+    ///
+    /// The one fact that separates *this is ours to do* from *someone else has
+    /// it now*, and the app is not allowed to invent it. It is written only
+    /// from a person's own answer to "you called them — is that one done?",
+    /// never from `openURL` succeeding: a dialler appearing on screen is not a
+    /// conversation. Nil means the next move is still ours, however the title
+    /// happens to be phrased.
+    ///
+    /// Nil-able and clearable on purpose — a person may take the action back.
+    /// Optional for the same reason `sourceURL` and `visibility` are: rows
+    /// written before the column existed decode without it.
+    var reachedOutAt: Date?
+
+    /// Whether anyone outside the couple currently owes a reply.
+    ///
+    /// Confirmed outreach plus not yet finished. There is no separate stored
+    /// "awaiting a response" fact because there is nothing a second column
+    /// could say: the moment the thing is done, nobody is owed anything.
+    var isAwaitingSomeoneElse: Bool { reachedOutAt != nil && !isDone }
 
     /// Whether this item may inform something both people will see.
     ///
@@ -747,7 +759,7 @@ struct FieldDailyMoment: Codable, Hashable, Sendable {
 
 /// What the app filed, where, and why. Produced by the classifier, corrected
 /// in one tap.
-struct FieldReceipt: Identifiable, Hashable, Sendable {
+struct FieldReceipt: Identifiable, Codable, Hashable, Sendable {
     let id: String
     /// Exactly what was typed. Kept verbatim: it is what the correction log
     /// learns from, and what the chip under the field shows back.

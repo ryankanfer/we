@@ -914,6 +914,85 @@ struct FieldClassifierTests {
         #expect(receipt.category.rawValue != "mark")
     }
 
+    // MARK: What people actually type
+    //
+    // Phase 2d: capture is upgraded through correction rather than through
+    // more fields, so what matters is that nothing is lost and nothing is
+    // asserted with confidence the input did not earn.
+
+    /// Shorthand is how people type on a phone. No verb, no full day name.
+    @Test
+    func shorthandStillReachesTheDay() {
+        let receipt = FieldClassifier.classify("dentist tues", context: context)
+        #expect(receipt.dueOn != nil, "\"tues\" is a day")
+        #expect(receipt.category.carriesDates)
+    }
+
+    /// A typo does not change what somebody meant, and the app should not act
+    /// as though it does.
+    @Test
+    func aTypoDoesNotDerailTheFiling() {
+        let clean = FieldClassifier.classify(
+            "call the plumber tomorrow",
+            context: context
+        )
+        let typo = FieldClassifier.classify(
+            "call the plumer tomorrow",
+            context: context
+        )
+        #expect(typo.category == clean.category)
+        #expect(typo.dueOn == clean.dueOn)
+    }
+
+    /// Two things in one sentence. The app files one item, which is a
+    /// judgement it is allowed to make — what it is not allowed to do is drop
+    /// half of what somebody said. The verbatim input is the guarantee.
+    @Test
+    func twoIntentionsInOneSentenceLoseNeither() {
+        let input = "book the vet and order the air filters"
+        let receipt = FieldClassifier.classify(input, context: context)
+
+        #expect(receipt.input == input)
+        #expect(receipt.title.localizedCaseInsensitiveContains("vet"))
+        #expect(receipt.title.localizedCaseInsensitiveContains("filter"))
+    }
+
+    /// Uncertain text is not given confidence it did not earn.
+    ///
+    /// Narrower than "it stays a note", deliberately, and the difference is a
+    /// real disagreement worth recording. WE grows a heading out of an
+    /// unplaceable subject rather than defaulting everything into one bucket —
+    /// see `anUnfamiliarObligationGrowsACategory` — and "the thing about the
+    /// blue one" does grow a heading called Blue. Forcing that branch to
+    /// `.notes` would also delete the right answer for every unplaceable
+    /// sentence that names something real, which is a worse trade than a
+    /// heading somebody can refile in one tap.
+    ///
+    /// What is *not* allowed is the app adding facts. A date nobody gave it,
+    /// or a heading made out of the words people use to write things down,
+    /// are both the app asserting something it was not told.
+    @Test
+    func textTheAppCannotPlaceIsNotGivenConfidenceItDidNotEarn() {
+        for input in [
+            "the thing about the blue one",
+            "ask him about it",
+            "that thing we said",
+        ] {
+            let receipt = FieldClassifier.classify(input, context: context)
+
+            #expect(receipt.dueOn == nil, "\"\(input)\" named no day")
+            #expect(
+                !FieldClassifier.uncategorisable.contains(
+                    receipt.category.rawValue
+                ),
+                "\"\(input)\" became a heading made of scaffolding"
+            )
+            // Whatever it was called, correcting it is one tap and the app
+            // remembers — which is the whole of 2d's answer to uncertainty.
+            #expect(receipt.input == input)
+        }
+    }
+
     /// Scaffolding is never a heading. Every one of these describes the act of
     /// writing something down rather than the subject of it.
     @Test
@@ -2108,17 +2187,61 @@ struct FieldOutreachStoreTests {
         #expect(store.awaitingOutcome == nil)
     }
 
-    /// "Not yet" is an answer, and it is not asked again.
+    /// Only explicit outreach with an outstanding response creates Waiting.
     @Test
-    func notYetLeavesItAlone() async {
+    func explicitWaitingRecordsConfirmedOutreach() async {
         let store = store(finding: [])
         await store.begin(.call, for: "vet")
         store.outreachDidOpen(store.pendingOutreach!, target: nil)
 
-        store.resolveOutcome(store.awaitingOutcome!, done: false)
+        store.confirmWaitingForReply(store.awaitingOutcome!)
 
         #expect(store.awaitingOutcome == nil)
         #expect(store.state.lifeItems[0].isDone == false)
+        #expect(store.state.lifeItems[0].reachedOutAt != nil)
+        #expect(store.state.lifeItems[0].isAwaitingSomeoneElse)
+    }
+
+    @Test
+    func cancelledOutreachDoesNotCreateWaiting() async {
+        let store = store(finding: [])
+        await store.begin(.call, for: "vet")
+        store.outreachDidOpen(store.pendingOutreach!, target: nil)
+        store.resolveOutcome(store.awaitingOutcome!, done: false)
+        #expect(store.state.lifeItems[0].reachedOutAt == nil)
+        #expect(!store.state.lifeItems[0].isAwaitingSomeoneElse)
+        #expect(!store.state.lifeItems[0].isDone)
+    }
+
+    /// The dialler appearing is not a conversation. Only the person's own
+    /// answer writes the fact.
+    @Test
+    func openingSomethingDoesNotByItselfSayAnybodyReachedOut() async {
+        let store = store(finding: [])
+        await store.begin(.call, for: "vet")
+        store.outreachDidOpen(store.pendingOutreach!, target: nil)
+
+        #expect(store.state.lifeItems[0].reachedOutAt == nil)
+
+        // And backing out of the question leaves it exactly as it was.
+        store.dismissOutreach()
+        #expect(store.state.lifeItems[0].reachedOutAt == nil)
+    }
+
+    /// A voicemail nobody returned is not somebody else having the next move
+    /// for the rest of the year.
+    @Test
+    func theOutreachCanBeTakenBack() async {
+        let store = store(finding: [])
+        await store.begin(.call, for: "vet")
+        store.outreachDidOpen(store.pendingOutreach!, target: nil)
+        store.confirmWaitingForReply(store.awaitingOutcome!)
+
+        store.reclaimOutreach("vet")
+
+        #expect(store.state.lifeItems[0].reachedOutAt == nil)
+        #expect(store.state.lifeItems[0].isAwaitingSomeoneElse == false)
+        #expect(store.state.lifeItems[0].isDone == false, "taking it back is not finishing it")
     }
 
     /// Booking is a phone call when there is somebody to call, which is what

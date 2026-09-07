@@ -382,8 +382,8 @@ final class FieldStore {
     /// two surfaces have nothing else in common.
     var searchOpen = false
     var activeClusterIndex = 0
-    var captureDraft = ""
-    var lastReceipt: FieldReceipt?
+    var captureDraft = "" { didSet { persistCaptureDraft() } }
+    var lastReceipt: FieldReceipt? { didSet { persistCaptureDraft() } }
     /// Set when the user taps WRONG PLACE — the corrective picker.
     var correctingReceipt: FieldReceipt?
 
@@ -521,6 +521,13 @@ final class FieldStore {
         self.storedReadiness = .neither(
             on: FieldReadiness.localDate(for: self.clock.now)
         )
+        if let draft = (backend as? FieldOutbox)?.captureDraft() {
+            self.captureDraft = draft.text
+            if let receipt = draft.receipt, !self.state.lifeItems.contains(where: { $0.id == receipt.id }) {
+                self.lastReceipt = receipt
+            }
+        }
+
     }
 
     // MARK: The day turning
@@ -1122,6 +1129,18 @@ final class FieldStore {
         return ordered.indices.contains(next) ? ordered[next] : nil
     }
 
+    private(set) var draftSaveError: String?
+
+    private func persistCaptureDraft() {
+        guard let outbox else { return }
+        do {
+            try outbox.saveCaptureDraft(FieldCaptureDraft(text: captureDraft, receipt: lastReceipt))
+            draftSaveError = nil
+        } catch {
+            draftSaveError = "Your draft is only in memory. Keep WE open until it can be saved."
+        }
+    }
+
     // MARK: Capture
 
     /// Classify what was typed and show where it would go. Nothing is filed
@@ -1146,8 +1165,15 @@ final class FieldStore {
     /// `state` — the item appeared, and then vanished on the next load from
     /// Supabase, because nothing wrote it to its destination table. The
     /// backend has always had `upsert` for exactly this and nothing called it.
+    private(set) var captureSaveError: String?
+
     func send() {
+        captureSaveError = nil
         guard let receipt = lastReceipt else { return }
+        guard !state.lifeItems.contains(where: { $0.id == receipt.id }) else {
+            lastReceipt = nil
+            return
+        }
 
         // The chip carries the tidied thought, not the sentence. What was
         // literally typed still travels with the correction, which is the only
@@ -1158,6 +1184,16 @@ final class FieldStore {
             owner: speaker,
             capturedAt: now
         )
+        if let outbox {
+            let item = makeCapturedItem(receipt)
+            do {
+                try outbox.stage([.append(capture), .upsertItem(item)]
+                    + pendingCorrections.map { .record($0) })
+            } catch {
+                captureSaveError = "This has not been saved. Keep this screen open and try again."
+                return
+            }
+        }
         state.captures.insert(capture, at: 0)
         // Cleared before, so that what is on screen afterwards is about *this*
         // send and not a leftover from the last one. `materialise` sets it
@@ -1172,11 +1208,22 @@ final class FieldStore {
         lastReceipt = nil
         correctingReceipt = nil
 
-        Task { [backend] in
+        if outbox != nil {
+            refreshDeliveryStates()
+            Task { await flushPending() }
+            return
+        }
+
+        // `self` rather than `[backend]` alone: enqueueing is what makes the
+        // item's status true, so the status has to be reread once it has
+        // happened. The awaits below hop back to the main actor, which is
+        // where `deliveryStates` is read from.
+        Task { [weak self, backend] in
             try? await backend?.append(capture)
             for correction in corrections {
                 try? await backend?.record(correction)
             }
+            self?.refreshDeliveryStates()
         }
         persist(receipt)
     }
@@ -1185,7 +1232,10 @@ final class FieldStore {
     private func persist(_ receipt: FieldReceipt) {
         guard let item = state.lifeItems.first(where: { $0.id == receipt.id })
         else { return }
-        Task { [backend] in try? await backend?.upsert(item) }
+        Task { [weak self, backend] in
+            try? await backend?.upsert(item)
+            self?.refreshDeliveryStates()
+        }
     }
 
     /// Files the captured text into its category. Without this the receipt
@@ -1195,35 +1245,26 @@ final class FieldStore {
         // past lives" are recognised as the same thing — which is the
         // coincidence the note exists to name, and the highest-value
         // inference the app makes.
-        let match = state.lifeItems.first {
-            $0.title.localizedCaseInsensitiveCompare(receipt.title)
-                == .orderedSame && $0.owner != speaker && !$0.isDone
-        }
-
-        state.lifeItems.insert(
-            LifeItem(
-                id: receipt.id,
-                title: receipt.title,
-                category: receipt.category,
-                owner: match == nil ? speaker : .shared,
-                // The day the phrasing named, which is the whole reason for
-                // lifting it out of the string: an item with a real date can
-                // be ranked, surfaced, and fall due.
-                dueOn: receipt.dueOn,
-                closesAt: nil,
-                clusterID: nil,
-                source: .captured,
-                detail: match == nil ? nil : "Both added it, independently",
-                isTimeCritical: false,
-                isDone: false
-            ),
-            at: 0
-        )
+        state.lifeItems.insert(makeCapturedItem(receipt), at: 0)
 
         // Here rather than in `submitCapture`, so that looking at a receipt
         // changes nothing. A capture corrected to somewhere else never reaches
         // this line, and the group stays where the couple put it.
         reviveIfPutAway(receipt.category)
+    }
+
+    private func makeCapturedItem(_ receipt: FieldReceipt) -> LifeItem {
+        let match = state.lifeItems.first {
+            $0.title.localizedCaseInsensitiveCompare(receipt.title) == .orderedSame
+                && $0.owner != speaker && !$0.isDone
+        }
+        return LifeItem(
+            id: receipt.id, title: receipt.title, category: receipt.category,
+            owner: match == nil ? speaker : .shared, dueOn: receipt.dueOn,
+            closesAt: nil, clusterID: nil, source: .captured,
+            detail: match == nil ? nil : "Both added it, independently",
+            isTimeCritical: false, isDone: false
+        )
     }
 
     /// Puts a captured thing on today, or takes it back off.
@@ -1308,11 +1349,22 @@ final class FieldStore {
     // MARK: Acting on a moment
 
     func complete(_ itemID: String) {
-        guard let index = state.lifeItems.firstIndex(where: { $0.id == itemID })
-        else { return }
-        state.lifeItems[index].isDone = true
-        let item = state.lifeItems[index]
-        Task { [backend] in try? await backend?.upsert(item) }
+        guard !isLegacyExternalRow(itemID),
+              let index = state.lifeItems.firstIndex(where: { $0.id == itemID }) else { return }
+        var item = state.lifeItems[index]
+        item.isDone = true
+        guard stageItemChange([.upsertItem(item)]) else { return }
+        state.lifeItems[index] = item
+        deliverStagedItem(item)
+    }
+
+    private func deliverStagedItem(_ item: LifeItem) {
+        if outbox != nil {
+            refreshDeliveryStates()
+            Task { await flushPending() }
+        } else {
+            Task { [backend] in try? await backend?.upsert(item) }
+        }
     }
 
     // MARK: Changing a filed thing
@@ -1340,14 +1392,20 @@ final class FieldStore {
     /// undo" is not true while the proof-of-catch is still sitting there — a
     /// pill for a thing that no longer exists is the app contradicting itself
     /// on the screen a couple looks at most.
-    func remove(_ itemID: String) {
+    @discardableResult
+    func remove(_ itemID: String) -> Bool {
         guard !isLegacyExternalRow(itemID),
-              let index = state.lifeItems.firstIndex(where: { $0.id == itemID })
-        else { return }
-
+              let index = state.lifeItems.firstIndex(where: { $0.id == itemID }) else { return false }
+        guard stageItemChange([.deleteItem(id: itemID)]) else { return false }
         state.lifeItems.remove(at: index)
         state.captures.removeAll { $0.id == itemID }
-        Task { [backend] in try? await backend?.delete(itemID: itemID) }
+        if outbox != nil {
+            refreshDeliveryStates()
+            Task { await flushPending() }
+        } else {
+            Task { [backend] in try? await backend?.delete(itemID: itemID) }
+        }
+        return true
     }
 
     /// Moves a filed item to another category, and teaches the classifier.
@@ -1357,6 +1415,8 @@ final class FieldStore {
     /// dropping it would make the same mistake again next week. This is why it
     /// records a `FieldCorrection` exactly as `correct(to:)` does for a
     /// receipt.
+    private(set) var itemSaveError: String?
+
     func refile(_ itemID: String, to category: LifeCategory) {
         guard !isLegacyExternalRow(itemID),
               let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
@@ -1364,17 +1424,17 @@ final class FieldStore {
         else { return }
 
         let original = state.lifeItems[index].category
-        state.lifeItems[index].category = category
+        var item = state.lifeItems[index]
+        item.category = category
 
         // Moving into a category that does not carry dates drops the date
         // rather than putting a due date on a film — the same rule
         // `FieldClassifier.correct` applies to a receipt.
         if !category.carriesDates {
-            state.lifeItems[index].dueOn = nil
-            state.lifeItems[index].closesAt = nil
+            item.dueOn = nil
+            item.closesAt = nil
         }
 
-        let item = state.lifeItems[index]
         let correction = FieldCorrection(
             id: UUID().uuidString,
             input: item.title,
@@ -1382,6 +1442,8 @@ final class FieldStore {
             corrected: category,
             correctedAt: now
         )
+        guard stageItemChange([.upsertItem(item), .record(correction)]) else { return }
+        state.lifeItems[index] = item
         state.corrections.append(correction)
 
         // The picker does not offer a put-away group, so this is reachable
@@ -1389,6 +1451,11 @@ final class FieldStore {
         // anyway: a group with something filed into it is not away, whichever
         // device did the filing.
         reviveIfPutAway(category)
+        if outbox != nil {
+            refreshDeliveryStates()
+            Task { await flushPending() }
+            return
+        }
 
         Task { [backend] in
             try? await backend?.upsert(item)
@@ -1679,15 +1746,30 @@ final class FieldStore {
               state.lifeItems[index].category.carriesDates
         else { return }
 
-        state.lifeItems[index].dueOn = day.map {
-            Calendar.gregorianUS.startOfDay(for: $0)
+        var item = state.lifeItems[index]
+        item.dueOn = day.map { Calendar.gregorianUS.startOfDay(for: $0) }
+        if day == nil { item.closesAt = nil }
+        guard stageItemChange([.upsertItem(item)]) else { return }
+        state.lifeItems[index] = item
+        if outbox != nil {
+            refreshDeliveryStates()
+            Task { await flushPending() }
+        } else {
+            Task { [backend] in try? await backend?.upsert(item) }
         }
-        if day == nil {
-            state.lifeItems[index].closesAt = nil
-        }
+    }
 
-        let item = state.lifeItems[index]
-        Task { [backend] in try? await backend?.upsert(item) }
+    /// Corrections are durable before the interface acknowledges them.
+    private func stageItemChange(_ mutations: [FieldMutation]) -> Bool {
+        itemSaveError = nil
+        guard let outbox else { return true }
+        do {
+            try outbox.stage(mutations)
+            return true
+        } catch {
+            itemSaveError = "This change could not be saved on this phone. The original item is still here. Please try again."
+            return false
+        }
     }
 
     func answer(_ question: FieldQuestion, with choice: FieldChoice) {
@@ -2032,9 +2114,52 @@ final class FieldStore {
         )
     }
 
+    /// Opening another app proves no outcome. Completion and waiting for a
+    /// reply are separate confirmations; "Still on me" clears prior waiting.
     func resolveOutcome(_ question: FieldOutcomeQuestion, done: Bool) {
-        awaitingOutcome = nil
-        if done { complete(question.id) }
+        itemSaveError = nil
+        if done { complete(question.id) } else { reclaimOutreach(question.id) }
+        if itemSaveError == nil { awaitingOutcome = nil }
+    }
+
+    func confirmWaitingForReply(_ question: FieldOutcomeQuestion) {
+        recordReachedOut(question.id)
+        if itemSaveError == nil { awaitingOutcome = nil }
+    }
+
+    /// Somebody confirmed the outward act happened and the thing is still open.
+    private func recordReachedOut(_ itemID: String) {
+        guard !isLegacyExternalRow(itemID),
+              let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
+              state.lifeItems[index].reachedOutAt == nil
+        else { return }
+        var item = state.lifeItems[index]
+        item.reachedOutAt = now
+        guard stageItemChange([.upsertItem(item)]) else { return }
+        state.lifeItems[index] = item
+        deliverStagedItem(item)
+    }
+
+    /// "Actually, it is still on me."
+    ///
+    /// Taking the action back, which has to be possible for the same reason
+    /// the confirmation has to be explicit: the app is holding a claim about
+    /// the world on somebody's behalf, and they are the only ones who can say
+    /// it is no longer true. A voicemail nobody returned is not somebody else
+    /// having the next move for the rest of the year.
+    ///
+    /// The item goes back to wherever its date puts it — this clears a fact,
+    /// it does not file anything.
+    func reclaimOutreach(_ itemID: String) {
+        guard !isLegacyExternalRow(itemID),
+              let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
+              state.lifeItems[index].reachedOutAt != nil
+        else { return }
+        var item = state.lifeItems[index]
+        item.reachedOutAt = nil
+        guard stageItemChange([.upsertItem(item)]) else { return }
+        state.lifeItems[index] = item
+        deliverStagedItem(item)
     }
 
     func dismissOutreach() {
@@ -2148,6 +2273,71 @@ final class FieldStore {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    // MARK: Delivery
+
+    /// What the app may say about each item it still owes the server.
+    ///
+    /// Recomputed rather than observed: the queue lives behind a lock off the
+    /// main actor, and a stored snapshot refreshed at the few moments it can
+    /// change is simpler than making the outbox observable and cheaper than
+    /// asking it per row while a zone draws.
+    private(set) var deliveryStates: [String: FieldDeliveryState] = [:]
+
+    /// The queue, when this store has one. Previews, the gallery and the
+    /// memory-backed tests do not, and everything below is a no-op there.
+    private var outbox: FieldOutbox? { backend as? FieldOutbox }
+
+    /// Whether this store is in a position to answer the question at all.
+    ///
+    /// False in previews, the gallery and the memory-backed tests, which have
+    /// no queue. Without this the fallback below reports `.shared` there, and
+    /// a surface would tell somebody their writing was safely stored by a
+    /// build that has nowhere to store it. Not knowing is a state; asserting
+    /// is not allowed.
+    var canReportDelivery: Bool { outbox != nil }
+
+    func deliveryState(for itemID: String) -> FieldDeliveryState {
+        deliveryStates[itemID] ?? .shared
+    }
+
+    func refreshDeliveryStates() {
+        deliveryStates = outbox?.deliveryStates() ?? [:]
+        lostUnsentWriting = outbox?.lostUnsentWriting ?? false
+    }
+
+    /// Unsent writing on this phone could not be read and was set aside.
+    ///
+    /// Distinct from every other delivery state, and the distinction is the
+    /// point: `needsAttention` is about a write that is still here and can be
+    /// tried again, and this is about writes that are not and cannot. The app
+    /// does not know what they said — that is what unreadable means — so it
+    /// cannot show them, name them, or offer to send them. It can only say
+    /// that they existed.
+    private(set) var lostUnsentWriting = false
+
+    /// Told once. The queue does not persist the flag, so this ends it.
+    func acknowledgeLostUnsentWriting() {
+        outbox?.acknowledgeLostUnsentWriting()
+        lostUnsentWriting = false
+    }
+
+    /// Send what is waiting. Called when connectivity returns and when the app
+    /// comes back to the foreground.
+    ///
+    /// Neither clears a write that was set aside — see `FieldOutbox.flushPending`.
+    func flushPending() async {
+        guard let outbox else { return }
+        await outbox.flushPending()
+        refreshDeliveryStates()
+    }
+
+    /// The person asking again for one item, or for everything.
+    func retryDelivery(for itemID: String? = nil) async {
+        guard let outbox else { return }
+        await outbox.retryDelivery(itemID: itemID)
+        refreshDeliveryStates()
+    }
+
     // MARK: Loading
 
     func load() async {
@@ -2192,6 +2382,9 @@ final class FieldStore {
             // Separate from state on purpose: this is one person's, and
             // `FieldState` is the couple's and is cached to disk.
             teachingMoments = Set((try? await backend.teachingMoments()) ?? [])
+            // `load()` flushes first, so this is the moment the queue is at
+            // its emptiest and the statuses on screen are least stale.
+            refreshDeliveryStates()
         } catch {
             // Cached data is still worth drawing; it was true recently and
             // saying so is more useful than an empty screen. Without a cache

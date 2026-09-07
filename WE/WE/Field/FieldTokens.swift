@@ -304,15 +304,8 @@ enum FieldSwatch: String, CaseIterable, Codable, Sendable, Identifiable {
         }
     }
 
-    /// The value for a ground.
-    ///
-    /// `deep` existed for the cream canvas, where a soft hue on paper is a
-    /// wash rather than a mark. Every ground is near-black now, so every
-    /// ground wants `soft` — but the signature is kept so that the ~30 call
-    /// sites reading a swatch against a canvas keep saying which one they
-    /// mean. Collapsing it would bake "there is only one ground" into thirty
-    /// files instead of this one.
-    func color(on canvas: WECanvas) -> Color { soft }
+    /// Soft pigments on dark surfaces; deeper variants on warm paper.
+    func color(on canvas: WECanvas) -> Color { canvas == .cream ? deep : soft }
 
     /// The value on the ground, for contexts that genuinely cannot take a
     /// canvas — gradient stops, the colour field, `UIColor` bridging.
@@ -857,11 +850,11 @@ enum FieldType {
     /// The takeover's items — 400 21/1.25.
     static let takeoverItem = serif(21, .regular)
     /// Body / supporting — 400 13.5–15/1.6.
-    static let body = serif(14.5, .regular)
+    static let body = serif(17, .regular)
     /// Reasoning — italic 400 12.5–13.5/1.6–1.65.
-    static let reasoning = serif(13, .regular, italic: true)
+    static let reasoning = serif(16, .regular)
     /// The receipt's reasoning — italic 400 13.5/1.65.
-    static let receiptReasoning = serif(13.5, .regular, italic: true)
+    static let receiptReasoning = serif(16, .regular)
     /// Anchor quotes — italic 400 19/1.55.
     static let anchorQuote = serif(19, .regular, italic: true)
     /// The season narrative — 400 16.5/1.75.
@@ -899,7 +892,7 @@ enum FieldType {
     /// Right-aligned date / count — 400 9.5, tracking +2.0.
     static let dateCount = sans(9.5)
     /// An action — DONE, I'LL TAKE IT. 400 10-11, tracking +1.6-2.4.
-    static let button = sans(11)
+    static let button = sans(15)
     /// The WE mark's wordmark — 400 11, tracking +2.4.
     static let mark = sans(11)
     /// The status bar clock — the one place the app imitates OS chrome, and
@@ -1238,18 +1231,19 @@ struct FieldIntelligenceMark: View {
 // alternative, text-only for the escape.
 
 struct FieldFilledButtonStyle: ButtonStyle {
+    @Environment(\.weCanvas) private var canvas
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(FieldType.button)
-            .tracking(FieldTracking.button)
-            .textCase(.uppercase)
-            .foregroundStyle(FieldPalette.bg)
+            .tracking(0)
+            .textCase(nil)
+            .foregroundStyle(canvas.bg)
             .padding(.horizontal, 20)
             .padding(.vertical, 13)
             .background(
-                FieldPalette.ink,
+                canvas.ink,
                 in: RoundedRectangle(
                     cornerRadius: FieldMetrics.cardRadius,
                     style: .continuous
@@ -1264,6 +1258,7 @@ struct FieldFilledButtonStyle: ButtonStyle {
 }
 
 struct FieldOutlinedButtonStyle: ButtonStyle {
+    @Environment(\.weCanvas) private var canvas
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Passed for the two person-tinted choices on a question toward Us.
     var tint: Color?
@@ -1271,9 +1266,9 @@ struct FieldOutlinedButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(FieldType.button)
-            .tracking(FieldTracking.button)
-            .textCase(.uppercase)
-            .foregroundStyle(tint ?? FieldInk.legend.color(on: .ground))
+            .tracking(0)
+            .textCase(nil)
+            .foregroundStyle(tint ?? FieldInk.legend.color(on: canvas))
             .padding(.horizontal, 20)
             .padding(.vertical, 13)
             .background(
@@ -1289,7 +1284,7 @@ struct FieldOutlinedButtonStyle: ButtonStyle {
                     style: .continuous
                 )
                 .stroke(
-                    tint?.opacity(0.55) ?? FieldRule.secondaryButton.color(on: .ground),
+                    tint?.opacity(0.55) ?? FieldRule.secondaryButton.color(on: canvas),
                     lineWidth: 1
                 )
             }
@@ -1306,8 +1301,8 @@ struct FieldQuietButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(FieldType.button)
-            .tracking(FieldTracking.button)
-            .textCase(.uppercase)
+            .tracking(0)
+            .textCase(nil)
             .foregroundStyle(.fieldInk(.label))
             .padding(.vertical, 13)
             .opacity(configuration.isPressed ? 0.6 : 1)
@@ -1359,6 +1354,7 @@ struct FieldLabel: View {
 /// in. Selected fills faintly rather than inverting — nothing at this size
 /// earns the ink block a filled button gets.
 struct FieldChip: View {
+    @Environment(\.weCanvas) private var canvas
     let word: String
     var isSelected = false
     var tint: Color?
@@ -1390,15 +1386,15 @@ struct FieldChip: View {
                     if isSelected {
                         Capsule().fill(
                             tint?.opacity(0.14)
-                                ?? FieldPalette.ink.opacity(0.10)
+                                ?? canvas.ink.opacity(0.10)
                         )
                     }
                 }
                 .overlay {
                     Capsule().stroke(
                         isSelected
-                            ? (tint ?? FieldPalette.ink).opacity(0.5)
-                            : FieldRule.secondaryButton.color(on: .ground),
+                            ? (tint ?? canvas.ink).opacity(0.5)
+                            : FieldRule.secondaryButton.color(on: canvas),
                         lineWidth: 1
                     )
                 }

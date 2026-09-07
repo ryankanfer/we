@@ -36,6 +36,8 @@ struct FieldZoneShell: View {
     @State private var store: FieldStore
     @State private var showsAccount = false
     @State private var showsYours = false
+    @State private var showsCapture = false
+    @State private var firstSave: FirstSaveGuide?
 
     /// Whether the way into Yours has been shown once on this device.
     ///
@@ -89,28 +91,17 @@ struct FieldZoneShell: View {
 
             pager
 
-            if !store.calendarOpen, !store.searchOpen {
-                navigationBar
-                    .frame(maxHeight: .infinity, alignment: .bottom)
-                    .transition(.opacity)
-
-                // Above the navigation bar and below everything else, in all
-                // three zones at once, because what it reports is true of all
-                // three at once.
-                FieldLoadStateLine(store: store)
-                    .frame(maxHeight: .infinity, alignment: .bottom)
-                    .padding(.bottom, 96)
-                    .transition(.opacity)
-            }
 
             if store.calendarOpen {
                 FieldCalendarSurface(store: store)
+                    .environment(\.weCanvas, WECanvas.cream)
                     .transition(.opacity)
                     .zIndex(20)
             }
 
             if store.searchOpen {
                 FieldLifeSearch(store: store)
+                    .environment(\.weCanvas, WECanvas.cream)
                     .transition(.opacity)
                     .zIndex(20)
             }
@@ -119,11 +110,110 @@ struct FieldZoneShell: View {
         // ground is near-black now, so this no longer varies — but it still
         // has to be stated, because the default follows the system and a
         // phone in light mode would paint a black clock onto #0A0A09.
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(store.activeZone == .life ? .light : .dark)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if !store.calendarOpen, !store.searchOpen {
+                HStack {
+                    if store.activeZone == .we {
+                        Button(action: openYours) {
+                            Text("Yours").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                        }
+                            .accessibilityIdentifier("field.openYours")
+                    }
+                    Spacer()
+                    Button { showsAccount = true } label: {
+                        Text("Account").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    }
+                        .accessibilityIdentifier("field.openAccount")
+                }
+                .font(FieldType.body)
+                .foregroundStyle(store.activeZone.canvas.ink)
+                .buttonStyle(.plain)
+                .frame(minHeight: 44)
+                .padding(.horizontal, FieldMetrics.screenSide)
+                .background(store.activeZone.canvas.bg)
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !store.calendarOpen, !store.searchOpen {
+                VStack(spacing: 0) {
+                    if store.activeZone == .we {
+                        if let guide = firstSave, guide.progress.phase == .offered {
+                            HStack {
+                                Button("Try with your life") { guide.start(); showsCapture = true }
+                                Spacer()
+                                Button("Not now") { guide.skip() }
+                            }
+                            .font(FieldType.body)
+                            .buttonStyle(.plain)
+                            .frame(minHeight: 44)
+                            .padding(.horizontal, FieldMetrics.screenSide)
+                            .accessibilityIdentifier("field.firstSave.offer")
+                        }
+                        Button { showsCapture = true } label: {
+                            HStack {
+                                Text("What is on your mind?")
+                                Spacer()
+                                Image(systemName: "square.and.pencil")
+                            }
+                            .font(FieldType.body)
+                            .padding(.horizontal, FieldMetrics.screenSide)
+                            .frame(minHeight: 52)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("field.capture.open")
+                    }
+                    FieldLoadStateLine(store: store)
+                    navigationBar
+                }
+                .foregroundStyle(store.activeZone.canvas.ink)
+                .background(store.activeZone.canvas.bg)
+            }
+        }
+        .sheet(isPresented: $showsCapture) {
+            NavigationStack {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        if let guide = firstSave,
+                           guide.progress.phase == .started || guide.progress.phase == .saved {
+                            Text("Try with your life")
+                                .font(FieldType.pageHeadline)
+                            Text("Put down one thought. Review its destination and visibility, then save and open it. You can correct it there.")
+                                .font(FieldType.body)
+                        }
+                        FieldCaptureField(
+                            savedItemID: firstSave?.progress.itemID,
+                            onSaved: { firstSave?.saved($0) },
+                            onRetrieved: { firstSave?.retrieved($0) }
+                        )
+                    }
+                    .padding(FieldMetrics.screenSide)
+                }
+                .navigationTitle("Put it down")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { showsCapture = false }
+                            .accessibilityIdentifier("field.capture.done")
+                    }
+                }
+                .weCanvas(.ground)
+            }
+            .preferredColorScheme(.dark)
+            .environment(store)
+        }
         .environment(store)
         .animation(.fieldZone(reduceMotion), value: store.activeZone)
         .animation(.fieldZone(reduceMotion), value: store.calendarOpen)
         .animation(.fieldZone(reduceMotion), value: store.searchOpen)
+        .task(id: guideScope) {
+            showsCapture = false
+            if let user = session.user?.id, let couple = session.snapshot?.membership?.coupleID {
+                firstSave = FirstSaveGuide(accountID: user, coupleID: couple)
+            } else {
+                firstSave = nil
+            }
+        }
         .task { await store.load() }
         // The day turning, for as long as the app is on screen. Owned by the
         // store — it is the only thing that holds `now` — but driven from
@@ -137,10 +227,23 @@ struct FieldZoneShell: View {
         // The tick comes first and is the reason this comment is now true.
         // Re-planning before catching the clock up plans against the day the
         // app went to sleep on, which is exactly what it claimed not to do.
+        // The other half of the same idea: the reason a write failed may have
+        // just stopped being true. `.reconnecting` is the edge `AppSession`
+        // publishes the instant the path comes back, ahead of its own refresh.
+        .onChange(of: session.connectionState) { _, state in
+            guard state == .online || state == .reconnecting else { return }
+            Task { await store.flushPending() }
+        }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .background || phase == .active else { return }
             if phase == .active {
                 store.tick()
+                // A write queued on a train drains when the app comes back,
+                // rather than waiting for the person to happen to type
+                // something else. `flushPending` is idempotent — every
+                // mutation is an upsert on a client-generated id — so a
+                // foreground during a flush cannot send anything twice.
+                Task { await store.flushPending() }
                 // §5's ninety-day rule is about the product, not this room, so
                 // this fires on every foreground whether or not Yours is ever
                 // opened. Without it, somebody who used the shared side daily
@@ -207,10 +310,39 @@ struct FieldZoneShell: View {
         .fullScreenCover(isPresented: departureBinding) {
             FieldDepartureView()
         }
+        // Writing that was on this phone and owed to the server, in a file
+        // that could not be read. It used to be moved aside in silence, which
+        // meant the one case where somebody genuinely lost something was the
+        // one case the app said nothing about — the item simply was not there
+        // the next time they looked, and there was no reason for it.
+        //
+        // An alert rather than the hairline `FieldLoadStateLine` draws, and
+        // deliberately: that line is for not knowing, and this is a loss. It
+        // is also the reason there is only one button. There is nothing to
+        // retry — a queue the app could not decode is a queue it cannot send —
+        // so offering an action would be a second untruth on top of the first.
+        .alert(
+            "Some unsent writing was lost",
+            isPresented: lostWritingBinding
+        ) {
+            Button("OK") { store.acknowledgeLostUnsentWriting() }
+        } message: {
+            Text(
+                """
+                Writing saved on this phone but not yet synced couldn't be \
+                read, so it was set aside. WE can't recover it or say what it \
+                said. Anything that had already synced is safe.
+                """
+            )
+        }
         .task(id: session.snapshot?.membership?.coupleID) {
             guard let decision = crossingDecision else { return }
             await store.considerCrossing(decision: decision)
         }
+    }
+
+    private var guideScope: String {
+        "\(session.user?.id ?? ""):\(session.snapshot?.membership?.coupleID ?? "")"
     }
 
     /// Open while both of them are open, closed once somebody closes it.
@@ -248,6 +380,13 @@ struct FieldZoneShell: View {
             get: { session.snapshot?.couple?.owesDepartureNotice ?? false },
             set: { _ in }
         )
+    }
+
+    /// The setter is ignored for the same reason the two covers above ignore
+    /// theirs: this closes when the telling has been recorded, not because a
+    /// gesture dismissed it. The button is what records it.
+    private var lostWritingBinding: Binding<Bool> {
+        Binding(get: { store.lostUnsentWriting }, set: { _ in })
     }
 
     /// Built per presentation rather than held, because the store owns
@@ -288,6 +427,7 @@ struct FieldZoneShell: View {
     private var pager: some View {
         TabView(selection: zoneBinding) {
             FieldLifeZone()
+                .environment(\.weCanvas, WECanvas.cream)
                 .tag(FieldZone.life)
 
             FieldTodayZone()
@@ -297,7 +437,6 @@ struct FieldZoneShell: View {
                 .tag(FieldZone.us)
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
-        .ignoresSafeArea()
     }
 
     /// Routed through the store so the mark, the flanking labels, and the
@@ -317,7 +456,6 @@ struct FieldZoneShell: View {
 
     private var navigationBar: some View {
         VStack(spacing: 10) {
-            gestureHint
 
             HStack(alignment: .center, spacing: 0) {
                 zoneLabel(.life)
@@ -401,6 +539,11 @@ struct FieldZoneShell: View {
                         : .fieldInk(.labelQuiet)
                 )
                 .frame(minWidth: 44, minHeight: 44)
+                .overlay(alignment: .bottom) {
+                    if store.activeZone == zone {
+                        Capsule().fill(store.activeZone.canvas.ink).frame(width: 18, height: 2)
+                    }
+                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -654,13 +797,13 @@ struct FieldZoneScaffold<Content: View>: View {
                     content
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, FieldMetrics.screenTop)
+                .padding(.top, 28)
                 .padding(.horizontal, horizontalPadding)
                 // The bar grows with the type size, so a constant clearance
                 // is only correct at one setting. At the accessibility sizes
                 // the old 112 left the last row of every zone sitting under
                 // LIFE, WE, and US.
-                .padding(.bottom, FieldMetrics.screenBottom(at: typeSize))
+                .padding(.bottom, 32)
             }
             .scrollBounceBehavior(.basedOnSize)
             // Scrolling away from the capture field puts the keyboard away

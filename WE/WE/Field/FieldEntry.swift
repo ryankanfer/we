@@ -115,7 +115,7 @@ struct FieldRoot: View {
                 // train used to see a blank account until thirteen queries
                 // answered; now they see what was there last time, with
                 // anything still queued already on top of it.
-                state: cached?.state ?? snapshot.emptyFieldState,
+                state: cached?.state ?? durable?.outbox.replayPending(over: snapshot.emptyFieldState) ?? snapshot.emptyFieldState,
                 backend: durable?.outbox,
                 clock: FieldLiveClock.app,
                 // The real one only here. Previews and the gallery get the

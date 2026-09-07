@@ -48,6 +48,12 @@ struct FieldTodayZone: View {
                 .uppercased()
         ) {
             VStack(alignment: .leading, spacing: 0) {
+                if let error = store.itemSaveError {
+                    Text(error).font(FieldType.body)
+                        .foregroundStyle(.fieldInk(.headline))
+                        .padding(.bottom, 20)
+                        .accessibilityIdentifier("field.today.saveError")
+                }
                 // One hairline under the Today header, purely as a signal that
                 // the space is jointly held. This is a sanctioned use of the
                 // blend — it is not decoration and it appears nowhere else on
@@ -70,8 +76,6 @@ struct FieldTodayZone: View {
                     FieldMomentView(moment: moment)
                 }
 
-                FieldCaptureField()
-                    .padding(.top, FieldMetrics.sectionGapLoose)
 
                 if sharedQuestionIsReady {
                     sharedJourneyHandoff
@@ -415,8 +419,13 @@ struct FieldMomentView: View {
                     .padding(.bottom, 20)
             }
 
-            FieldReasoning(text: moment.reasoning, accent: accentColor)
-                .padding(.bottom, 30)
+            DisclosureGroup("Why this?") {
+                FieldReasoning(text: moment.reasoning, accent: accentColor)
+                    .padding(.top, 12)
+            }
+            .font(FieldType.body)
+            .foregroundStyle(.fieldInk(.headline))
+            .padding(.bottom, 24)
 
             // The app opened the phone and does not know how it went. Asked
             // once, above the usual actions, and never asked again today.
@@ -427,14 +436,7 @@ struct FieldMomentView: View {
 
             actions
 
-            if let remainder = moment.remainder {
-                Text(remainder)
-                    .font(.system(size: 13.5, design: .serif))
-                    .foregroundStyle(.fieldInk(.metadataProse))
-                    .fieldLineHeight(1.6, size: 13.5)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 30)
-            }
+
         }
         .accessibilityIdentifier("field.today.moment")
         // Where anything outward gets confirmed. It is a sheet rather than an
@@ -463,12 +465,16 @@ struct FieldMomentView: View {
                     .foregroundStyle(.fieldInk(.headline))
                     .fixedSize(horizontal: false, vertical: true)
 
-                HStack(spacing: 11) {
-                    Button("Done") { store.resolveOutcome(outcome, done: true) }
+                VStack(alignment: .leading, spacing: 8) {
+                    Button("It's done") { store.resolveOutcome(outcome, done: true) }
                         .buttonStyle(FieldFilledButtonStyle())
                         .accessibilityIdentifier("field.outcome.done")
-
-                    Button("Not yet") { store.resolveOutcome(outcome, done: false) }
+                    Button("I reached out and am waiting for a reply") {
+                        store.confirmWaitingForReply(outcome)
+                    }
+                    .buttonStyle(FieldOutlinedButtonStyle())
+                    .accessibilityIdentifier("field.outcome.waiting")
+                    Button("Still on me") { store.resolveOutcome(outcome, done: false) }
                         .buttonStyle(FieldQuietButtonStyle())
                         .accessibilityIdentifier("field.outcome.notYet")
                 }
