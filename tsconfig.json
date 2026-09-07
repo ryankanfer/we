@@ -17,5 +17,14 @@
     "paths": { "@/*": ["./*"] }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "//exclude": [
+    "The frozen Next.js app is the only thing here TypeScript owns.",
+    "supabase/ is Deno, with its own config and its own type check in",
+    "scripts/qa/run-edge-function-tests.sh; its jsr: and https: imports are",
+    "unresolvable to Next by design, and including them is what has been",
+    "failing the Vercel build. artifacts/ and .build/ are build output —",
+    "gitignored, so Vercel never sees them, but they carry vendored Deno",
+    "examples that break a local `tsc` run for the same reason."
+  ],
+  "exclude": ["node_modules", "supabase", "artifacts", ".build"]
 }
