@@ -35,7 +35,7 @@ enum YoursCopy {
     /// whole argument is that this space does not ask for anything, and a
     /// prompt phrased as a question is a request for an answer. This names
     /// the one guarantee instead, which is what makes the space usable.
-    static let composePlaceholder = "Nobody else will see this."
+    static let composePlaceholder = "Write here. Only you can see this."
 
     /// The reassurance under the dated receipt.
     ///
@@ -134,22 +134,9 @@ enum YoursCopy {
     static let accessibilityName = "Yours"
 
     // MARK: - Deletion
-    //
-    // CIRCLE.md §8 and §14, and this is the one string in the file that is
-    // waiting on infrastructure rather than on a decision.
-    //
-    // Until the key service is chosen and its destruction semantics verified,
-    // the product may not say a thing is gone the instant it is asked to be.
-    // Supabase keeps its root key outside the database precisely so a restore
-    // can bring data back — excellent disaster recovery, and the exact
-    // opposite of what this design needs. Until deletion routes through a key
-    // WE destroys and can prove it destroyed, "unrecoverable within 24 hours"
-    // is the strongest true sentence available.
-    //
-    // Do not strengthen this string. A promise the infrastructure cannot
-    // demonstrate is the footnote that destroys the concept.
-
-    static let deletionAssurance = "Unrecoverable within 24 hours."
+    // Describe the visible result. Backup/key destruction timing has not
+    // been verified, so this screen cannot promise irrecoverability.
+    static let deletionAssurance = "Letting go removes this writing from your private space."
 
     // MARK: - Dormancy
     //

@@ -101,8 +101,7 @@ struct FieldItemSheet: View {
             titleVisibility: .visible
         ) {
             Button("Remove it", role: .destructive) {
-                store.remove(itemID)
-                dismiss()
+                if store.remove(itemID) { dismiss() }
             }
             Button("Keep it", role: .cancel) {}
         } message: {

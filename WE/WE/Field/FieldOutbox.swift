@@ -543,7 +543,12 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
                 try await entry.mutation.send(to: base)
                 remove(entry.id)
             } catch {
-                recordFailure(of: entry.id)
+                // Losing connectivity is not evidence that a write is invalid.
+                // Leave it eligible for the next reconnect/foreground flush.
+                if !(error is CancellationError),
+                   (error as NSError).domain != NSURLErrorDomain {
+                    recordFailure(of: entry.id)
+                }
                 throw error
             }
         }

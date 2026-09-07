@@ -259,7 +259,7 @@ private struct SharedJourneyUsSurface: View {
             }
             .padding(.vertical, 22)
 
-            Button("Hold my answer") {
+            Button("Save my private answer") {
                 guard let selectedChoice else { return }
                 Task {
                     await session.submitResponse(
@@ -287,6 +287,7 @@ private struct SharedJourneyUsSurface: View {
             .padding(.top, 8)
             .accessibilityIdentifier("field.us.pass")
         }
+        .onChange(of: selectedChoice) { _, _ in allowsAIProcessing = false }
         .onChange(of: record.id) { _, _ in resetAnswer() }
         .task(id: record.id) {
             await session.recordJourneyQuestionShown(insightID: record.id)
@@ -338,6 +339,11 @@ private struct SharedJourneyUsSurface: View {
                 .frame(maxWidth: .infinity)
                 .padding(.top, 24)
                 .padding(.bottom, 32)
+
+            Text("Proposed direction")
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.headline))
+                .padding(.bottom, 12)
 
             WEDisplayText(direction.displaySummary, role: .majorQuestion)
                 .padding(.bottom, 18)
@@ -410,6 +416,11 @@ private struct SharedJourneyUsSurface: View {
                 .frame(maxWidth: .infinity)
                 .padding(.top, 30)
                 .padding(.bottom, 34)
+
+            Text("Agreed direction")
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.headline))
+                .padding(.bottom, 12)
 
             WEDisplayText(journey.title, role: .hero)
                 .padding(.bottom, 18)

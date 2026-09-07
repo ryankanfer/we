@@ -2187,24 +2187,30 @@ struct FieldOutreachStoreTests {
         #expect(store.awaitingOutcome == nil)
     }
 
-    /// "Not yet" is an answer, and it is not asked again.
-    ///
-    /// It is also the most specific thing anybody says in this flow — *I made
-    /// the call and it is still open* — and it used to be thrown away. It is
-    /// the only evidence Life ever gets that somebody outside this house
-    /// actually has the next move.
+    /// Only explicit outreach with an outstanding response creates Waiting.
     @Test
-    func notYetLeavesItAloneAndRecordsThatSomebodyReachedOut() async {
+    func explicitWaitingRecordsConfirmedOutreach() async {
         let store = store(finding: [])
         await store.begin(.call, for: "vet")
         store.outreachDidOpen(store.pendingOutreach!, target: nil)
 
-        store.resolveOutcome(store.awaitingOutcome!, done: false)
+        store.confirmWaitingForReply(store.awaitingOutcome!)
 
         #expect(store.awaitingOutcome == nil)
         #expect(store.state.lifeItems[0].isDone == false)
         #expect(store.state.lifeItems[0].reachedOutAt != nil)
         #expect(store.state.lifeItems[0].isAwaitingSomeoneElse)
+    }
+
+    @Test
+    func cancelledOutreachDoesNotCreateWaiting() async {
+        let store = store(finding: [])
+        await store.begin(.call, for: "vet")
+        store.outreachDidOpen(store.pendingOutreach!, target: nil)
+        store.resolveOutcome(store.awaitingOutcome!, done: false)
+        #expect(store.state.lifeItems[0].reachedOutAt == nil)
+        #expect(!store.state.lifeItems[0].isAwaitingSomeoneElse)
+        #expect(!store.state.lifeItems[0].isDone)
     }
 
     /// The dialler appearing is not a conversation. Only the person's own
@@ -2229,7 +2235,7 @@ struct FieldOutreachStoreTests {
         let store = store(finding: [])
         await store.begin(.call, for: "vet")
         store.outreachDidOpen(store.pendingOutreach!, target: nil)
-        store.resolveOutcome(store.awaitingOutcome!, done: false)
+        store.confirmWaitingForReply(store.awaitingOutcome!)
 
         store.reclaimOutreach("vet")
 

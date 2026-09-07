@@ -28,6 +28,7 @@ private final class FakeFieldServer: FieldBackend, @unchecked Sendable {
     /// How many sends to reject before accepting anything. Models a phone
     /// that is simply offline.
     var failuresRemaining = 0
+    var transportOffline = false
 
     /// Commit, *then* fail. The dangerous case: the write landed and the
     /// client will never know it.
@@ -43,6 +44,7 @@ private final class FakeFieldServer: FieldBackend, @unchecked Sendable {
 
     private func receive(_ mutation: FieldMutation) throws {
         receivedCount += 1
+        if transportOffline { throw URLError(.notConnectedToInternet) }
 
         if commitsBeforeFailing {
             mutation.apply(to: &state)
@@ -205,6 +207,39 @@ struct FieldOutboxTests {
         #expect(field.captureSaveError != nil)
         #expect(field.state.lifeItems.isEmpty)
         #expect(queue.isEmpty)
+    }
+
+    @Test func repeatedOfflineAttemptsStillRecoverAutomatically() async throws {
+        let disk = store()
+        defer { disk.removeAll() }
+        let server = FakeFieldServer(state: emptyState())
+        server.transportOffline = true
+        let queue = FieldOutbox(wrapping: server, partition: partition(), store: disk)
+        try queue.stage([.upsertItem(item())])
+        for _ in 0..<8 { await queue.flushPending() }
+        #expect(queue.pending.first?.blockedAt == nil)
+        #expect(queue.deliveryState(forItem: "item-1") == .savedLocally)
+        server.transportOffline = false
+        await queue.flushPending()
+        #expect(queue.isEmpty)
+        #expect(server.state.lifeItems.count == 1)
+    }
+
+    @Test func completionAndRemovalSurviveImmediateTermination() {
+        let disk = store()
+        defer { disk.removeAll() }
+        let server = FakeFieldServer(state: emptyState())
+        let queue = FieldOutbox(wrapping: server, partition: partition(), store: disk)
+        var initial = emptyState()
+        initial.lifeItems = [item(id: "complete"), item(id: "remove")]
+        let field = FieldStore(state: initial, now: Self.now, backend: queue)
+        field.complete("complete")
+        field.remove("remove")
+        let restored = FieldOutbox(wrapping: server, partition: partition(), store: disk)
+            .replayPending(over: initial)
+        #expect(restored.lifeItems.count == 1)
+        #expect(restored.lifeItems.first?.id == "complete")
+        #expect(restored.lifeItems.first?.isDone == true)
     }
 
     @Test func correctionsSurviveImmediateTermination() throws {

@@ -48,6 +48,12 @@ struct FieldTodayZone: View {
                 .uppercased()
         ) {
             VStack(alignment: .leading, spacing: 0) {
+                if let error = store.itemSaveError {
+                    Text(error).font(FieldType.body)
+                        .foregroundStyle(.fieldInk(.headline))
+                        .padding(.bottom, 20)
+                        .accessibilityIdentifier("field.today.saveError")
+                }
                 // One hairline under the Today header, purely as a signal that
                 // the space is jointly held. This is a sanctioned use of the
                 // blend — it is not decoration and it appears nowhere else on
@@ -459,12 +465,16 @@ struct FieldMomentView: View {
                     .foregroundStyle(.fieldInk(.headline))
                     .fixedSize(horizontal: false, vertical: true)
 
-                HStack(spacing: 11) {
-                    Button("Done") { store.resolveOutcome(outcome, done: true) }
+                VStack(alignment: .leading, spacing: 8) {
+                    Button("It's done") { store.resolveOutcome(outcome, done: true) }
                         .buttonStyle(FieldFilledButtonStyle())
                         .accessibilityIdentifier("field.outcome.done")
-
-                    Button("Not yet") { store.resolveOutcome(outcome, done: false) }
+                    Button("I reached out and am waiting for a reply") {
+                        store.confirmWaitingForReply(outcome)
+                    }
+                    .buttonStyle(FieldOutlinedButtonStyle())
+                    .accessibilityIdentifier("field.outcome.waiting")
+                    Button("Still on me") { store.resolveOutcome(outcome, done: false) }
                         .buttonStyle(FieldQuietButtonStyle())
                         .accessibilityIdentifier("field.outcome.notYet")
                 }

@@ -1349,11 +1349,22 @@ final class FieldStore {
     // MARK: Acting on a moment
 
     func complete(_ itemID: String) {
-        guard let index = state.lifeItems.firstIndex(where: { $0.id == itemID })
-        else { return }
-        state.lifeItems[index].isDone = true
-        let item = state.lifeItems[index]
-        Task { [backend] in try? await backend?.upsert(item) }
+        guard !isLegacyExternalRow(itemID),
+              let index = state.lifeItems.firstIndex(where: { $0.id == itemID }) else { return }
+        var item = state.lifeItems[index]
+        item.isDone = true
+        guard stageItemChange([.upsertItem(item)]) else { return }
+        state.lifeItems[index] = item
+        deliverStagedItem(item)
+    }
+
+    private func deliverStagedItem(_ item: LifeItem) {
+        if outbox != nil {
+            refreshDeliveryStates()
+            Task { await flushPending() }
+        } else {
+            Task { [backend] in try? await backend?.upsert(item) }
+        }
     }
 
     // MARK: Changing a filed thing
@@ -1381,14 +1392,20 @@ final class FieldStore {
     /// undo" is not true while the proof-of-catch is still sitting there — a
     /// pill for a thing that no longer exists is the app contradicting itself
     /// on the screen a couple looks at most.
-    func remove(_ itemID: String) {
+    @discardableResult
+    func remove(_ itemID: String) -> Bool {
         guard !isLegacyExternalRow(itemID),
-              let index = state.lifeItems.firstIndex(where: { $0.id == itemID })
-        else { return }
-
+              let index = state.lifeItems.firstIndex(where: { $0.id == itemID }) else { return false }
+        guard stageItemChange([.deleteItem(id: itemID)]) else { return false }
         state.lifeItems.remove(at: index)
         state.captures.removeAll { $0.id == itemID }
-        Task { [backend] in try? await backend?.delete(itemID: itemID) }
+        if outbox != nil {
+            refreshDeliveryStates()
+            Task { await flushPending() }
+        } else {
+            Task { [backend] in try? await backend?.delete(itemID: itemID) }
+        }
+        return true
     }
 
     /// Moves a filed item to another category, and teaches the classifier.
@@ -2097,25 +2114,17 @@ final class FieldStore {
         )
     }
 
-    /// "You called them. Is that one done?" — answered.
-    ///
-    /// Both answers are information and both are now kept. "Done" finishes it.
-    /// "Not yet" is the answer that used to be thrown away, and it is the most
-    /// specific thing anybody says in this whole flow: *I made the call, and it
-    /// is still open.* That is the only evidence Life ever gets that somebody
-    /// outside this house actually has the next move, so it is recorded rather
-    /// than discarded — see `LifeItem.reachedOutAt`.
-    ///
-    /// Note what is not doing the work here. `outreachDidOpen` fires when the
-    /// phone accepted the URL, which says a dialler appeared, not that anybody
-    /// spoke. The confirmation is the person's own.
+    /// Opening another app proves no outcome. Completion and waiting for a
+    /// reply are separate confirmations; "Still on me" clears prior waiting.
     func resolveOutcome(_ question: FieldOutcomeQuestion, done: Bool) {
-        awaitingOutcome = nil
-        if done {
-            complete(question.id)
-        } else {
-            recordReachedOut(question.id)
-        }
+        itemSaveError = nil
+        if done { complete(question.id) } else { reclaimOutreach(question.id) }
+        if itemSaveError == nil { awaitingOutcome = nil }
+    }
+
+    func confirmWaitingForReply(_ question: FieldOutcomeQuestion) {
+        recordReachedOut(question.id)
+        if itemSaveError == nil { awaitingOutcome = nil }
     }
 
     /// Somebody confirmed the outward act happened and the thing is still open.
@@ -2124,9 +2133,11 @@ final class FieldStore {
               let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
               state.lifeItems[index].reachedOutAt == nil
         else { return }
-        state.lifeItems[index].reachedOutAt = now
-        let item = state.lifeItems[index]
-        Task { [backend] in try? await backend?.upsert(item) }
+        var item = state.lifeItems[index]
+        item.reachedOutAt = now
+        guard stageItemChange([.upsertItem(item)]) else { return }
+        state.lifeItems[index] = item
+        deliverStagedItem(item)
     }
 
     /// "Actually, it is still on me."
@@ -2144,9 +2155,11 @@ final class FieldStore {
               let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
               state.lifeItems[index].reachedOutAt != nil
         else { return }
-        state.lifeItems[index].reachedOutAt = nil
-        let item = state.lifeItems[index]
-        Task { [backend] in try? await backend?.upsert(item) }
+        var item = state.lifeItems[index]
+        item.reachedOutAt = nil
+        guard stageItemChange([.upsertItem(item)]) else { return }
+        state.lifeItems[index] = item
+        deliverStagedItem(item)
     }
 
     func dismissOutreach() {

@@ -1007,6 +1007,7 @@ final class FieldZoneUITests: XCTestCase {
             .completed,
             "explicit OpenAI consent should enable holding the answer"
         )
+        keepScreenshot(of: app, named: "review.us.processing-consent")
         XCTAssertFalse(app.staticTexts["AFTER THAT"].exists)
         XCTAssertFalse(app.staticTexts["THIS WEEK"].exists)
     }
@@ -1034,6 +1035,8 @@ final class FieldZoneUITests: XCTestCase {
         )
         XCTAssertTrue(proposalApp.buttons["field.us.chooseDirection"].exists)
         XCTAssertTrue(proposalApp.buttons["field.us.restDirection"].exists)
+        XCTAssertTrue(proposalApp.staticTexts["Proposed direction"].exists)
+        keepScreenshot(of: proposalApp, named: "review.us.proposed")
 
         let activeApp = launchJourney("journeyactive")
         activeApp.buttons["field.nav.us"].tap()
@@ -1041,14 +1044,21 @@ final class FieldZoneUITests: XCTestCase {
             activeApp.staticTexts["field.us.journey.active"]
                 .waitForExistence(timeout: 6)
         )
-        XCTAssertTrue(activeApp.staticTexts["THE NEXT USEFUL MOVE"].exists)
+        XCTAssertTrue(activeApp.staticTexts["Make space for the evening"].exists)
         XCTAssertTrue(activeApp.buttons["What brought this here"].exists)
+        XCTAssertTrue(activeApp.staticTexts["Agreed direction"].exists)
+        keepScreenshot(of: activeApp, named: "review.us.agreed")
         XCTAssertFalse(
             activeApp.staticTexts[
                 "Dinner and the rest of the evening were still unshaped."
             ].exists,
             "evidence should begin collapsed"
         )
+        activeApp.swipeUp()
+        let evidence = activeApp.buttons["What brought this here"]
+        XCTAssertTrue(waitForHittable(evidence), "Shared evidence must clear the bottom navigation")
+        evidence.tap()
+        XCTAssertTrue(activeApp.staticTexts["Dinner and the rest of the evening were still unshaped."].waitForExistence(timeout: 4))
     }
 
     @MainActor
@@ -1399,8 +1409,17 @@ final class FieldZoneUITests: XCTestCase {
             app.buttons["yours.setDown"].label.localizedLowercase,
             "set it down"
         )
+        let save = app.buttons["yours.setDown"]
+        for _ in 0..<4 where !save.isHittable { app.swipeUp() }
+        XCTAssertTrue(waitForHittable(save), "Saving must remain reachable with the keyboard open")
         XCTAssertTrue(app.buttons["Keep indefinitely"].exists)
         XCTAssertFalse(app.navigationBars.firstMatch.exists)
+        let appearance = XCTAttachment(screenshot: app.screenshot())
+        appearance.name = "Yours — writing with keyboard"
+        appearance.lifetime = .keepAlways
+        add(appearance)
+        save.tap()
+        XCTAssertTrue(app.staticTexts["yours.saved"].waitForExistence(timeout: 6))
     }
 
     /// The close control used to have the whole screen as its hit region — the

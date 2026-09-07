@@ -69,6 +69,9 @@ case "$lane" in
       "-only-testing:WEUITests/WEUITests/testAAuthRecoveryPairingAndHueRoutes"
       "-only-testing:WEUITests/WalkthroughUITests/testEveryScreenIsExplicitAndCanBeReadToTheEnd"
       "-only-testing:WEUITests/WalkthroughUITests/testItPlaysOnceOnAFirstRunAndNotAgain"
+      "-only-testing:WEUITests/FieldZoneUITests/testUsQuestionIsOnePrivateEvidenceBackedChoice"
+      "-only-testing:WEUITests/FieldZoneUITests/testUsHeldRevealsNoPartnerStatus"
+      "-only-testing:WEUITests/FieldZoneUITests/testUsProposalAndActiveJourneyStayFocused"
     )
     ;;
   full-ui)

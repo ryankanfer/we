@@ -54,6 +54,7 @@ struct YoursSurface: View {
     /// exit cannot start a second one — two overlapping `dismiss()` calls pop
     /// whatever is underneath as well.
     @State private var isClosing = false
+    @State private var asksToDiscardDraft = false
     @State private var contentIsVisible = false
     @State private var savedWords: String?
     @State private var wordsAreSettling = false
@@ -76,6 +77,12 @@ struct YoursSurface: View {
             .onAppear { open() }
         // Every explicit exit is `close()`, so the room never simply vanishes.
         .interactiveDismissDisabled()
+        .confirmationDialog("Leave this draft?", isPresented: $asksToDiscardDraft, titleVisibility: .visible) {
+            Button("Discard draft and close", role: .destructive) { finishClosing() }
+            Button("Keep writing", role: .cancel) {}
+        } message: {
+            Text("These words will not be kept on this phone after you close. Keep this screen open if you want to finish saving them.")
+        }
     }
 
     private var room: some View {
@@ -256,6 +263,8 @@ struct YoursSurface: View {
                 .padding(.horizontal, -5)
                 .focused($composeIsFocused)
                 .accessibilityIdentifier("yours.compose")
+                .accessibilityLabel("Private writing")
+                .disabled(store.isSaving)
                 .background(alignment: .topLeading) {
                     // Not a `TextField` prompt: `TextEditor` has none, and an
                     // overlay that swallowed taps would make the room look
@@ -333,13 +342,21 @@ struct YoursSurface: View {
                 .accessibilityIdentifier("yours.saved")
             }
 
+            if let error = store.saveError {
+                Text(error)
+                    .font(FieldType.body)
+                    .foregroundStyle(.fieldInk(.headline))
+                    .accessibilityIdentifier("yours.saveError")
+            }
+
             if !store.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 HStack(spacing: 12) {
-                    Button("Set it down") {
+                    Button(store.isSaving ? "Saving…" : "Set it down") {
                         settleWords(holding: false)
                     }
                     .buttonStyle(FieldFilledButtonStyle())
                     .accessibilityIdentifier("yours.setDown")
+                    .disabled(store.isSaving)
 
                     // §3: available from the first save, and visually
                     // secondary here. Somebody who knows on day one that a
@@ -349,6 +366,7 @@ struct YoursSurface: View {
                         settleWords(holding: true)
                     }
                     .buttonStyle(FieldQuietButtonStyle())
+                    .disabled(store.isSaving)
                 }
             }
         }
@@ -357,22 +375,14 @@ struct YoursSurface: View {
     private func settleWords(holding: Bool) {
         let words = store.draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !words.isEmpty else { return }
-        savedWords = words
-        wordsAreSettling = false
         composeIsFocused = false
-
-        withAnimation(
-            reduceMotion
-                ? .linear(duration: 0.18)
-                : .easeOut(duration: 0.52)
-        ) {
-            wordsAreSettling = true
-        }
         Task {
-            if holding {
-                await store.saveAndHold()
-            } else {
-                await store.save()
+            if holding { await store.saveAndHold() } else { await store.save() }
+            guard store.saveError == nil else { return }
+            savedWords = words
+            wordsAreSettling = false
+            withAnimation(reduceMotion ? .linear(duration: 0.18) : .easeOut(duration: 0.52)) {
+                wordsAreSettling = true
             }
             try? await Task.sleep(for: .seconds(reduceMotion ? 0.2 : 0.55))
             savedWords = nil
@@ -647,6 +657,15 @@ struct YoursSurface: View {
     /// Shorter than the entrance on purpose: arriving somewhere private feels
     /// like an opening, and leaving feels decided.
     private func close() {
+        guard !store.isSaving else { return }
+        if !store.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            asksToDiscardDraft = true
+            return
+        }
+        finishClosing()
+    }
+
+    private func finishClosing() {
         guard !isClosing else { return }
         isClosing = true
 
