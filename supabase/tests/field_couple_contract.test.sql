@@ -134,10 +134,14 @@ from (
 
 select is(
   (
-    select case
+    -- `udt_name` is `name` and `data_type` is `character_data`, so the CASE
+    -- resolves to `name` and pgTAP cannot match it against the `text` on the
+    -- other side. Without the cast the file aborts here and every assertion
+    -- below it silently never runs.
+    select (case
       when columns.data_type = 'ARRAY' then columns.udt_name
       else columns.data_type
-    end
+    end)::text
     from information_schema.columns
     where columns.table_schema = 'public'
       and columns.table_name = typed_projection.table_name

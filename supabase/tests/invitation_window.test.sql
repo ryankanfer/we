@@ -83,6 +83,12 @@ select cm.couple_id
 from public.couple_members cm
 where cm.profile_id = '95000000-0000-0000-0000-000000000001';
 
+-- The fixture is built as the owning role; the assertions below read it
+-- back as `authenticated`, which has no privilege on a temp table it
+-- does not own. Without this the file aborts on first read and every
+-- assertion after it silently never runs.
+grant select on ctx to authenticated;
+
 select is(
   (select count(*)::int from public.invitations
    where couple_id = (select couple_id from ctx)
@@ -150,6 +156,12 @@ create temp table expiring on commit drop as
 select i.code from public.invitations i
 where i.couple_id = (select couple_id from ctx);
 
+-- The fixture is built as the owning role; the assertions below read it
+-- back as `authenticated`, which has no privilege on a temp table it
+-- does not own. Without this the file aborts on first read and every
+-- assertion after it silently never runs.
+grant select on expiring to authenticated;
+
 update public.invitations
 set expires_at = now() - interval '1 minute'
 where couple_id = (select couple_id from ctx);
@@ -197,6 +209,12 @@ create temp table live on commit drop as
 select i.code from public.invitations i
 where i.couple_id = (select couple_id from ctx)
   and i.consumed_at is null and i.revoked_at is null;
+
+-- The fixture is built as the owning role; the assertions below read it
+-- back as `authenticated`, which has no privilege on a temp table it
+-- does not own. Without this the file aborts on first read and every
+-- assertion after it silently never runs.
+grant select on live to authenticated;
 
 set local role authenticated;
 select set_config(
@@ -277,6 +295,12 @@ create temp table withdrawn on commit drop as
 select i.code from public.invitations i
 where i.couple_id = (select couple_id from ctx)
   and i.consumed_at is null and i.revoked_at is null;
+
+-- The fixture is built as the owning role; the assertions below read it
+-- back as `authenticated`, which has no privilege on a temp table it
+-- does not own. Without this the file aborts on first read and every
+-- assertion after it silently never runs.
+grant select on withdrawn to authenticated;
 
 set local role authenticated;
 select set_config(

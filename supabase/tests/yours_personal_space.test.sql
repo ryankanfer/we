@@ -242,11 +242,21 @@ create temp table ctx on commit drop as
 select couple_id from public.couple_members
 where profile_id = '92000000-0000-0000-0000-000000000001';
 
-insert into public.couple_members (couple_id, profile_id, hue)
+-- The fixture is built as the owning role; the assertions below read it
+-- back as `authenticated`, which has no privilege on a temp table it
+-- does not own. Without this the file aborts on first read and every
+-- assertion after it silently never runs.
+grant select on ctx to authenticated;
+
+-- `member_slot` is NOT NULL and is the database's stable A/B contract, so
+-- the second member has to say which side it is. `create_couple()` above
+-- took slot 1.
+insert into public.couple_members (couple_id, profile_id, hue, member_slot)
 values (
   (select couple_id from ctx),
   '92000000-0000-0000-0000-000000000002',
-  'sage'
+  'sage',
+  2
 );
 
 set local role authenticated;

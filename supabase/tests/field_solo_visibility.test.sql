@@ -67,6 +67,12 @@ create temp table ctx on commit drop as
 select couple_id from public.couple_members
 where profile_id = '91000000-0000-0000-0000-000000000001';
 
+-- The fixture is built as the owning role; the assertions below read it
+-- back as `authenticated`, which has no privilege on a temp table it
+-- does not own. Without this the file aborts on first read and every
+-- assertion after it silently never runs.
+grant select on ctx to authenticated;
+
 set local role authenticated;
 select set_config(
   'request.jwt.claims',
@@ -291,6 +297,12 @@ select is(
 -- depend on the evaluation order within one select.
 create temp table named on commit drop as
   select public.field_solo_history_count() as n;
+
+-- The fixture is built as the owning role; the assertions below read it
+-- back as `authenticated`, which has no privilege on a temp table it
+-- does not own. Without this the file aborts on first read and every
+-- assertion after it silently never runs.
+grant select on named to authenticated;
 
 select is(
   (select n from named), 5,

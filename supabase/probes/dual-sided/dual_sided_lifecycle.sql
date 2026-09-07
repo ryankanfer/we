@@ -6,7 +6,7 @@
 -- Life and Ahead work, presence and signal consent, archive, and relationship
 -- end. Every step asserts what each side can and cannot see.
 --
--- Run it with supabase/tests/local/run_dual_sided.sh.
+-- Run it with supabase/probes/dual-sided/run_dual_sided.sh.
 
 \set ON_ERROR_STOP on
 \pset pager off

@@ -106,6 +106,12 @@ select cm.couple_id
 from public.couple_members cm
 where cm.profile_id = '94000000-0000-0000-0000-000000000001';
 
+-- The fixture is built as the owning role; the assertions below read it
+-- back as `authenticated`, which has no privilege on a temp table it
+-- does not own. Without this the file aborts on first read and every
+-- assertion after it silently never runs.
+grant select on ctx to authenticated;
+
 -- MARK: B joins, and the two of them build something ------------------------
 
 set local role authenticated;
@@ -413,6 +419,12 @@ create temp table solo_ctx on commit drop as
 select cm.couple_id
 from public.couple_members cm
 where cm.profile_id = '94000000-0000-0000-0000-000000000003';
+
+-- The fixture is built as the owning role; the assertions below read it
+-- back as `authenticated`, which has no privilege on a temp table it
+-- does not own. Without this the file aborts on first read and every
+-- assertion after it silently never runs.
+grant select on solo_ctx to authenticated;
 
 set local role authenticated;
 select set_config(

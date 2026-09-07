@@ -127,6 +127,12 @@ select
     where profile_id = '93000000-0000-0000-0000-000000000003'
   ) as paired_couple;
 
+-- The fixture is built as the owning role; the assertions below read it
+-- back as `authenticated`, which has no privilege on a temp table it
+-- does not own. Without this the file aborts on first read and every
+-- assertion after it silently never runs.
+grant select on ctx to authenticated;
+
 -- D joins C, so this couple is genuinely two people before the backfill runs.
 -- `hue` is checked against ('burgundy','sage') and `member_slot` against
 -- (1, 2); `join_couple` pairs slot 2 with sage, so this matches what real

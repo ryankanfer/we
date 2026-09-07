@@ -68,7 +68,9 @@ select ialike(
 );
 select is(
   (
-    select pronargdefaults
+    -- `pronargdefaults` is smallint; the literal below is integer, and
+    -- pgTAP's `is()` needs both sides to agree or the file aborts here.
+    select pronargdefaults::integer
     from pg_proc
     where oid = 'public.submit_response(uuid,text,boolean,text)'::regprocedure
   ),
@@ -77,7 +79,9 @@ select is(
 );
 select is(
   (
-    select pronargdefaults
+    -- `pronargdefaults` is smallint; the literal below is integer, and
+    -- pgTAP's `is()` needs both sides to agree or the file aborts here.
+    select pronargdefaults::integer
     from pg_proc
     where oid = 'public.resolve_insight(uuid,text,text)'::regprocedure
   ),

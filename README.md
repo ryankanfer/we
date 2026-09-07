@@ -85,10 +85,10 @@ and visual-diff evidence. Two authenticated sessions through the full lifecycle 
 locally:
 
 ```bash
-./supabase/tests/local/run_dual_sided.sh
+./supabase/probes/dual-sided/run_dual_sided.sh
 ```
 
-See [`supabase/tests/local/README.md`](supabase/tests/local/README.md). The remaining manual
+See [`supabase/probes/dual-sided/README.md`](supabase/probes/dual-sided/README.md). The remaining manual
 gates are VoiceOver and widget judgment, the Supabase security-advisor/callback review, and
 five target-couple usability sessions.
 

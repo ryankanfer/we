@@ -154,12 +154,9 @@ insert into public.couple_members (
     2
   );
 
-set local role authenticated;
-select set_config(
-  'request.jwt.claims',
-  '{"sub":"71000000-0000-0000-0000-000000000001","role":"authenticated"}',
-  true
-);
+-- Seeded before the role switch on purpose. `authenticated` has no INSERT
+-- on `public.plans` — that is the guarantee `native_product.test.sql:52`
+-- asserts — so a fixture that writes one has to do it as the owner.
 insert into public.plans (
   id,
   couple_id,
@@ -172,6 +169,13 @@ insert into public.plans (
   'A private approach test',
   '71000000-0000-0000-0000-000000000001',
   '71000000-0000-0000-0000-000000000001'
+);
+
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"71000000-0000-0000-0000-000000000001","role":"authenticated"}',
+  true
 );
 reset role;
 
