@@ -1,104 +1,250 @@
-# WE private beta: reconciliation and release record
+# WE private beta: readiness record
 
-Current scope: Ryan has deferred new-relationship/archive implementation. Focus on everyday pages, interaction, saving, privacy and useful interpretation. Do not run departure/replacement tests or change their behavior in this pass.
+**Status: ready to upload — not verified for everyday use.**
 
-Status: implementation checkpoint, NOT a release candidate. No production changes, upload, or distributed-build verification performed.
+Those are two different things and this file never merges them. The first is
+reachable from a desk. The second is only reachable after both phones have the
+build, and nothing here claims it.
 
-September 7 review correction: production approval comes AFTER outstanding privacy/durability fixes, direct negative authorization/concurrency checks, and review of the exact committed revision. New-relationship/archive implementation is deferred at Ryan’s request; do not make it the next implementation task. The exported local archive proves compilation/signing only and must not be distributed as the beta. Timestamp-based Yours lifecycle authorization is invalid (PostgreSQL Query messages share statement_timestamp); replace it with explicitly scoped authorization and test zero-row/exception paths. Other open issues include attribution-only update authorization, any remaining asynchronous mutation paths, and unreadable-outbox recovery. Transport retry exhaustion and Waiting outcome semantics were corrected in the everyday-page pass below.
+Scope: everyday pages, interaction, saving, privacy and useful interpretation.
+New-relationship/archive work stays deferred at Ryan's request — do not
+implement it and do not run departure/replacement tests in this pass. The
+decision it is waiting on (read-only retention of previously shared material,
+new relationships starting empty) is preserved for later.
 
-Deferred product direction: Ryan selected read-only retention of previously shared material with new relationships starting empty, then explicitly deferred that work. Preserve the decision for later; no departure/replacement testing or implementation in this pass.
+---
 
-Baseline: beta/p0-p1-execution, a158e2b, PR #14 open. GitHub checked September 7, 2026.
+## The build
 
-| Original deliverable | Current evidence | Remaining gate |
-| --- | --- | --- |
-| Schema/privacy, unit/build, critical smoke, private-to-shared | All four GitHub checks pass on a158e2b | Rerun after this implementation |
-| Production ledger and newer migrations | Supabase connector verified tizunrayxyorzrvopnsw (we-round1); ledger stops at 20260820161957. Normalized deployed function bodies match all eight older migrations; columns, palette constraints, policies and arrival trigger checked | Repair history and deploy four newer migrations only after release approval |
-| Save/recover/retrieve/correct | Existing outbox, recovery and item correction; synchronous durable capture staging added in this change | Disk-failure, restart and retry tests; actual beta device checks |
-| Waiting, expired dates, Us prominence, capture phrases | Implemented on baseline, covered by existing unit suites | Recheck tests and beta behavior |
-| Navigation/themes/readability | Updated in this change | Simulator and real-device inspection |
-| New walkthrough and guided save | Implemented locally; walkthrough retrieval and skip/relaunch tests pass | Distributed first launch, invitation preservation, account-scoped real save |
-| Native accessibility, interruption, keyboard | Existing support retained | Updated smoke/accessibility and device matrix |
-| Distribution | Local signed archive/export exists, predating current fixes; nothing uploaded | Regenerate from final source, production approval and physical-device verification |
-| Two-account automated suites | Explicitly deferred | Manual private beta, never report skipped as passed |
+| | |
+| --- | --- |
+| Version / build | **1.0 (2)** |
+| Source commit | `bc8cd5e` on `beta/p0-p1-execution` (PR #14) |
+| Backend | production `tizunrayxyorzrvopnsw` (we-round1) |
+| Minimum iOS | 26.2 |
+| Archive | `~/Library/Developer/Xcode/Archives/2026-09-07/WE 1.0 (2).xcarchive` |
 
-Vercel's September 7 build log confirms the frozen Next.js project compiles, then fails type checking `supabase/functions/announce-arrival/index.ts`: Next cannot resolve the Deno `jsr:@supabase/supabase-js@2` import. This is a web build configuration issue, separate from the native archive (which successfully signs and builds). Inspect any web URLs used by the release before distribution; this check does not verify production notification delivery.
+Verified by reading the archive's own bundle, not the build settings: version
+1.0, build 2, minimum iOS 26.2, `https://tizunrayxyorzrvopnsw.supabase.co`,
+Shared Journeys `YES`, Share Inbox `NO`, widget and share extensions embedded,
+no `aps-environment`.
 
-## Release gates
+The build number is 2 because three earlier local archives are all 1.0 (1) and
+an upload has to be distinguishable from them.
 
-Confirm the production project and eight older deployed migration versions from actual schema, not this note. Never mark newer migrations applied without deployment. No database mutation until Ryan approves the concrete release and recovery approach.
+### What is in it
 
-Capture release version/build, source commit plus any uncommitted changes, database project, migration list, and capability settings here before distribution. Shared Journeys is enabled in committed Release settings; Share Inbox is disabled. Push is excluded until APNs capability/worker delivery is proven. Widget inclusion requires signed build and stale/sign-out/privacy checks. Do not promise excluded features.
+- Everyday capture, retrieval, correction
+- Yours, including the lifecycle and the sanctioned way out of held
+- Shared questions, consent, proposal and approval
+- Offline save and recovery
+- Widgets — **built and embedded, not yet verified on a distributed build**
+- Shared Journeys — **enabled, and its production path is not yet verified**
 
-Read-only deployed verification succeeded through the Supabase connector despite the local CLI lacking authentication. No customer content was needed. The new departure helper is absent in production, so the deletion fix is not deployed.
+### What is not in it, and must not be promised
 
-## Everyday-page continuation
+- **Share Sheet importing.** `WEShareInboxEnabled` is `NO` in Release, so
+  `WEFeatureFlags.shareInboxEnabled` is false and the entry point in
+  `FieldLifeZone` is absent. The embedded `WEShareExtension.appex` is not
+  evidence to the contrary.
+- **Push notifications.** Not a decision — a fact, and here is the evidence:
+  the provisioning profile for `com.ryankanfer.WE` carries no
+  `aps-environment`, so the App ID does not have the capability. Restoring the
+  entitlement before Ryan enables it would break signing on every device build.
+  The arrival notification is built and tested (`supabase/functions/
+  announce-arrival`) and its absence is a designed-for path, so no copy
+  promises it and none had to be removed. B's arrival reaches A on next open.
+- **Live Activity push updates.** No push token, so no remote updates.
+- **New relationships and archive.** Deferred.
 
-Local checkpoint `c100b6e` preserves the interface, walkthrough and durable-capture work; it is not pushed or release-ready. The subsequent everyday-page continuation is recorded with its own local checkpoint after the focused checks below.
+---
 
-- Yours keeps the draft visible after failed saving, prevents concurrent submissions, and reuses the same identity when retrying an uncertain response. A partial keep-indefinitely failure does not claim that retention succeeded. Closing an unsaved draft requires an explicit discard choice.
-- Completing, removing, confirming outreach and reclaiming an item stage their changes on disk before the screen acknowledges them.
-- Repeated transport failures remain eligible for automatic retry. Server/validation failures retain the separate attention state.
-- The follow-up question distinguishes done, confirmed outreach awaiting a reply, and still on me. Cancelling outreach does not manufacture a Waiting item.
-- Yours no longer promises unverified irreversible deletion within a fixed duration; it describes removal from the private space.
-- Us labels the initial submission “Save my private answer”; changing that answer clears the processing-consent selection. Proposed and agreed directions have explicit text labels, so their state does not depend on colour or interpreting the available button.
+## Uploading it
 
-Current verification: `/tmp/we-pages-unit-5.xcresult` passed all 615 Swift Testing tests in 79 suites; Eight XCTest tests passed and three were skipped (not counted as passes). `/tmp/we-pages-edge/edge-function-tests.log` reports 17 local edge-function contract tests passed, zero failed. These do not verify deployed authorization or real AI responses. The expanded 12-test simulator smoke run (`/tmp/we-pages-smoke-1.xcresult`) passed 11 and failed one: an obsolete all-caps heading expectation in the active-journey test. The current screen displays the actual next action. The focused rerun (`/tmp/we-pages-focused-1.xcresult`) passed all three UI tests: Us proposal/agreed state, Yours close behavior, and saving with the keyboard open. Its copy suite initially failed one obsolete requirement to promise irrecoverability; after removing that incorrect requirement, all four copy tests passed in `/tmp/we-pages-copy-2.xcresult`. The two populated Us checks also passed in `/tmp/we-pages-visual-1.xcresult`; exported screenshots were visually reviewed for consent, proposal and agreed states. The final labelled-state check passed in `/tmp/we-pages-visual-2.xcresult`. Screenshots were inspected again after the labels were added. `/tmp/we-pages-evidence-1.xcresult` also passed: supporting shared evidence scrolls above navigation, opens, and displays the expected record. Local visual references are in `artifacts/private-beta-review/` (fictional data only, not approved distribution goldens). Yours’ keyboard-open screenshot confirms both save choices are above the keyboard. Previous accessibility results below predate this continuation.
+Export needs an Apple ID signed into Xcode, and this session had none —
+`exportArchive` failed with `No Accounts` and could not create a distribution
+profile. So the last step is Ryan's:
 
-## Previous local verification
+1. Xcode → Settings → Accounts → sign in, if not already.
+2. Window → Organizer → Archives → **WE 1.0 (2)**, dated 7 September 2026.
+3. **Distribute App** → **TestFlight & App Store** → **Distribute**. Let Xcode
+   manage signing; it creates the distribution profile that the development
+   ones on this machine are not.
+4. Wait for App Store Connect to finish processing, add the tester, send the
+   invitation.
 
-September 7: `/tmp/we-beta-unit-6.xcresult` passed 611 Swift Testing tests plus 8 XCTest tests. Three XCTest tests skipped (live backend and two-simulator contracts); these are not passes. New checks cover synchronous durable capture and corrections before background work, disk failure retaining the receipt/original item, partitioned draft recovery, fictional walkthrough isolation/correction, and account-scoped first-save progress. `/tmp/we-beta-smoke-3.xcresult` passed all nine core-flow tests, including full walkthrough retrieval and skip/relaunch. `/tmp/we-beta-accessibility-2.xcresult` passed all four accessibility tests, including the new walkthrough's larger-text screens. This is not a manual VoiceOver session or physical-device sign-off.
+Both phones must end up on **1.0 (2)**. A mismatch invalidates the checklist.
 
-Local Release archive `/tmp/WE-PrivateBeta.xcarchive` built and signed successfully. Its bundle confirms version 1.0 (1), minimum iOS 26.2, production URL `https://tizunrayxyorzrvopnsw.supabase.co`, Shared Journeys YES, Share Inbox NO, and embedded widget/share extensions. This archive predates final feedback styling/control-touch-area fixes and must be regenerated before distribution. A subsequent local archive `/tmp/WE-PrivateBeta-Final.xcarchive` and development export `/tmp/WE-PrivateBeta-Export/WE.ipa` succeeded, but both also predate the everyday-page continuation. Nothing has been uploaded, installed on a physical phone, or verified as a distributed build. Push capability remains absent; the embedded share extension is not proof that Release importing is available.
+---
 
-## Historical production proposal — blocked, not approved for execution
+## Before it is a release: the database
 
-The sequence below is historical preparation, not an executable release. Migration `20260907020000` has a known authorization flaw and must be replaced and verified before any approval request. The eight older entries still need complete backfill, grant, and security verification; matching function bodies alone is insufficient. Reconcile departure-related migrations with the deferred scope.
+`docs/RELEASE.md` is the runbook. **It has not been executed** and no
+production write has been made from this session.
 
-1. Export the existing schema/function definitions and migration ledger to a protected local release folder; confirm project id again.
-2. Record these eight versions as applied, without executing their already-present changes: `20260820210000`, `20260820230000`, `20260821120000`, `20260824120000`, `20260824130000`, `20260824140000`, `20260904120000`, `20260906120000`.
-3. Apply the committed migrations `20260907000000` (explicit read-only grants), `20260907010000` (account-departure attribution cascades), `20260907020000` (Yours lifecycle guard scope), and `20260907030000` (unused local cleanup), normally and in order. An earlier manually applied grant change is idempotent; it still needs normal migration accounting.
-4. Read back definitions, grants and ledger. Do not perform destructive account tests until the product decisions below are confirmed.
+Read directly from the remote on 7 September 2026 via `supabase migration list
+--linked`: the ledger stops at `20260820161957`, with twelve local migrations
+unrecorded.
 
-Expected account/data effects: no account recreation, bulk deletion or content rewrite. The release tightens direct-write permissions, allows existing departure cleanup to complete, and narrows lifecycle updates to their intended statement. History repair changes only migration records. It does not deploy features.
+**Not verified:** whether the eight older unrecorded migrations are actually
+deployed. Every route was closed from this machine — `supabase db dump` runs
+`pg_dump` in a container and Docker is not running, `psql` is not installed,
+and the Supabase connector was not authorised. That is why step 1 of the
+runbook is a gate and not a formality, and why nothing may be marked applied
+before it runs.
 
-Recovery: keep the app release on hold if a migration or verification fails. Transactional migrations roll back their own failed changes; the grant-only migration can safely be rerun. Use a reviewed corrective migration from the exported pre-release definitions for an unexpected regression. Do not automatically restore older privacy guards or undo a completed account deletion. Read-only exports of affected function definitions, grants, invitation constraint and ledger are in protected `/tmp/we-beta-pre-release-functions.json` and `/tmp/we-beta-pre-release-ledger-grants.json` (no customer content). These are schema recovery references, not a customer-data backup. Database backup/PITR availability still needs confirmation before final approval.
+The app runs correctly against the current production schema — the release
+only removes direct-write permissions the app never uses. What is missing
+until it lands is the guarantees, not the function. Do not claim them before
+then.
 
-## Manual initial checklist
+---
 
-Use the identified distributed build on both phones. Record each result separately.
+## What was fixed in this pass
 
-- First launch: skip or finish the fictional story; no examples appear in the real account.
-- Create/sign in, invite/join, and finish arrival without coaching.
-- Find Yours, Account, Search and Calendar.
-- Capture a real thought, identify visibility, inspect its date, save, retrieve and correct it.
-- Disconnect, save, close/reopen and reconnect. Confirm eventual sync and no duplicates.
-- Complete a shared action. Check changed proposals require renewed approval; withdrawal remains withdrawn.
-- Interrupt forms, change accounts, use large text, VoiceOver and Reduce Motion. Check keyboard and final buttons.
+**The Yours lifecycle door** (`20260907020000`, rewritten). The previous
+version scoped the door with `statement_timestamp()` and was wrong about its
+own mechanism: that value is set once per client Query message, not per
+statement, so
 
-## Destructive tests: separate disposable accounts
+```sql
+select public.yours_hold('...'); update public.yours_entries
+  set state = 'held', ready_at = now() + interval '10 years';
+```
 
-Do not delete either everyday account. Departure/replacement tests are deferred. Before resuming them, document and verify the selected archive direction, departed-account access removal and replacement-partner visibility. The existing model retains the shared field and vacates a membership slot; do not silently redesign it.
+sent as one body walked straight through. It is also exactly why the design
+appeared to work — the statements inside an RPC body share a timestamp for the
+same reason. Replaced with two layers: `authenticated` now holds
+`insert (client_id, body)` and `update (body)` on `yours_entries` and nothing
+else, so naming a lifecycle column is a privilege error with no ambient state
+involved; and the announcement is closed by the RPCs that open it, on every
+path, rather than cleverly scoped. Three RPCs that never wrote a lifecycle
+column stop opening it at all.
 
-## Everyday beta: roughly two weeks
+**Forged departures** (`20260907010000`, tightened). `is_departure_attribution`
+recognised the deletion cascade by its shape, and a partner could type that
+shape: the Field tables are directly client-writable with
+`couple_id = my_couple_id()` as the whole predicate, so
+`update public.field_life_items set created_by = null where id = <theirs>`
+returned from the guard before a single check. Either partner could strip
+authorship from anything in their own space. Every column that goes to NULL
+must now have named a profile that no longer exists — which account deletion
+arranges and a client cannot.
 
-Use real thoughts and plans. Note confusion, incorrect interpretation, pressure, avoidable interruptions and helpful moments. Ask each partner separately: What did WE take off your mind? What needed correction? Could you retrieve it? Did you know what was private? Did a shared prompt feel like pressure?
+**Silently lost unsent writing** (`FieldOutbox`). An undecodable queue was
+moved aside and an empty array returned, with no path to any view. The app
+carried on working perfectly and the item was simply not there next time, with
+no reason given — the one case where somebody genuinely lost something was the
+one case that said nothing. The fact now reaches `FieldStore` and the zone
+shell says it once, with a single button: there is nothing to retry, because a
+queue that could not be decoded cannot be sent, and offering an action would be
+a second untruth. It does not claim recovery and cannot name what was lost.
+The feedback report gains a count of such files — never a name or a byte.
+`FieldStateCache` is left silent on purpose; it is re-derivable from the server.
 
-Feedback: build version; what I tried; expected behavior; actual behavior; whether blocked. Screenshots and private detail are optional. Do not collect relationship text in diagnostics.
+**Retries cannot lose or duplicate.** Audited and now asserted rather than
+commented: `stage()` reaches disk before the interface acknowledges; `flush()`
+stops at the first failure and keeps order; queued writes to the same subject
+compact to the newest; every backend write upserts on a client-generated id. A
+new test covers the seam `remove(_:)` sits on — a send that lands and a
+queue-shrink that does not — and proves the relaunch resends once and writes
+once. If any mutation case ever stopped upserting, that test fails; nothing
+else would have noticed.
 
-Immediately prioritize disclosure, data loss, account access and broken core flows. Group smaller visual/usability fixes into focused updates.
+---
+
+## Test results
+
+Distinguished by where they ran, because that is the only thing that makes
+them worth anything.
+
+### On the real CI, against the exact code
+
+Run `34136805479` on the database commit: **all four checks green.**
+
+- Schema + privacy contract — `supabase test db` from a from-scratch database
+  plus `db lint --fail-on warning`. This is what proves the rewritten migration
+  applies, that a client `update … set state='held'` is now refused with
+  `42501` rather than silently neutralised, that the multi-statement bypass
+  above fails, that the door is shut after an RPC returns *and* after one whose
+  write matched no rows, and that A cannot take B's name off B's work while B
+  is still here.
+- Private-to-shared contract — Deno edge-function tests.
+- iOS build + unit.
+- Critical UI smoke.
+
+### Locally, on a simulator
+
+- Unit: **627 passed, 3 skipped, 0 failed** (`/tmp/we-beta-unit-7.xcresult`).
+  The three skips are the live-backend and two-simulator contracts. **They are
+  skips, not passes.**
+- Smoke: **12 of 12 passed** (`/tmp/we-beta-smoke-4.xcresult`).
+- Accessibility at `accessibility5`: **4 of 4 passed**
+  (`/tmp/we-beta-a11y-3.xcresult`).
+- Release archive built and signed; bundle contents verified as above.
+
+### Not executed
+
+- Any production database verification or change.
+- Shared Journeys against the production AI path.
+- APNs delivery.
+- Widgets on a distributed build.
+- Anything at all on a physical phone.
+
+---
+
+## The testing gap, stated plainly
+
+Deferring the separate QA Supabase project and the four `WE_QA_*` secrets means
+the nightly `live-couple-contract` job never runs — neither
+`run-live-repository-contract.sh` (three disposable users) nor
+`run-two-simulator-contract.sh` (Partner A and B on separate simulators, paired
+through the public RPCs).
+
+**What that leaves unchecked:** RLS behaviour between two genuinely
+authenticated accounts, realtime delivery from one partner to the other, and
+pairing against a live Postgres. pgTAP proves the policies against a local
+database with forged JWT claims. It does not prove PostgREST applies them to a
+real session.
+
+That gap is covered by section 2 of `docs/FIRST_INSTALL.md` — two phones, two
+real accounts, invented content — and by nothing else. It will be reported as
+manually verified or not at all, never as a passed suite.
+
+---
+
+## Remaining blockers, in order
+
+1. **Ryan runs `docs/RELEASE.md`.** Step 1 first; nothing marked applied
+   without it. Confirm the backup/PITR window before starting.
+2. **Ryan uploads the archive** and invites the tester.
+3. **Shared Journeys against production.** Consent required and version-
+   stamped; changing an answer clears it; a synthesis job exists only for a
+   consented response; the `pg_cron` schedule from `20260820161957` is live;
+   one journey completes end to end. **If any leg fails, set
+   `WE_SHARED_JOURNEYS_ENABLED = NO` and ship without it** — a dead AI path
+   with real content in it is worse than an absent feature.
+4. **Push, if wanted.** Ryan enables Push Notifications on App ID
+   `com.ryankanfer.WE`; then `WE/Config/WE.entitlements` is restored exactly as
+   its own comment describes, and delivery is proven on a physical phone before
+   push is called included.
+5. **Widgets on the distributed build** before calling them included — stale
+   content, sign-out, and what they show on a locked screen.
+6. **`docs/FIRST_INSTALL.md` on both phones.**
+
+Only after 6 does "verified for everyday use" mean anything.
 
 ## Expansion
 
-No wider cohort until both partners can save, retrieve, correct and complete a shared action without coaching and no critical privacy/saving/pairing/deletion defects remain. Revisit five couples for two weeks and isolated automated QA then. Earned restraint, expanded history, mutual stillness and Make room remain deferred.
+No wider cohort until both of you can save, find, correct and complete a
+shared action without help, and no critical privacy, saving, pairing or
+deletion defect remains. Revisit five couples for two weeks, and isolated
+automated QA, then. Earned restraint, expanded history, mutual stillness and
+Make room remain deferred.
 
-## Remaining work, in delivery order
+## Fine tuning that can wait for feedback
 
-1. Extend the completed iPhone 17 Pro populated Us/Yours review to small/large layouts, larger text, VoiceOver and remaining retention controls. Keep the archive redesign deferred.
-2. Resolve remaining everyday privacy/reliability gaps: unreadable-outbox recovery, direct negative server authorization/concurrency checks, and the invalid lifecycle migration. Verify all older migration effects before history repair. No live two-account coverage has run.
-3. Regenerate the signed archive/export from the final identified source. Confirm tester phone compatibility (iOS 26.2) and distribution eligibility. The existing development profile lists two devices but does not establish that they are the testers’ phones.
-4. Confirm backup/recovery availability, prepare a corrected exact production release, and request Ryan’s approval. No repair or migration has run in production.
-5. Verify the distributed build on both physical phones: auth, invitations, consent revisions, visibility, offline/partial failures, expired sessions, accessibility and account switching.
-6. Verify widgets on the distributed build before calling them included. Shared Journeys needs its full release-backend path verified. Share importing and push are excluded. Complete the agreed distribution path and begin the manual checklists.
-
-Fine tuning that can wait for beta feedback: decorative transitions, extra empty-state polish, and small spacing refinements beyond readability/reachability. Deferring those helps evaluate daily usefulness first; it does not defer consent clarity or blocked controls.
+Decorative transitions, extra empty-state polish, and small spacing
+refinements beyond readability and reachability. Deferring those is what makes
+it possible to find out whether the thing is useful daily. It does not defer
+consent clarity or a blocked control.
