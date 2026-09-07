@@ -137,7 +137,55 @@ This release deploys no feature.
   production schema; it is the new privacy guarantees that would be missing,
   and shipping while claiming them is the thing to avoid.
 
-## After it lands
+## Addendum, 7 September: what the probe actually said
 
-Tell me it is done and I will verify the read-back, then record the deployed
-migration list in `docs/PRIVATE_BETA.md` against the exact build.
+Three of the four September migrations came back `true`, which step 1 said
+must not happen and which means they were applied by hand rather than by
+`db push`. Only `20260907030000_lint_dead_locals` is outstanding. Two things
+follow.
+
+**First, the ledger records none of the twelve.** Applying SQL in the
+dashboard does not write `supabase_migrations.schema_migrations`, which is the
+whole reason that probe exists. So once `20260907030000` is in, all twelve
+need recording — see the repair block below.
+
+**Second, and this is the one that matters: the probe for `20260907010000`
+cannot tell which version is deployed.** It looks for
+`private.is_departure_attribution`, and *both* versions of that migration
+create it — the original, which recognised the deletion cascade by its shape
+alone, and the tightened one, which also requires the person each nulled
+column named to be gone. If the original is what is in production, either
+partner can still run
+
+```sql
+update public.field_life_items set created_by = null where id = <theirs>
+```
+
+and take the other's name off their own work. Run
+`supabase/probes/verify_september_release.sql`, which reads bodies and
+privileges instead of existence. Every row must read `ok = true`. If the
+attribution row is `false`, re-apply `20260907010000` from this checkout.
+
+That file also checks the half of `20260907020000` that actually does the
+work — the column privileges on `yours_entries` — and confirms the withdrawn
+`statement_timestamp` version is not what landed.
+
+## Finishing it
+
+1. Apply `supabase/migrations/20260907030000_lint_dead_locals.sql`.
+2. Run `supabase/probes/verify_september_release.sql`. All rows `true`.
+3. Run `supabase/probes/which_migrations_are_applied.sql`. All rows `true`.
+4. Record all twelve, which deploys nothing:
+
+```bash
+supabase migration repair --status applied \
+  20260820210000 20260820230000 20260821120000 20260824120000 \
+  20260824130000 20260824140000 20260904120000 20260906120000 \
+  20260907000000 20260907010000 20260907020000 20260907030000
+```
+
+5. `supabase migration list --linked` — every local version has a remote
+   counterpart, and `db push` has nothing left to do.
+
+Tell me the output of steps 2 and 3 and I will record the deployed migration
+list in `docs/PRIVATE_BETA.md` against the exact build.
