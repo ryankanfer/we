@@ -16,6 +16,19 @@ begin;
 -- that. Asserted by yours_personal_space.test.sql tests 10, 11, 27 and 29 —
 -- four assertions that had never executed, because the schema lane died at
 -- 20260820161957 long before pgTAP.
+--
+-- The first attempt at this scoped the door by role, which does nothing: this
+-- trigger is `security definer`, so `current_user` inside it is the function's
+-- owner whoever called it, and the test proved it a no-op. The door is scoped
+-- to a *statement* instead. An RPC announces 'on'; the first row the announced
+-- write reaches rewrites the announcement to name that statement; further rows
+-- of the same statement match it, which is what the sweep needs. Anything the
+-- transaction does afterwards is a different statement and is shut out.
+--
+-- Residual, stated rather than hidden: two top-level statements in one
+-- transaction that read the same `statement_timestamp()` would share the door.
+-- That needs microsecond-identical clock reads the writer cannot choose, and
+-- PostgREST puts one statement in a transaction regardless.
 
 create or replace function private.yours_stamp_entry()
 returns trigger
@@ -24,15 +37,23 @@ security definer
 set search_path = ''
 as $$
 declare
-  -- Two conditions, not one. `set_config(..., true)` is transaction-local,
-  -- not function-local, so the flag an RPC announces is still standing after
-  -- that RPC returns — every later write in the same transaction inherited
-  -- the lifecycle door. A client never holds the owner role, and a
-  -- `security definer` RPC always does, so the role is what separates them.
-  v_lifecycle boolean :=
-    nullif(current_setting('we.yours_lifecycle', true), '') = 'on'
-    and (select current_user) not in ('anon', 'authenticated');
+  -- `set_config(..., true)` is transaction-local, not function-local, so the
+  -- flag an RPC announces is still standing after that RPC returns — every
+  -- later write in the same transaction inherited the lifecycle door. The
+  -- announcement is bound to the statement that redeems it instead.
+  v_announced text := nullif(current_setting('we.yours_lifecycle', true), '');
+  v_statement text := 'statement:' || statement_timestamp()::text;
+  v_lifecycle boolean;
 begin
+  if v_announced = 'on' then
+    -- Redeemed here, by this statement, and by no statement after it. Every
+    -- further row of this same write reaches the branch below and matches.
+    perform set_config('we.yours_lifecycle', v_statement, true);
+    v_lifecycle := true;
+  else
+    v_lifecycle := v_announced is not null and v_announced = v_statement;
+  end if;
+
   if tg_op = 'INSERT' then
     new.owner_id := coalesce(new.owner_id, (select auth.uid()));
     new.created_at := now();

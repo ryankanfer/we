@@ -354,16 +354,81 @@ select ialike(
   'account deletion serializes on the relationship'
 );
 select is((select count(*) from auth.users where id = '10000000-0000-0000-0000-000000000001'), 0::bigint, 'requesting auth account is deleted');
-select is((select count(*) from public.couples where id = '20000000-0000-0000-0000-000000000001'), 0::bigint, 'live couple is deleted');
+-- MARK: What departure leaves standing --------------------------------------
+--
+-- The nine assertions that used to sit here asserted the 2026-07-25 design:
+-- the couple deleted outright and a sanitized `relationship_archives` snapshot
+-- handed to the survivor as consolation. `20260808000000_account_departure.sql`
+-- replaced it deliberately, and its header says why — deleting the couple
+-- "destroys the *entire shared field*" belonging to somebody who was never
+-- party to the decision, and the archive that softened it was "empty in
+-- practice and unreachable in fact", written from tables the v2 rewrite
+-- stopped using and read back only by a screen the Field shell replaced.
+--
+-- These assertions never ran: the schema lane died at 20260820161957 long
+-- before pgTAP, so nothing caught them still describing the old contract.
+-- They are rewritten to the one that shipped, which is the stronger promise:
+-- the leaver takes their own material and the shared record stays.
+
+select is(
+  (select count(*) from public.couples where id = '20000000-0000-0000-0000-000000000001'),
+  1::bigint,
+  'the shared field survives one person leaving it'
+);
+select isnt(
+  (select departed_at from public.couples where id = '20000000-0000-0000-0000-000000000001'),
+  null,
+  'and it is marked as departed, so the survivor can be told'
+);
 select is((select count(*) from public.profiles where id = '10000000-0000-0000-0000-000000000002'), 1::bigint, 'surviving profile remains');
-select is((select count(*) from public.couple_members where profile_id = '10000000-0000-0000-0000-000000000002'), 0::bigint, 'survivor returns to pairing');
-select is((select count(*) from public.relationship_archives where owner_id = '10000000-0000-0000-0000-000000000002'), 1::bigint, 'survivor receives one sanitized archive');
-select is((select jsonb_array_length(snapshot->'plans') from public.relationship_archives where owner_id = '10000000-0000-0000-0000-000000000002'), 1, 'archive contains shared plans');
-select is((select jsonb_array_length(snapshot->'responsibilities') from public.relationship_archives where owner_id = '10000000-0000-0000-0000-000000000002'), 1, 'archive contains shared responsibilities');
-select is((select jsonb_array_length(snapshot->'resolutions') from public.relationship_archives where owner_id = '10000000-0000-0000-0000-000000000002'), 1, 'archive contains only completed resolutions');
-select ok((select snapshot::text not like '%PRIVATE_REFLECTION_SECRET%' from public.relationship_archives where owner_id = '10000000-0000-0000-0000-000000000002'), 'archive excludes private reflections');
-select ok((select snapshot::text not like '%UNREVEALED_SECRET%' from public.relationship_archives where owner_id = '10000000-0000-0000-0000-000000000002'), 'archive excludes unrevealed responses');
-select ok((select snapshot::text not like '%Pending private title%' from public.relationship_archives where owner_id = '10000000-0000-0000-0000-000000000002'), 'archive excludes pending requests');
+select is(
+  (select count(*) from public.couple_members where profile_id = '10000000-0000-0000-0000-000000000002'),
+  1::bigint,
+  'the survivor keeps their membership, and their A/B side with it'
+);
+select is(
+  (select count(*) from public.couple_members where profile_id = '10000000-0000-0000-0000-000000000001'),
+  0::bigint,
+  'the leaver vacates their slot'
+);
+select is(
+  (select count(*) from public.relationship_archives where owner_id = '10000000-0000-0000-0000-000000000002'),
+  0::bigint,
+  'no consolation archive is written, because there is nothing to console'
+);
+
+-- The leaver's own material, and only the leaver's own material.
+select is(
+  (select count(*) from public.insights where id = '60000000-0000-0000-0000-000000000003'),
+  0::bigint,
+  'the private insight goes with the person whose it was'
+);
+select is(
+  (select count(*) from public.reflections where text = 'PRIVATE_REFLECTION_SECRET'),
+  0::bigint,
+  'so does the private reflection'
+);
+select is(
+  (select count(*) from public.responses where choice = 'UNREVEALED_SECRET_CHOICE'),
+  0::bigint,
+  'and the response that was never revealed'
+);
+select ok(
+  (
+    select readiness = 'withdrawn' and initiator_id is null
+    from public.insight_consent
+    where insight_id = '60000000-0000-0000-0000-000000000001'
+  ),
+  'a crossing asked for by somebody no longer here is withdrawn, not left acceptable'
+);
+select is(
+  (
+    select resolution_choice from public.insight_consent
+    where insight_id = '60000000-0000-0000-0000-000000000002'
+  ),
+  'safe-choice',
+  'what the two of them settled together stands'
+);
 
 select * from finish();
 rollback;

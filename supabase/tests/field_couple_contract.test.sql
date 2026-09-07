@@ -624,10 +624,12 @@ insert into public.field_away_windows (
 );
 insert into public.field_standing_rules (
   id,
+  client_id,
   couple_id,
   text,
   set_by
 ) values (
+  '84000000-0000-0000-0000-000000000006',
   '84000000-0000-0000-0000-000000000006',
   (select couple_id from field_contract_context limit 1),
   'Keep Sunday mornings open.',

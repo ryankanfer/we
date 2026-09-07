@@ -287,10 +287,14 @@ select ok(
 
 -- Move the entries into the past. See the note at the top of this file.
 reset role;
+-- One announcement per write. The door is scoped to the statement that
+-- redeems it (20260907020000), so a fixture that fast-forwards two rows in
+-- two statements has to say so twice — exactly as an RPC does.
 select set_config('we.yours_lifecycle', 'on', true);
 update public.yours_entries
 set ready_at = now() - interval '2 days', state = 'ready'
 where client_id = '92100000-0000-0000-0000-000000000001';
+select set_config('we.yours_lifecycle', 'on', true);
 update public.yours_entries
 set ready_at = now() - interval '1 day', state = 'ready'
 where client_id = '92100000-0000-0000-0000-000000000002';
@@ -451,6 +455,7 @@ set state = 'presented',
     decide_by = now() - interval '1 day'
 where client_id = '92100000-0000-0000-0000-000000000002';
 
+select set_config('we.yours_lifecycle', 'on', true);
 update public.yours_entries
 set state = 'held',
     held_at = now(),
@@ -486,6 +491,7 @@ values (
   '92100000-0000-0000-0000-000000000003',
   'written and then abandoned'
 );
+select set_config('we.yours_lifecycle', 'on', true);
 update public.yours_owner_state
 set last_opened_at = now() - interval '100 days'
 where owner_id = '92000000-0000-0000-0000-000000000001';

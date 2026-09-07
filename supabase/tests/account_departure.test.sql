@@ -359,6 +359,17 @@ select lives_ok(
 
 reset role;
 
+-- `create_invitation()` mints a fresh code and rotates `couples.join_code` to
+-- match (20260808010000). The code captured into `ctx` at the top of this file
+-- is the one the departed partner already consumed, so redeeming it again is
+-- refused with 'that invitation has already been used' — correctly. Take the
+-- new one, as a person reading it off the survivor's screen would.
+create temp table reinvite on commit drop as
+select c.join_code
+from public.couples c
+where c.id = (select couple_id from ctx);
+grant select on reinvite to authenticated;
+
 select isnt(
   (select c.departure_seen_at from public.couples c
    where c.id = (select couple_id from ctx)),
@@ -380,7 +391,7 @@ select set_config(
 select lives_ok(
   format(
     $$select public.join_couple(%L)$$,
-    (select join_code from ctx)
+    (select join_code from reinvite)
   ),
   'somebody new can take the vacated slot'
 );
