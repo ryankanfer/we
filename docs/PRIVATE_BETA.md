@@ -145,11 +145,24 @@ The feedback report gains a count of such files — never a name or a byte.
 **Retries cannot lose or duplicate.** Audited and now asserted rather than
 commented: `stage()` reaches disk before the interface acknowledges; `flush()`
 stops at the first failure and keeps order; queued writes to the same subject
-compact to the newest; every backend write upserts on a client-generated id. A
-new test covers the seam `remove(_:)` sits on — a send that lands and a
-queue-shrink that does not — and proves the relaunch resends once and writes
-once. If any mutation case ever stopped upserting, that test fails; nothing
-else would have noticed.
+compact to the newest. A new test covers the seam `remove(_:)` sits on — a
+send that lands and a queue-shrink that does not — and proves the relaunch
+resends once and writes once.
+
+Every one of the fourteen `FieldMutation` cases was checked individually
+against `FieldSupabaseBackend`, because a single non-idempotent one would
+defeat the property and the test above would be the only thing standing
+between that and a doubled item. Eleven are `upsert(…, onConflict:)` on a
+stable key — `id`, `couple_id,client_id`, `couple_id`, or
+`couple_id,category`. The other three are idempotent by nature: `delete` by
+id, `answer` as an UPDATE by id, and `markReady` as a per-day RPC.
+
+**A permanently red Vercel check.** It was never the frozen Next.js app:
+`tsconfig.json` included `**/*.ts` and excluded only `node_modules`, so Next
+type-checked `supabase/functions` — Deno files whose `jsr:` and `https:`
+imports it cannot resolve by design. Excluded now. `tsc --noEmit` is clean and
+`next build` succeeds. This matters for a release only because a check that is
+always red is the one nobody looks at twice when it finally means something.
 
 ---
 
@@ -181,7 +194,20 @@ Run `34136805479` on the database commit: **all four checks green.**
 - Smoke: **12 of 12 passed** (`/tmp/we-beta-smoke-4.xcresult`).
 - Accessibility at `accessibility5`: **4 of 4 passed**
   (`/tmp/we-beta-a11y-3.xcresult`).
+- Edge-function contract: **17 passed, 0 failed**.
 - Release archive built and signed; bundle contents verified as above.
+- `tsc --noEmit` clean; `next build` succeeds.
+
+### Verified by reading the code, not by running it against production
+
+- **Revision-specific consent.** `FieldJourneyUsZone.swift:290` clears the
+  processing-consent toggle whenever the selected answer changes, and submit
+  is disabled while it is off (`:278`). Server-side, `submit_response` raises
+  `OpenAI processing permission is required` unless the flag is true, and
+  stamps `ai_processing_consented_at` and the disclosure version on both the
+  owner-only response row and the content-free receipt (`20260820011757`).
+  A unit test asserts the client sends `p_ai_processing_consent`
+  (`WETests.swift:1072`). **The production round-trip is not verified.**
 
 ### Not executed
 
