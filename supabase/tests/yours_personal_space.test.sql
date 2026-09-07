@@ -579,9 +579,13 @@ select is(
 
 -- MARK: Why somebody let go (§13) -------------------------------------------
 
+-- pgTAP's third argument is the expected message, not the description; the
+-- sentence below was being matched against Postgres's own wording and could
+-- never hold. The code is the assertion.
 select throws_ok(
   $$select count(*) from public.yours_releases$$,
   '42501',
+  null::text,
   'no client reads the release table, including its owner'
 );
 

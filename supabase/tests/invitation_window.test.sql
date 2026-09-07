@@ -162,8 +162,13 @@ where i.couple_id = (select couple_id from ctx);
 -- assertion after it silently never runs.
 grant select on expiring to authenticated;
 
+-- An invitation that has run out. `invitations_window_forward` requires
+-- expires_at > created_at, so the whole window moves into the past rather
+-- than only its far end — an invitation that expired before it was written
+-- is not the case under test.
 update public.invitations
-set expires_at = now() - interval '1 minute'
+set created_at = now() - interval '1 hour',
+    expires_at = now() - interval '1 minute'
 where couple_id = (select couple_id from ctx);
 
 set local role authenticated;

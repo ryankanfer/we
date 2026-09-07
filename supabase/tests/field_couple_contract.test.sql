@@ -403,11 +403,16 @@ select is(
   0::bigint,
   'the outsider cannot discover the paired relationship'
 );
+-- The refusal moved, and became more precise. 20260808010000 gave
+-- invitations a `consumed_at` and checks it before counting members, so a
+-- code B already redeemed is refused as spent rather than as full. Both
+-- sentences keep the outsider out; this is the one the product now says.
+-- The guarantee itself is the assertion below: they are still unpaired.
 select throws_like(
   $$select public.join_couple(
     (select join_code from field_contract_context limit 1)
   )$$,
-  '%already has two people%',
+  '%already been used%',
   'the outsider cannot become a third partner'
 );
 select is(
@@ -435,8 +440,10 @@ insert into public.field_identity (
   looks_after
 ) values (
   (select couple_id from field_contract_context limit 1),
-  'clay',
-  'slate',
+  -- 20260820230000 replaced the four warm names with eight pigments and
+  -- migrated the old values: clay -> rust, slate -> indigo.
+  'rust',
+  'indigo',
   true,
   'a quiet trip',
   'the dog'

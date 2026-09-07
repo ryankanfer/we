@@ -350,7 +350,10 @@ reset role;
 insert into public.field_away_windows (
   couple_id, profile_id, starts_at, ends_at, reason
 )
-select couple_id, '91000000-0000-0000-0000-000000000001', now(), now(), 'Away'
+-- `field_away_window_ordered` requires ends_at > starts_at; a window of
+-- zero length is not a window.
+select couple_id, '91000000-0000-0000-0000-000000000001',
+       now(), now() + interval '1 day', 'Away'
 from ctx;
 
 set local role authenticated;

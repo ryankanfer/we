@@ -101,9 +101,14 @@ values (public.my_couple_id(), 'a alone capture', '', '');
 
 reset role;
 
+-- The join code is captured here, as the owner. B cannot read it: an
+-- invitation is redeemed by someone who is not yet a member, and the
+-- `couples` policy quite correctly shows them nothing. Selecting it under
+-- B's role returns NULL and the fixture calls `join_couple(NULL)`.
 create temp table ctx on commit drop as
-select cm.couple_id
+select cm.couple_id, c.join_code
 from public.couple_members cm
+join public.couples c on c.id = cm.couple_id
 where cm.profile_id = '94000000-0000-0000-0000-000000000001';
 
 -- The fixture is built as the owning role; the assertions below read it
@@ -124,8 +129,7 @@ select set_config(
 select lives_ok(
   format(
     $$select public.join_couple(%L)$$,
-    (select c.join_code from public.couples c
-     where c.id = (select couple_id from ctx))
+    (select join_code from ctx)
   ),
   'B redeems A''s invitation'
 );
@@ -376,8 +380,7 @@ select set_config(
 select lives_ok(
   format(
     $$select public.join_couple(%L)$$,
-    (select c.join_code from public.couples c
-     where c.id = (select couple_id from ctx))
+    (select join_code from ctx)
   ),
   'somebody new can take the vacated slot'
 );
