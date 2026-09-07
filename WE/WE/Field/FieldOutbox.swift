@@ -104,6 +104,22 @@ struct FieldOutboxLog: Codable, Sendable {
     }
 }
 
+/// What reading the queue found, and what reading it cost.
+///
+/// The second half exists because the first used to be the whole answer. A
+/// queue that could not be decoded was moved aside and an empty array was
+/// returned, which is correct as far as it goes and is not something the app
+/// may keep to itself: those entries are writes somebody believes they made,
+/// and they are not coming back. The person has to be told, so the fact has to
+/// travel out of this type rather than stopping at a log line.
+struct FieldOutboxRecovery: Sendable {
+    var entries: [FieldOutboxEntry]
+    /// A file was unreadable and has been set aside. Its contents are lost.
+    var quarantined: Bool
+
+    static let none = FieldOutboxRecovery(entries: [], quarantined: false)
+}
+
 /// An unfinished capture, protected and scoped exactly like its outbox.
 struct FieldCaptureDraft: Codable {
     var text: String
@@ -159,9 +175,13 @@ struct FieldOutboxStore: Sendable {
 
     /// Never throws. A queue that cannot be read is empty, and the file is
     /// moved aside rather than deleted — see `quarantine`.
-    func load(_ partition: FieldOutboxPartition) -> [FieldOutboxEntry] {
+    ///
+    /// The absence of a file is not a loss: it is what a fresh install, a
+    /// signed-out account and a fully drained queue all look like. Only a file
+    /// that existed and could not be understood is reported as one.
+    func load(_ partition: FieldOutboxPartition) -> FieldOutboxRecovery {
         let url = url(for: partition)
-        guard let data = try? Data(contentsOf: url) else { return [] }
+        guard let data = try? Data(contentsOf: url) else { return .none }
 
         guard let log = try? decoder.decode(FieldOutboxLog.self, from: data)
         else {
@@ -169,7 +189,7 @@ struct FieldOutboxStore: Sendable {
                 "Outbox file could not be read; quarantining it."
             )
             quarantine(partition)
-            return []
+            return FieldOutboxRecovery(entries: [], quarantined: true)
         }
 
         guard log.version == FieldOutboxLog.currentVersion else {
@@ -185,10 +205,10 @@ struct FieldOutboxStore: Sendable {
                 """
             )
             quarantine(partition)
-            return []
+            return FieldOutboxRecovery(entries: [], quarantined: true)
         }
 
-        return log.entries
+        return FieldOutboxRecovery(entries: log.entries, quarantined: false)
     }
 
     func save(_ entries: [FieldOutboxEntry], for partition: FieldOutboxPartition) {
@@ -261,6 +281,21 @@ struct FieldOutboxStore: Sendable {
     func url(for partition: FieldOutboxPartition) -> URL {
         directory.appending(path: partition.filename)
     }
+
+    /// How many unreadable queues are sitting in the directory.
+    ///
+    /// A count, deliberately, and never a name or a byte of one. The filenames
+    /// carry account and relationship identifiers and the files themselves
+    /// carry whatever somebody wrote; the only thing a feedback report needs
+    /// is that this happened at all and how often. `WEFeedbackReport` is
+    /// readable in full before it sends, and it stays readable because every
+    /// line in it is this shape.
+    func quarantinedCount() -> Int {
+        let contents = try? FileManager.default.contentsOfDirectory(
+            atPath: directory.path
+        )
+        return contents?.filter { $0.hasPrefix("quarantined-") }.count ?? 0
+    }
 }
 
 // MARK: - The queue
@@ -293,6 +328,10 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
     private let lock = NSLock()
     private var _entries: [FieldOutboxEntry]
     private var isFlushing = false
+    /// Set at init if the queue on disk could not be read, and cleared only
+    /// when somebody has been shown it. Not persisted: a person who was told
+    /// once has been told, and a relaunch has nothing new to add.
+    private var _lostUnsentWriting: Bool
 
     init(
         wrapping base: any FieldBackend,
@@ -307,7 +346,26 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
         self.store = store
         self.cache = cache
         self.now = now
-        self._entries = store.load(partition)
+        let recovered = store.load(partition)
+        self._entries = recovered.entries
+        self._lostUnsentWriting = recovered.quarantined
+    }
+
+    // MARK: What could not be read
+    //
+    // Separate from `needsAttention`, which is about a write the server keeps
+    // refusing and which is still in the queue and still on screen. This is the
+    // other thing entirely: writes that are gone, that no retry reaches, and
+    // that the app cannot name because it could not read them. The only honest
+    // action is to say so.
+
+    /// Unsent writing was found unreadable and set aside, and nobody has been
+    /// told yet.
+    var lostUnsentWriting: Bool { lock.withLock { _lostUnsentWriting } }
+
+    /// Somebody has now been told.
+    func acknowledgeLostUnsentWriting() {
+        lock.withLock { _lostUnsentWriting = false }
     }
 
     func captureDraft() -> FieldCaptureDraft? { store.loadDraft(partition) }
@@ -624,7 +682,13 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
 
     /// Everything, gone. The outbox half of the Phase 1d purge contract.
     func purge() {
-        lock.withLock { _entries = [] }
+        lock.withLock {
+            _entries = []
+            // Nothing is owed to anyone any more, so there is nothing left to
+            // apologise for. Carrying the notice past a purge would tell
+            // somebody who just signed out that they had lost writing.
+            _lostUnsentWriting = false
+        }
         store.remove(partition)
     }
 

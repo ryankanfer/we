@@ -2302,6 +2302,23 @@ final class FieldStore {
 
     func refreshDeliveryStates() {
         deliveryStates = outbox?.deliveryStates() ?? [:]
+        lostUnsentWriting = outbox?.lostUnsentWriting ?? false
+    }
+
+    /// Unsent writing on this phone could not be read and was set aside.
+    ///
+    /// Distinct from every other delivery state, and the distinction is the
+    /// point: `needsAttention` is about a write that is still here and can be
+    /// tried again, and this is about writes that are not and cannot. The app
+    /// does not know what they said — that is what unreadable means — so it
+    /// cannot show them, name them, or offer to send them. It can only say
+    /// that they existed.
+    private(set) var lostUnsentWriting = false
+
+    /// Told once. The queue does not persist the flag, so this ends it.
+    func acknowledgeLostUnsentWriting() {
+        outbox?.acknowledgeLostUnsentWriting()
+        lostUnsentWriting = false
     }
 
     /// Send what is waiting. Called when connectivity returns and when the app

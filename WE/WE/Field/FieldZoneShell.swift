@@ -310,6 +310,31 @@ struct FieldZoneShell: View {
         .fullScreenCover(isPresented: departureBinding) {
             FieldDepartureView()
         }
+        // Writing that was on this phone and owed to the server, in a file
+        // that could not be read. It used to be moved aside in silence, which
+        // meant the one case where somebody genuinely lost something was the
+        // one case the app said nothing about — the item simply was not there
+        // the next time they looked, and there was no reason for it.
+        //
+        // An alert rather than the hairline `FieldLoadStateLine` draws, and
+        // deliberately: that line is for not knowing, and this is a loss. It
+        // is also the reason there is only one button. There is nothing to
+        // retry — a queue the app could not decode is a queue it cannot send —
+        // so offering an action would be a second untruth on top of the first.
+        .alert(
+            "Some unsent writing was lost",
+            isPresented: lostWritingBinding
+        ) {
+            Button("OK") { store.acknowledgeLostUnsentWriting() }
+        } message: {
+            Text(
+                """
+                Writing saved on this phone but not yet synced couldn't be \
+                read, so it was set aside. WE can't recover it or say what it \
+                said. Anything that had already synced is safe.
+                """
+            )
+        }
         .task(id: session.snapshot?.membership?.coupleID) {
             guard let decision = crossingDecision else { return }
             await store.considerCrossing(decision: decision)
@@ -355,6 +380,13 @@ struct FieldZoneShell: View {
             get: { session.snapshot?.couple?.owesDepartureNotice ?? false },
             set: { _ in }
         )
+    }
+
+    /// The setter is ignored for the same reason the two covers above ignore
+    /// theirs: this closes when the telling has been recorded, not because a
+    /// gesture dismissed it. The button is what records it.
+    private var lostWritingBinding: Binding<Bool> {
+        Binding(get: { store.lostUnsentWriting }, set: { _ in })
     }
 
     /// Built per presentation rather than held, because the store owns

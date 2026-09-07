@@ -79,7 +79,7 @@ struct WEFeedbackView: View {
         .accessibilityIdentifier("field.feedback")
         .overlay(alignment: .topTrailing) { closeButton }
         .environment(\.weCanvas, WECanvas.cream)
-        .task { diagnosticLines = Self.summaries(in: store) }
+        .task { diagnosticLines = Self.summaries(in: store) + Self.lostWriting() }
         .sheet(isPresented: $showsMail) {
             WEMailComposer(
                 report: report,
@@ -317,6 +317,23 @@ struct WEFeedbackView: View {
             }
         }
         return items
+    }
+
+    /// The one loss MetricKit cannot see.
+    ///
+    /// A crash and a hang are both recorded by the system and arrive through
+    /// `WEDiagnosticsStore`. An outbox file that could not be decoded is
+    /// neither — the app carried on working perfectly and somebody's unsent
+    /// writing went away. A count and nothing else; see
+    /// `FieldOutboxStore.quarantinedCount`.
+    private static func lostWriting() -> [String] {
+        let count = FieldOutboxStore().quarantinedCount()
+        guard count > 0 else { return [] }
+        return [
+            count == 1
+                ? "1 unsent-writing file could not be read and was set aside"
+                : "\(count) unsent-writing files could not be read and were set aside"
+        ]
     }
 
     private static func summaries(in store: WEDiagnosticsStore) -> [String] {

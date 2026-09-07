@@ -602,6 +602,51 @@ struct FieldOutboxTests {
         )
     }
 
+    // MARK: A crash between the send and the shrink
+
+    /// The seam `remove(_:)` sits on: the mutation is accepted, and the write
+    /// that takes it back out of the queue is lost — a crash, or a disk error
+    /// `store.save` swallows by design. The queue on the next launch still has
+    /// it, so it is sent a second time.
+    ///
+    /// That is safe, and it is safe for exactly one reason: every backend
+    /// write is an upsert on a client-generated id
+    /// (`20260803120000_field_mutation_idempotency.sql`). This asserts the
+    /// consequence rather than trusting the comment — if a single mutation
+    /// case ever stopped upserting, one relaunch would silently double
+    /// somebody's item and nothing else here would notice.
+    @Test func aQueueShrinkLostToACrashResendsWithoutDuplicating() async throws {
+        let disk = store()
+        defer { disk.removeAll() }
+        let server = FakeFieldServer(state: emptyState())
+        let queue = FieldOutbox(wrapping: server, partition: partition(), store: disk)
+
+        try queue.stage([.upsertItem(item())])
+        let beforeTheSend = try Data(contentsOf: disk.url(for: partition()))
+
+        try await queue.flush()
+        #expect(queue.isEmpty, "the send succeeded and the queue was shrunk")
+        #expect(server.state.lifeItems.filter { $0.id == "item-1" }.count == 1)
+
+        // The shrink never reached the disk. Put the file back the way the
+        // crash would have left it and start the app again.
+        try beforeTheSend.write(to: disk.url(for: partition()))
+        let relaunched = FieldOutbox(
+            wrapping: server, partition: partition(), store: disk
+        )
+        #expect(!relaunched.isEmpty, "the queue still owes the write")
+
+        try await relaunched.flush()
+        #expect(
+            server.receivedCount == 2,
+            "and sends it a second time, because it cannot know it landed"
+        )
+        #expect(
+            server.state.lifeItems.filter { $0.id == "item-1" }.count == 1,
+            "which writes once, because the mutation carries its own identity"
+        )
+    }
+
     // MARK: 5. Files that cannot be read
 
     @Test
@@ -616,7 +661,16 @@ struct FieldOutboxTests {
         )
         try Data("{ not json".utf8).write(to: store.url(for: partition))
 
-        #expect(store.load(partition).isEmpty)
+        let recovered = store.load(partition)
+        #expect(recovered.entries.isEmpty)
+        #expect(
+            recovered.quarantined,
+            """
+            and says so. Returning an empty queue without this is the whole \
+            defect: the app carried on perfectly and somebody's unsent \
+            writing was gone with no reason given.
+            """
+        )
         #expect(
             !FileManager.default.fileExists(
                 atPath: store.url(for: partition).path
@@ -649,7 +703,88 @@ struct FieldOutboxTests {
         """
         try Data(fromTheFuture.utf8).write(to: store.url(for: partition))
 
-        #expect(store.load(partition).isEmpty)
+        let recovered = store.load(partition)
+        #expect(recovered.entries.isEmpty)
+        #expect(
+            recovered.quarantined,
+            "a queue from another build is lost writing too, not a clean start"
+        )
+    }
+
+    /// The half of the fix that is not about files.
+    ///
+    /// Quarantining was already correct; being silent about it was not. The
+    /// queue carries the fact out to `FieldStore`, which is what puts it in
+    /// front of somebody instead of in a log nobody reads.
+    @Test func lostUnsentWritingIsReportedOnceAndThenAcknowledged() throws {
+        let disk = store()
+        defer { disk.removeAll() }
+
+        let partition = partition()
+        try FileManager.default.createDirectory(
+            at: disk.directory, withIntermediateDirectories: true
+        )
+        try Data("{ not json".utf8).write(to: disk.url(for: partition))
+
+        let queue = FieldOutbox(
+            wrapping: FakeFieldServer(state: emptyState()),
+            partition: partition, store: disk
+        )
+        #expect(queue.lostUnsentWriting)
+
+        let field = FieldStore(state: emptyState(), now: Self.now, backend: queue)
+        field.refreshDeliveryStates()
+        #expect(field.lostUnsentWriting, "and the surface can say so")
+
+        field.acknowledgeLostUnsentWriting()
+        #expect(!field.lostUnsentWriting)
+        #expect(
+            !queue.lostUnsentWriting,
+            "told once. A relaunch has nothing to add and must not ask again."
+        )
+    }
+
+    /// The negative, which is the one that keeps this honest: an ordinary
+    /// queue — and the absent file a fresh install has — must never raise it.
+    @Test func anOrdinaryQueueReportsNoLoss() throws {
+        let disk = store()
+        defer { disk.removeAll() }
+        let server = FakeFieldServer(state: emptyState())
+
+        let fresh = FieldOutbox(
+            wrapping: server, partition: partition(), store: disk
+        )
+        #expect(!fresh.lostUnsentWriting, "no file is not a loss")
+
+        try fresh.stage([.upsertItem(item())])
+        let relaunched = FieldOutbox(
+            wrapping: server, partition: partition(), store: disk
+        )
+        #expect(!relaunched.lostUnsentWriting)
+        #expect(!relaunched.isEmpty, "and the queue is intact")
+    }
+
+    /// Signing out takes the queue and the apology with it.
+    @Test func purgeClearsTheNotice() throws {
+        let disk = store()
+        defer { disk.removeAll() }
+
+        let partition = partition()
+        try FileManager.default.createDirectory(
+            at: disk.directory, withIntermediateDirectories: true
+        )
+        try Data("{ not json".utf8).write(to: disk.url(for: partition))
+
+        let queue = FieldOutbox(
+            wrapping: FakeFieldServer(state: emptyState()),
+            partition: partition, store: disk
+        )
+        #expect(queue.lostUnsentWriting)
+        queue.purge()
+        #expect(
+            !queue.lostUnsentWriting,
+            "nothing is owed to anyone, so there is nothing to apologise for"
+        )
     }
 
     @Test
@@ -1059,6 +1194,6 @@ struct FieldOutboxTests {
         outbox.purge()
 
         #expect(outbox.isEmpty)
-        #expect(store.load(partition).isEmpty)
+        #expect(store.load(partition).entries.isEmpty)
     }
 }
