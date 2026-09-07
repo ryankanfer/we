@@ -112,4 +112,52 @@ select '20260904120000_shared_item_and_space_guards',
            and p.proname = 'prepare_shared_item'
            and pg_get_functiondef(p.oid) ilike '%for key share%'
        )
+union all
+select '20260906120000_life_item_reached_out',
+       exists (
+         select 1 from information_schema.columns
+         where table_schema = 'public' and table_name = 'field_life_items'
+           and column_name = 'reached_out_at'
+       )
+union all
+-- MARK: The four in the release ---------------------------------------------
+--
+-- These four are expected to read FALSE. They are the release; a TRUE here
+-- means somebody applied one by hand and the plan in docs/RELEASE.md has to
+-- change before it runs, because `db push` would then try to apply it again.
+
+-- Read as an absence: the three V2 tables must no longer carry a write grant
+-- for `authenticated`. TRUE means the revoke has landed.
+select '20260907000000_v2_write_grants',
+       not exists (
+         select 1 from information_schema.role_table_grants
+         where table_schema = 'public'
+           and table_name in (
+             'relationship_events', 'seasons', 'contextual_suggestions'
+           )
+           and grantee = 'authenticated'
+           and privilege_type in ('INSERT', 'UPDATE', 'DELETE')
+       )
+union all
+select '20260907010000_deletion_attribution_cascade',
+       to_regprocedure(
+         'private.is_departure_attribution(text,jsonb,jsonb)'
+       ) is not null
+union all
+-- The door, and specifically the *third* version of it. A body mentioning
+-- `yours_open_lifecycle` is this migration; one mentioning
+-- `statement_timestamp` is the withdrawn second attempt and must not be in
+-- production. See that file's header.
+select '20260907020000_yours_lifecycle_scope',
+       to_regprocedure('private.yours_open_lifecycle()') is not null
+union all
+select '20260907030000_lint_dead_locals',
+       exists (
+         select 1
+         from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public'
+           and p.proname = 'pass_journey_question'
+           and pg_get_functiondef(p.oid) not ilike '%v_couple%'
+       )
 order by 1;
