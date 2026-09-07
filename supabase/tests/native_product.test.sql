@@ -413,13 +413,19 @@ select is(
   0::bigint,
   'and the response that was never revealed'
 );
+-- This crossing was withdrawn earlier in this file, at the `withdraw_reveal`
+-- above, so it reaches deletion already 'idle' rather than 'requested' and
+-- departure's step 2b does not apply to it. What matters here is that
+-- deletion does not resurrect it into something the survivor could accept.
+-- Step 2b itself — a request still standing when its initiator leaves — is
+-- asserted in account_departure.test.sql:286-305.
 select ok(
   (
-    select readiness = 'withdrawn' and initiator_id is null
+    select readiness = 'idle' and initiator_id is null and requested_at is null
     from public.insight_consent
     where insight_id = '60000000-0000-0000-0000-000000000001'
   ),
-  'a crossing asked for by somebody no longer here is withdrawn, not left acceptable'
+  'a withdrawn crossing stays withdrawn through the departure'
 );
 select is(
   (

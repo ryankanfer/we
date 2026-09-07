@@ -1211,7 +1211,10 @@ select throws_like(
     true,
     'OUTSIDER_PRIVATE_NOTE'
   )$$,
-  '%not yours%',
+  -- 20260904120000 gave every insight RPC one shared entry guard, and its
+  -- refusal is 'not your insight'. The '%not yours%' this asserted was the
+  -- wording before that, and matched nothing after it.
+  '%not your insight%',
   'the outsider cannot answer the couple''s private prompt'
 );
 

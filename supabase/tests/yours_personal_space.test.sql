@@ -395,6 +395,37 @@ select ok(
   'it returns in seven days and ends fourteen days out — exactly one week more'
 );
 
+-- Asking again straight away is refused by the state check, not the snooze
+-- check: a snoozed entry is 'ready', so `yours_snooze` says 'nothing was
+-- asked about this entry' and 'one week, once' is never reached. The guard is
+-- for the *second cycle* — the week elapses, the entry is presented again,
+-- and it is that ask that must be refused. Put it in that state, which is the
+-- only state where the assertion means anything.
+reset role;
+select set_config('we.yours_lifecycle', 'on', true);
+update public.yours_entries
+set state = 'presented',
+    presented_at = now(),
+    decide_by = now() + interval '7 days'
+where client_id = '92100000-0000-0000-0000-000000000002';
+select set_config('we.yours_lifecycle', '', true);
+
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"92000000-0000-0000-0000-000000000001","role":"authenticated"}',
+  true
+);
+
+select ok(
+  (
+    select snoozed_at is not null
+    from public.yours_entries
+    where client_id = '92100000-0000-0000-0000-000000000002'
+  ),
+  'the week it was already given survives being presented again'
+);
+
 select throws_ok(
   format(
     $$select public.yours_snooze(%L, '92200000-0000-0000-0000-000000000004')$$,
