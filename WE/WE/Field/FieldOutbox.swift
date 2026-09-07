@@ -48,18 +48,42 @@ struct FieldOutboxEntry: Codable, Sendable {
     /// violates a constraint, a mutation from a build two versions ago —
     /// cannot retry at the head of the queue forever.
     var attempts: Int
+    /// When this write was set aside after `maximumAttempts`.
+    ///
+    /// Set aside, not discarded. It stays in the queue and stays replayed over
+    /// every load, so the thing the person wrote is still on their screen and
+    /// still in this file after a relaunch. What it loses is its place at the
+    /// head of the queue: `flush()` steps over it, so one write the server
+    /// keeps refusing cannot hold up every write behind it.
+    ///
+    /// Optional, and decoded with `decodeIfPresent` by synthesis, so a queue
+    /// written by a build that predates this field still reads.
+    var blockedAt: Date?
 
     init(
         id: UUID = UUID(),
         mutation: FieldMutation,
         queuedAt: Date,
-        attempts: Int = 0
+        attempts: Int = 0,
+        blockedAt: Date? = nil
     ) {
         self.id = id
         self.mutation = mutation
         self.queuedAt = queuedAt
         self.attempts = attempts
+        self.blockedAt = blockedAt
     }
+}
+
+/// What the app may honestly say about one item's write.
+enum FieldDeliveryState: Sendable, Equatable {
+    /// The server has it.
+    case shared
+    /// On this phone and owed to the server. The ordinary state on a train.
+    case savedLocally
+    /// Set aside after repeated refusals. Still here, still on screen, and
+    /// waiting for somebody to ask for it again.
+    case needsAttention
 }
 
 /// The file's envelope.
@@ -477,7 +501,7 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
         guard shouldFlush else { return }
         defer { lock.withLock { isFlushing = false } }
 
-        while let entry = pending.first {
+        while let entry = pending.first(where: { $0.blockedAt == nil }) {
             do {
                 try await entry.mutation.send(to: base)
                 remove(entry.id)
@@ -486,6 +510,75 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
                 throw error
             }
         }
+    }
+
+    /// Ask again for writes that were set aside.
+    ///
+    /// `itemID` nil means all of them. Attempts reset, because the person
+    /// asking is new information: the last five failures may have been a
+    /// server that was down, and holding the count against them would mean one
+    /// bad afternoon permanently disabled the retry.
+    func retryDelivery(itemID: String? = nil) async {
+        let snapshot: [FieldOutboxEntry] = lock.withLock {
+            for index in _entries.indices
+            where _entries[index].blockedAt != nil
+                && (itemID == nil
+                    || Self.subjectID(of: _entries[index].mutation) == itemID) {
+                _entries[index].blockedAt = nil
+                _entries[index].attempts = 0
+            }
+            return _entries
+        }
+        store.save(snapshot, for: partition)
+        try? await flush()
+    }
+
+    /// Drain the queue. Called when connectivity returns and when the app
+    /// comes back to the foreground; both are moments when the reason a write
+    /// failed may have just stopped being true.
+    ///
+    /// Deliberately does not clear `blockedAt`: an automatic retry may not
+    /// resurrect a write the server has refused five times, or a phone
+    /// reconnecting would retry it forever. Only a person can.
+    func flushPending() async {
+        try? await flush()
+    }
+
+    // MARK: What the app may say about one item
+
+    /// The item id a mutation is about, when it is about one.
+    ///
+    /// A capture and the item it becomes share an id, so both answer here and
+    /// an item's status covers the whole life of the thing that was typed.
+    private static func subjectID(of mutation: FieldMutation) -> String? {
+        switch mutation.subject {
+        case .item(let id), .capture(let id): id
+        default: nil
+        }
+    }
+
+    func deliveryState(forItem id: String) -> FieldDeliveryState {
+        let mine = pending.filter { Self.subjectID(of: $0.mutation) == id }
+        guard !mine.isEmpty else { return .shared }
+        return mine.contains { $0.blockedAt != nil }
+            ? .needsAttention
+            : .savedLocally
+    }
+
+    /// Every item the app currently owes the server something for, split by
+    /// what it may say about them. One pass, because a zone asks about every
+    /// row it draws and `deliveryState(forItem:)` per row is quadratic.
+    func deliveryStates() -> [String: FieldDeliveryState] {
+        var result: [String: FieldDeliveryState] = [:]
+        for entry in pending {
+            guard let id = Self.subjectID(of: entry.mutation) else { continue }
+            if entry.blockedAt != nil {
+                result[id] = .needsAttention
+            } else if result[id] == nil {
+                result[id] = .savedLocally
+            }
+        }
+        return result
     }
 
     /// Everything, gone. The outbox half of the Phase 1d purge contract.
@@ -505,19 +598,29 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
     }
 
     private func recordFailure(of id: UUID) {
-        var abandoned: FieldOutboxEntry?
+        var abandoned: FieldOutboxEntry?  // set aside, not dropped
 
         let snapshot: [FieldOutboxEntry] = lock.withLock {
             guard let index = _entries.firstIndex(where: { $0.id == id })
             else { return _entries }
 
             _entries[index].attempts += 1
-            if _entries[index].attempts >= Self.maximumAttempts {
+            if _entries[index].attempts >= Self.maximumAttempts,
+               _entries[index].blockedAt == nil {
                 // Set aside rather than retried forever. This is a write the
                 // server has refused five times; leaving it at the head of the
                 // queue means every *later* write is stuck behind it, which
                 // turns one rejected mutation into all of them.
-                abandoned = _entries.remove(at: index)
+                //
+                // It used to be *removed* here, which solved that and created
+                // a worse problem: the write was gone, the person was never
+                // told, and the item stayed on screen because the local state
+                // still had it — the app quietly disagreeing with the server
+                // about something somebody wrote. It stays in the queue now,
+                // marked, so `deliveryState(forItem:)` can say so on the item
+                // itself and `retryDelivery` can pick it up again.
+                _entries[index].blockedAt = now()
+                abandoned = _entries[index]
             }
             return _entries
         }
@@ -527,8 +630,9 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
         if let abandoned {
             WELog.persistence.error(
                 """
-                Giving up on a queued write after \
-                \(abandoned.attempts, privacy: .public) attempts.
+                Setting a queued write aside after \
+                \(abandoned.attempts, privacy: .public) attempts. It stays in \
+                the queue and the item now reports needsAttention.
                 """
             )
         }

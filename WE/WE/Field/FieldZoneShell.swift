@@ -137,10 +137,23 @@ struct FieldZoneShell: View {
         // The tick comes first and is the reason this comment is now true.
         // Re-planning before catching the clock up plans against the day the
         // app went to sleep on, which is exactly what it claimed not to do.
+        // The other half of the same idea: the reason a write failed may have
+        // just stopped being true. `.reconnecting` is the edge `AppSession`
+        // publishes the instant the path comes back, ahead of its own refresh.
+        .onChange(of: session.connectionState) { _, state in
+            guard state == .online || state == .reconnecting else { return }
+            Task { await store.flushPending() }
+        }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .background || phase == .active else { return }
             if phase == .active {
                 store.tick()
+                // A write queued on a train drains when the app comes back,
+                // rather than waiting for the person to happen to type
+                // something else. `flushPending` is idempotent — every
+                // mutation is an upsert on a client-generated id — so a
+                // foreground during a flush cannot send anything twice.
+                Task { await store.flushPending() }
                 // §5's ninety-day rule is about the product, not this room, so
                 // this fires on every foreground whether or not Yours is ever
                 // opened. Without it, somebody who used the shared side daily

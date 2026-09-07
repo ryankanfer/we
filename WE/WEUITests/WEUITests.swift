@@ -38,24 +38,17 @@ final class WEUITests: XCTestCase {
             app.staticTexts["Your side is ready."]
                 .waitForExistence(timeout: 3)
         )
-        // Recent iOS simulators can offer to save the test password from a
-        // separate system window after the app has already advanced. Decline
-        // it so this test measures the invitation route, not Passwords UI.
-        let declinePasswordSave = app.buttons["Not Now"]
-        if declinePasswordSave.waitForExistence(timeout: 2) {
-            declinePasswordSave.tap()
-        }
-        let createSpace = app.buttons["pairing.createInvitation"]
-        createSpace.tap()
         // "The invitation is at the threshold" was the register of the
         // specification document that produced it. The screen names the
         // person it is for instead, and falls back to "For them." until it
         // has been told who that is.
-        XCTAssertTrue(
-            app.staticTexts.matching(
-                NSPredicate(format: "label BEGINSWITH %@", "For ")
-            ).firstMatch
-                .waitForExistence(timeout: 3)
+        let invitationScreen = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "For ")
+        ).firstMatch
+        tap(
+            app.buttons["pairing.createInvitation"],
+            in: app,
+            untilReaching: invitationScreen
         )
 
         // Colour, and nothing else. The three questions that used to follow
@@ -293,6 +286,74 @@ final class WEUITests: XCTestCase {
         scrollUntilVisible(replay, in: app, maxSwipes: 8)
         XCTAssertTrue(replay.isHittable)
         replay.tap()
+    }
+
+    /// Tap a control and confirm the app actually went where the tap was
+    /// meant to take it.
+    ///
+    /// iOS offers to save the test password from a separate view-service
+    /// process, at an unpredictable moment after sign-in. The offer has two
+    /// ways to break a plain tap: arriving first, it covers the control, whose
+    /// hit point then resolves to `{-1, -1}`; arriving a moment later, it
+    /// swallows a tap already synthesized. Waiting on either side only picks
+    /// which race to lose, so state the destination and drive to it — decline
+    /// the offer whenever it stands, and tap again if the screen did not move.
+    @MainActor
+    private func tap(
+        _ element: XCUIElement,
+        in app: XCUIApplication,
+        untilReaching destination: XCUIElement,
+        attempts: Int = 5,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(
+            element.waitForExistence(timeout: 10),
+            "\(element) never appeared",
+            file: file,
+            line: line
+        )
+
+        for _ in 0..<attempts {
+            if destination.exists { return }
+            clearSystemPasswordOffer(in: app)
+            // A coordinate tap, because `XCUIElement.tap()` fails the test
+            // outright if the offer slides in between the hittability check
+            // and the tap itself — which is the very race being handled here.
+            // A tap that lands on the offer instead is simply an attempt that
+            // did not move the screen, and the loop takes another.
+            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                .tap()
+            if destination.waitForExistence(timeout: 3) { return }
+        }
+
+        XCTFail(
+            "tapping \(element) never reached \(destination)",
+            file: file,
+            line: line
+        )
+    }
+
+    /// Leave the screen with no system offer standing on it.
+    ///
+    /// The offer belongs to iOS, not to this app, so it is declined rather
+    /// than waited out — this suite measures the product, not Passwords UI.
+    /// Declining is not instant, and a tap synthesized while the sheet is
+    /// still dismissing is swallowed by it, so this returns only once the
+    /// offer is actually gone. When none was ever made it returns at once.
+    @MainActor
+    private func clearSystemPasswordOffer(
+        in app: XCUIApplication,
+        timeout: TimeInterval = 5
+    ) {
+        let decline = app.buttons["Not Now"]
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            guard decline.exists else { return }
+            if decline.isHittable {
+                decline.tap()
+            }
+        }
     }
 
     @MainActor

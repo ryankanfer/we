@@ -56,6 +56,10 @@ struct FieldItemSheet: View {
                         header(item)
                             .padding(.bottom, FieldMetrics.sectionGap)
 
+                        delivery
+
+                        standing(item)
+
                         whereItLives(item)
                             .padding(.bottom, FieldMetrics.sectionGap)
 
@@ -153,6 +157,148 @@ struct FieldItemSheet: View {
         let owner = store.identity.name(for: item.owner).uppercased()
         guard let dueOn = item.dueOn else { return owner }
         return "\(owner) · \(DateFormatter.fieldDayMonth.string(from: dueOn).uppercased())"
+    }
+
+    // MARK: Whether the other phone has it
+
+    /// Where this item's writing has got to, in one line.
+    ///
+    /// All three states are drawn, including the ordinary one. Drawing nothing
+    /// when a write has landed reads as "shared" only to somebody who already
+    /// knows that is the convention; to everybody else it is indistinguishable
+    /// from a screen that has no opinion, which is the ambiguity this is here
+    /// to remove.
+    ///
+    /// It says where the writing is, never why the network is unhappy: an
+    /// error code is a fact about infrastructure, and the person is being
+    /// asked one question, which is whether to try again.
+    ///
+    /// It also says nothing about who can *see* the item. Delivery and
+    /// visibility are different facts, and an earlier draft of this copy read
+    /// "Shared. They can see this.", which would tell somebody looking at a
+    /// private item that their partner could read it because a row reached the
+    /// server. Whether a thing is private is answered by `visibility`, on the
+    /// item, and nowhere near this.
+    @ViewBuilder
+    private var delivery: some View {
+        if store.canReportDelivery {
+            deliveryLine
+        }
+    }
+
+    @ViewBuilder
+    private var deliveryLine: some View {
+        switch store.deliveryState(for: itemID) {
+        case .shared:
+            VStack(alignment: .leading, spacing: 0) {
+                FieldRuleLine()
+
+                Text("Saved beyond this phone.")
+                    .font(FieldType.reasoning)
+                    .foregroundStyle(.fieldInk(.metadataProse))
+                    .fieldLineHeight(1.35, size: 14)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 18)
+            }
+            .padding(.bottom, FieldMetrics.sectionGap)
+            .accessibilityIdentifier("field.item.delivery.shared")
+
+        case .savedLocally:
+            VStack(alignment: .leading, spacing: 0) {
+                FieldRuleLine()
+
+                Text("Saved on this phone only, for now.")
+                    .font(FieldType.reasoning)
+                    .foregroundStyle(.fieldInk(.metadataProse))
+                    .fieldLineHeight(1.35, size: 14)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 18)
+            }
+            .padding(.bottom, FieldMetrics.sectionGap)
+            .accessibilityIdentifier("field.item.delivery.local")
+
+        case .needsAttention:
+            VStack(alignment: .leading, spacing: 14) {
+                FieldRuleLine()
+
+                Text("Saved on this phone only. It has not got any further yet.")
+                    .font(FieldType.reasoning)
+                    .foregroundStyle(.fieldInk(.metadataProse))
+                    .fieldLineHeight(1.35, size: 14)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 18)
+
+                Button {
+                    Task { await store.retryDelivery(for: itemID) }
+                } label: {
+                    Text("Try again")
+                        .font(FieldType.listItem)
+                        .foregroundStyle(.fieldInk(.headline))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("field.item.delivery.retry")
+            }
+            .padding(.bottom, FieldMetrics.sectionGap)
+            .accessibilityIdentifier("field.item.delivery.blocked")
+        }
+    }
+
+    // MARK: Where it stands
+    //
+    // Two facts Life sorts on that were previously invisible here, which is
+    // how the sorting became unarguable-with. A person who could see "waiting
+    // on someone else" on the Life screen had no way to find out *why* the app
+    // thought so, and no way to say otherwise.
+
+    @ViewBuilder
+    private func standing(_ item: LifeItem) -> some View {
+        if item.isAwaitingSomeoneElse {
+            VStack(alignment: .leading, spacing: 14) {
+                FieldRuleLine()
+
+                Text("You said you'd reached out. Life is holding it as "
+                     + "somebody else's move.")
+                    .font(FieldType.reasoning)
+                    .foregroundStyle(.fieldInk(.metadataProse))
+                    .fieldLineHeight(1.35, size: 14)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 18)
+
+                // The way back. A voicemail nobody returned is not somebody
+                // else having the next move for the rest of the year, and the
+                // only person who can say so is the one who left it.
+                Button {
+                    store.reclaimOutreach(itemID)
+                } label: {
+                    Text("It's still on me")
+                        .font(FieldType.listItem)
+                        .foregroundStyle(.fieldInk(.headline))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("field.item.reclaim")
+            }
+            .padding(.bottom, FieldMetrics.sectionGap)
+            .accessibilityIdentifier("field.item.waiting")
+        } else if FieldStrata.windowHasClosed(item, now: store.now) {
+            VStack(alignment: .leading, spacing: 0) {
+                FieldRuleLine()
+
+                // Stated, not silently absorbed. The window is gone; whether
+                // the thing still matters is not the app's call, and the two
+                // controls that settle it — the date, and Remove it — are
+                // already on this page.
+                Text("That window has closed.")
+                    .font(FieldType.reasoning)
+                    .foregroundStyle(.fieldInk(.metadataProse))
+                    .fieldLineHeight(1.35, size: 14)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 18)
+            }
+            .padding(.bottom, FieldMetrics.sectionGap)
+            .accessibilityIdentifier("field.item.windowClosed")
+        }
     }
 
     // MARK: Where it lives

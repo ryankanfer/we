@@ -24,27 +24,27 @@ select ok(
   ),
   'database enforces one active couple per profile'
 );
-select like(
+select ialike(
   pg_get_functiondef('public.join_couple(text)'::regprocedure),
   '%FOR UPDATE%',
   'join code redemption serializes concurrent callers'
 );
-select like(
+select ialike(
   pg_get_functiondef('public.gen_join_code()'::regprocedure),
   '%gen_random_bytes%',
   'join codes use cryptographic entropy'
 );
-select like(
+select ialike(
   pg_get_functiondef('private.prepare_shared_item()'::regprocedure),
   '%FOR KEY SHARE%',
   'shared item mutations serialize with relationship deletion'
 );
-select like(
+select ialike(
   pg_get_functiondef('public.create_plan(uuid,text,text,date)'::regprocedure),
   '%lock_relationship%',
   'plan writes take the relationship advisory lock'
 );
-select like(
+select ialike(
   pg_get_functiondef('public.delete_my_account()'::regprocedure),
   '%lock_relationship%',
   'account deletion takes the relationship advisory lock first'
@@ -61,7 +61,7 @@ select ok(
   ),
   'authenticated clients cannot bypass responsibility RPCs'
 );
-select like(
+select ialike(
   pg_get_functiondef('public.assert_my_insight(uuid)'::regprocedure),
   '%FOR KEY SHARE%',
   'trust mutations serialize with relationship deletion'
@@ -344,7 +344,7 @@ select throws_like(
 select lives_ok('select public.delete_my_account()', 'account deletion completes as the requesting user');
 
 reset role;
-select like(
+select ialike(
   pg_get_functiondef('private.delete_my_account()'::regprocedure),
   '%from public.couples%for update%',
   'account deletion serializes on the relationship'

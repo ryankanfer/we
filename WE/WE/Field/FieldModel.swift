@@ -360,6 +360,27 @@ struct LifeItem: Identifiable, Codable, Hashable, Sendable {
     /// in exactly one place.
     var visibility: FieldVisibility?
 
+    /// When somebody confirmed they actually made the outward move.
+    ///
+    /// The one fact that separates *this is ours to do* from *someone else has
+    /// it now*, and the app is not allowed to invent it. It is written only
+    /// from a person's own answer to "you called them — is that one done?",
+    /// never from `openURL` succeeding: a dialler appearing on screen is not a
+    /// conversation. Nil means the next move is still ours, however the title
+    /// happens to be phrased.
+    ///
+    /// Nil-able and clearable on purpose — a person may take the action back.
+    /// Optional for the same reason `sourceURL` and `visibility` are: rows
+    /// written before the column existed decode without it.
+    var reachedOutAt: Date?
+
+    /// Whether anyone outside the couple currently owes a reply.
+    ///
+    /// Confirmed outreach plus not yet finished. There is no separate stored
+    /// "awaiting a response" fact because there is nothing a second column
+    /// could say: the moment the thing is done, nobody is owed anything.
+    var isAwaitingSomeoneElse: Bool { reachedOutAt != nil && !isDone }
+
     /// Whether this item may inform something both people will see.
     ///
     /// Deliberately phrased as a question about presence rather than about

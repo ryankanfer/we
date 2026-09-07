@@ -183,10 +183,17 @@ enum FieldLookupQuery {
             .map(String.init)
     ).union(["watch"])
 
+    /// The single-word day names, plus the prepositions that only exist to
+    /// attach them.
+    ///
+    /// Split deliberately rather than shredding every phrase into words. The
+    /// day list includes "the day after tomorrow", and taking its pieces as
+    /// strippable scaffolding put "the", "day" and "after" in here — which
+    /// turned "The book club" into "book club" and sent a search for the wrong
+    /// thing.
     private static let dayComponents: Set<String> = Set(
-        FieldClassifier.dayWords.flatMap { $0.split(separator: " ") }
-            .map(String.init)
-    )
+        FieldClassifier.dayWords.filter { !$0.contains(" ") }
+    ).union(FieldPhrasing.dayPrepositions)
 
     static func normalise(_ title: String) -> String {
         var words = title.split(separator: " ").map(String.init)

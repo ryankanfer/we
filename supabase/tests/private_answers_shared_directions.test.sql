@@ -66,14 +66,14 @@ select ok(
   ),
   'safe shared directions publish realtime changes'
 );
-select unlike(
+select unialike(
   pg_get_functiondef(
     'public.submit_response(uuid,text,boolean,text)'::regprocedure
   ),
   '%status = ''revealed''%',
   'submitting never reveals response rows'
 );
-select like(
+select ialike(
   pg_get_functiondef(
     'public.resolve_insight(uuid,text,text)'::regprocedure
   ),

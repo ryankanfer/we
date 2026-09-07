@@ -682,7 +682,163 @@ struct FieldOutboxTests {
             try? await outbox.flush()
         }
 
-        #expect(outbox.isEmpty, "it gave up rather than retrying forever")
+        // Set aside, and still here. Discarding it was the old behaviour and
+        // it was a quiet data loss: the write vanished, the person was never
+        // told, and the item stayed on screen because local state still had
+        // it. What the queue gives up is the retrying, not the writing.
+        #expect(outbox.pending.count == 1, "the write must not be discarded")
+        #expect(
+            outbox.deliveryState(forItem: "item-1") == .needsAttention,
+            "and the item must be able to say so"
+        )
+    }
+
+    /// The reason it was ever removed: one refused write must not strand every
+    /// write behind it. Setting aside has to buy that too, or it is just a
+    /// worse version of retrying forever.
+    @Test
+    func aWriteSetAsideDoesNotBlockTheOnesBehindIt() async throws {
+        let store = store()
+        defer { store.removeAll() }
+
+        let server = FakeFieldServer(state: emptyState())
+        server.failuresRemaining = .max
+
+        let outbox = FieldOutbox(
+            wrapping: server,
+            partition: partition(),
+            store: store,
+            now: { Self.now }
+        )
+
+        await #expect(throws: (any Error).self) {
+            try await outbox.upsert(self.item())
+        }
+        for _ in 1..<FieldOutbox.maximumAttempts {
+            try? await outbox.flush()
+        }
+
+        // The server recovers, and a later, unrelated write is made.
+        server.failuresRemaining = 0
+        try await outbox.upsert(item(id: "item-2", title: "Book the table"))
+
+        #expect(
+            server.state.lifeItems.contains { $0.id == "item-2" },
+            "the write behind the set-aside one must still land"
+        )
+        #expect(
+            outbox.deliveryState(forItem: "item-2") == .shared,
+            "and must report itself as landed"
+        )
+        #expect(
+            outbox.deliveryState(forItem: "item-1") == .needsAttention,
+            "while the set-aside one still waits to be asked for again"
+        )
+    }
+
+    /// The person asking again is new information, so the attempt count that
+    /// set it aside is forgiven. Without that, one afternoon of a server being
+    /// down would permanently disable the only control they have.
+    @Test
+    func askingAgainSendsAWriteThatWasSetAside() async throws {
+        let store = store()
+        defer { store.removeAll() }
+
+        let server = FakeFieldServer(state: emptyState())
+        server.failuresRemaining = .max
+
+        let outbox = FieldOutbox(
+            wrapping: server,
+            partition: partition(),
+            store: store,
+            now: { Self.now }
+        )
+
+        await #expect(throws: (any Error).self) {
+            try await outbox.upsert(self.item())
+        }
+        for _ in 1..<FieldOutbox.maximumAttempts {
+            try? await outbox.flush()
+        }
+        #expect(outbox.deliveryState(forItem: "item-1") == .needsAttention)
+
+        server.failuresRemaining = 0
+        await outbox.retryDelivery(itemID: "item-1")
+
+        #expect(server.state.lifeItems.contains { $0.id == "item-1" })
+        #expect(outbox.isEmpty, "and it leaves the queue once it lands")
+        #expect(outbox.deliveryState(forItem: "item-1") == .shared)
+    }
+
+    /// An automatic flush may not resurrect a write the server has refused
+    /// five times, or a phone with patchy signal would retry it on every
+    /// reconnection for as long as the app is installed.
+    @Test
+    func anAutomaticFlushLeavesASetAsideWriteAlone() async throws {
+        let store = store()
+        defer { store.removeAll() }
+
+        let server = FakeFieldServer(state: emptyState())
+        server.failuresRemaining = .max
+
+        let outbox = FieldOutbox(
+            wrapping: server,
+            partition: partition(),
+            store: store,
+            now: { Self.now }
+        )
+
+        await #expect(throws: (any Error).self) {
+            try await outbox.upsert(self.item())
+        }
+        for _ in 1..<FieldOutbox.maximumAttempts {
+            try? await outbox.flush()
+        }
+
+        // The network comes back and the app foregrounds. Both call this.
+        server.failuresRemaining = 0
+        await outbox.flushPending()
+
+        #expect(
+            server.state.lifeItems.isEmpty,
+            "an automatic flush must not retry it on its own"
+        )
+        #expect(outbox.deliveryState(forItem: "item-1") == .needsAttention)
+    }
+
+    /// It survives a relaunch as something set aside, rather than coming back
+    /// as an ordinary queued write and starting its five attempts over.
+    @Test
+    func aWriteSetAsideIsStillSetAsideAfterARelaunch() async throws {
+        let store = store()
+        defer { store.removeAll() }
+
+        let server = FakeFieldServer(state: emptyState())
+        server.failuresRemaining = .max
+
+        let outbox = FieldOutbox(
+            wrapping: server,
+            partition: partition(),
+            store: store,
+            now: { Self.now }
+        )
+
+        await #expect(throws: (any Error).self) {
+            try await outbox.upsert(self.item())
+        }
+        for _ in 1..<FieldOutbox.maximumAttempts {
+            try? await outbox.flush()
+        }
+
+        let after = FieldOutbox(
+            wrapping: server,
+            partition: partition(),
+            store: store,
+            now: { Self.now }
+        )
+
+        #expect(after.pending.count == 1)
+        #expect(after.deliveryState(forItem: "item-1") == .needsAttention)
     }
 
     // MARK: The circle, offline

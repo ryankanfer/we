@@ -63,4 +63,53 @@ select '20260803120000_field_mutation_idempotency',
 union all
 select '20260808120000_shared_journeys_v1',
        to_regclass('public.field_journeys') is not null
+union all
+-- Everything below is what `supabase migration list --linked` reports as
+-- unpushed as of 2026-09-06. The ledger cannot tell "never applied" from
+-- "applied by hand in the dashboard", which is the whole reason this file
+-- exists, so each row probes an artifact only that migration creates.
+select '20260820210000_ceremony_acknowledgements',
+       to_regclass('public.ceremony_acknowledgements') is not null
+union all
+-- The eight pigment families. The check constraint is the artifact: the
+-- column predates this migration, the constraint naming these values does not.
+select '20260820230000_pigment_palette',
+       exists (
+         select 1 from pg_constraint
+         where conname = 'field_identity_swatch_a_check'
+           and pg_get_constraintdef(oid) like '%burgundy%'
+       )
+union all
+select '20260821120000_ceremony_eligibility',
+       exists (
+         select 1 from information_schema.columns
+         where table_schema = 'public' and table_name = 'couples'
+           and column_name = 'ceremony_required'
+       )
+union all
+select '20260824120000_invitation_greeting',
+       to_regprocedure('public.invitation_greeting(text)') is not null
+union all
+select '20260824130000_invitation_decline',
+       to_regprocedure('public.decline_invitation(text)') is not null
+union all
+-- Push. False here means arrival announcement has no table to write to,
+-- independent of whether APNs is configured.
+select '20260824140000_arrival_notification',
+       to_regclass('public.device_tokens') is not null
+union all
+-- Replaces functions rather than creating objects, so the probe reads a
+-- body. `FOR KEY SHARE` in `prepare_shared_item` arrives only here: the
+-- 20260725062000 version of the same function has no row lock at all.
+-- False here means the space guards described in that migration's header
+-- (a NULL comparison falling through for a caller in no space) are still open.
+select '20260904120000_shared_item_and_space_guards',
+       exists (
+         select 1
+         from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'private'
+           and p.proname = 'prepare_shared_item'
+           and pg_get_functiondef(p.oid) ilike '%for key share%'
+       )
 order by 1;

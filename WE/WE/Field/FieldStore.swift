@@ -1172,11 +1172,16 @@ final class FieldStore {
         lastReceipt = nil
         correctingReceipt = nil
 
-        Task { [backend] in
+        // `self` rather than `[backend]` alone: enqueueing is what makes the
+        // item's status true, so the status has to be reread once it has
+        // happened. The awaits below hop back to the main actor, which is
+        // where `deliveryStates` is read from.
+        Task { [weak self, backend] in
             try? await backend?.append(capture)
             for correction in corrections {
                 try? await backend?.record(correction)
             }
+            self?.refreshDeliveryStates()
         }
         persist(receipt)
     }
@@ -1185,7 +1190,10 @@ final class FieldStore {
     private func persist(_ receipt: FieldReceipt) {
         guard let item = state.lifeItems.first(where: { $0.id == receipt.id })
         else { return }
-        Task { [backend] in try? await backend?.upsert(item) }
+        Task { [weak self, backend] in
+            try? await backend?.upsert(item)
+            self?.refreshDeliveryStates()
+        }
     }
 
     /// Files the captured text into its category. Without this the receipt
@@ -2032,9 +2040,56 @@ final class FieldStore {
         )
     }
 
+    /// "You called them. Is that one done?" — answered.
+    ///
+    /// Both answers are information and both are now kept. "Done" finishes it.
+    /// "Not yet" is the answer that used to be thrown away, and it is the most
+    /// specific thing anybody says in this whole flow: *I made the call, and it
+    /// is still open.* That is the only evidence Life ever gets that somebody
+    /// outside this house actually has the next move, so it is recorded rather
+    /// than discarded — see `LifeItem.reachedOutAt`.
+    ///
+    /// Note what is not doing the work here. `outreachDidOpen` fires when the
+    /// phone accepted the URL, which says a dialler appeared, not that anybody
+    /// spoke. The confirmation is the person's own.
     func resolveOutcome(_ question: FieldOutcomeQuestion, done: Bool) {
         awaitingOutcome = nil
-        if done { complete(question.id) }
+        if done {
+            complete(question.id)
+        } else {
+            recordReachedOut(question.id)
+        }
+    }
+
+    /// Somebody confirmed the outward act happened and the thing is still open.
+    private func recordReachedOut(_ itemID: String) {
+        guard !isLegacyExternalRow(itemID),
+              let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
+              state.lifeItems[index].reachedOutAt == nil
+        else { return }
+        state.lifeItems[index].reachedOutAt = now
+        let item = state.lifeItems[index]
+        Task { [backend] in try? await backend?.upsert(item) }
+    }
+
+    /// "Actually, it is still on me."
+    ///
+    /// Taking the action back, which has to be possible for the same reason
+    /// the confirmation has to be explicit: the app is holding a claim about
+    /// the world on somebody's behalf, and they are the only ones who can say
+    /// it is no longer true. A voicemail nobody returned is not somebody else
+    /// having the next move for the rest of the year.
+    ///
+    /// The item goes back to wherever its date puts it — this clears a fact,
+    /// it does not file anything.
+    func reclaimOutreach(_ itemID: String) {
+        guard !isLegacyExternalRow(itemID),
+              let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
+              state.lifeItems[index].reachedOutAt != nil
+        else { return }
+        state.lifeItems[index].reachedOutAt = nil
+        let item = state.lifeItems[index]
+        Task { [backend] in try? await backend?.upsert(item) }
     }
 
     func dismissOutreach() {
@@ -2148,6 +2203,54 @@ final class FieldStore {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    // MARK: Delivery
+
+    /// What the app may say about each item it still owes the server.
+    ///
+    /// Recomputed rather than observed: the queue lives behind a lock off the
+    /// main actor, and a stored snapshot refreshed at the few moments it can
+    /// change is simpler than making the outbox observable and cheaper than
+    /// asking it per row while a zone draws.
+    private(set) var deliveryStates: [String: FieldDeliveryState] = [:]
+
+    /// The queue, when this store has one. Previews, the gallery and the
+    /// memory-backed tests do not, and everything below is a no-op there.
+    private var outbox: FieldOutbox? { backend as? FieldOutbox }
+
+    /// Whether this store is in a position to answer the question at all.
+    ///
+    /// False in previews, the gallery and the memory-backed tests, which have
+    /// no queue. Without this the fallback below reports `.shared` there, and
+    /// a surface would tell somebody their writing was safely stored by a
+    /// build that has nowhere to store it. Not knowing is a state; asserting
+    /// is not allowed.
+    var canReportDelivery: Bool { outbox != nil }
+
+    func deliveryState(for itemID: String) -> FieldDeliveryState {
+        deliveryStates[itemID] ?? .shared
+    }
+
+    func refreshDeliveryStates() {
+        deliveryStates = outbox?.deliveryStates() ?? [:]
+    }
+
+    /// Send what is waiting. Called when connectivity returns and when the app
+    /// comes back to the foreground.
+    ///
+    /// Neither clears a write that was set aside — see `FieldOutbox.flushPending`.
+    func flushPending() async {
+        guard let outbox else { return }
+        await outbox.flushPending()
+        refreshDeliveryStates()
+    }
+
+    /// The person asking again for one item, or for everything.
+    func retryDelivery(for itemID: String? = nil) async {
+        guard let outbox else { return }
+        await outbox.retryDelivery(itemID: itemID)
+        refreshDeliveryStates()
+    }
+
     // MARK: Loading
 
     func load() async {
@@ -2192,6 +2295,9 @@ final class FieldStore {
             // Separate from state on purpose: this is one person's, and
             // `FieldState` is the couple's and is cached to disk.
             teachingMoments = Set((try? await backend.teachingMoments()) ?? [])
+            // `load()` flushes first, so this is the moment the queue is at
+            // its emptiest and the statuses on screen are least stale.
+            refreshDeliveryStates()
         } catch {
             // Cached data is still worth drawing; it was true recently and
             // saying so is more useful than an empty screen. Without a cache

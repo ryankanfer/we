@@ -117,12 +117,11 @@ enum FieldStrata {
 
     /// Sort every open item into exactly one band.
     ///
-    /// The order of the checks is not the order of the bands on screen, and
-    /// the difference matters. Fading is tested *before* the outward acts,
-    /// because a thing two months past its date is fading whatever verb its
-    /// title happens to contain — otherwise "call the plumber", written in
-    /// March and never done, would still be reported as something a plumber is
-    /// actively getting to.
+    /// The order of the checks is not the order of the bands on screen. A hard
+    /// cut-off is read first because it is the one kind of pressure that
+    /// cannot be recovered tomorrow, and confirmed outreach is read next
+    /// because it is the one thing that can truthfully say the next move is
+    /// not ours.
     static func sort(
         _ items: [LifeItem],
         now: Date,
@@ -154,6 +153,22 @@ enum FieldStrata {
         return result
     }
 
+    /// Whether a hard cut-off has already passed.
+    ///
+    /// A window that closed is not a window any more, and it is not upkeep
+    /// either — somebody made a commitment to a time and the time went by. The
+    /// band keeps it in view (see `band(for:now:)`); this is what lets the row
+    /// say so rather than presenting a closed window as though it were still
+    /// open.
+    static func windowHasClosed(
+        _ item: LifeItem,
+        now: Date,
+        calendar: Calendar = .gregorianUS
+    ) -> Bool {
+        guard let closesAt = item.closesAt, !item.isDone else { return false }
+        return daysAway(closesAt, from: now, calendar: calendar) < 0
+    }
+
     static func band(
         for item: LifeItem,
         now: Date,
@@ -161,39 +176,71 @@ enum FieldStrata {
     ) -> Band {
         // A cut-off inside the day is this week by definition — that is what a
         // window closing tonight is — and it outranks the date underneath it.
+        //
+        // A cut-off that has *passed* is this week for a different reason. The
+        // comparison here used to be one-sided (`days <= thisWeekDays`), which
+        // is satisfied by −500 as readily as by 2, so a window that closed a
+        // year ago sat in This week presenting itself as still open. The
+        // answer is not to let it fall through to Fading — Fading renders as a
+        // bare count, and a missed hard commitment reduced to a number is the
+        // app deciding on somebody's behalf that it stopped mattering. It
+        // stays in rows, where it can be read, finished, re-dated, or dropped
+        // by the two people whose commitment it was. `windowHasClosed` is how
+        // the row says which of the two this is.
         if let closesAt = item.closesAt {
-            let days = calendar.dateComponents(
-                [.day],
-                from: calendar.startOfDay(for: now),
-                to: calendar.startOfDay(for: closesAt)
-            ).day ?? 0
+            let days = daysAway(closesAt, from: now, calendar: calendar)
+            if days < 0 { return .thisWeek }
             if days <= thisWeekDays { return .thisWeek }
         }
 
-        if let dueOn = item.dueOn {
-            let days = calendar.dateComponents(
-                [.day],
-                from: calendar.startOfDay(for: now),
-                to: calendar.startOfDay(for: dueOn)
-            ).day ?? 0
+        // Somebody else genuinely has it.
+        //
+        // This used to be decided by the verb in the title, at the bottom of
+        // this function, and it was the app asserting something nobody had
+        // told it: "Call the plumber", written down and never dialled, was
+        // reported back as something a plumber was getting to. Now it takes a
+        // person's own confirmation (`LifeItem.reachedOutAt`), which is why it
+        // can be read this early — a fact may outrank a date, where a keyword
+        // match may not. Taking the action back empties this band again.
+        if item.isAwaitingSomeoneElse { return .waitingOnSomeoneElse }
 
-            if days < -fadesAfterDays { return .fading }
+        if let dueOn = item.dueOn {
+            let days = daysAway(dueOn, from: now, calendar: calendar)
+
+            if days < -fadesAfterDays {
+                // Age alone cannot establish that something stopped mattering.
+                // "The air filter has been two months over and nothing broke"
+                // is upkeep, and the app stops asking rather than asking
+                // louder. A thing its owner marked time-critical is the other
+                // case entirely — that was a fixed commitment, and it is still
+                // unresolved, so it is asked about rather than counted.
+                return item.isTimeCritical ? .thisWeek : .fading
+            }
             if days <= thisWeekDays { return .thisWeek }
             // Dated, but far enough out that nothing is being asked yet.
             return .noHurry
         }
 
-        // Undated. The only remaining question is whether it is ours to do.
+        // Undated, ours, and nobody is owed a reply. There is nothing being
+        // asked of anyone yet.
         //
-        // `leavesItToUs` rather than a second list of verbs here: it is the
-        // same distinction the outreach path already draws, and
-        // `FieldItemStepsTests` asserts the two agree for every `FieldAct`.
-        // Paying a bill and ordering filters are ours; calling, messaging,
-        // emailing and booking put the next move in somebody else's hands.
-        let act = FieldTodaySelector.primaryAct(for: item)
-        return FieldLookupPolicy.leavesItToUs(act)
-            ? .noHurry
-            : .waitingOnSomeoneElse
+        // `FieldLookupPolicy.leavesItToUs` used to route this branch. It still
+        // decides what tapping the verb *offers to do*, which is the question
+        // it was written for; what it cannot answer is whether anybody did it.
+        return .noHurry
+    }
+
+    /// Whole days from `now`'s day to `date`'s day. Negative in the past.
+    private static func daysAway(
+        _ date: Date,
+        from now: Date,
+        calendar: Calendar
+    ) -> Int {
+        calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: now),
+            to: calendar.startOfDay(for: date)
+        ).day ?? 0
     }
 
     /// The subjects present in a band, in the order they first appear.

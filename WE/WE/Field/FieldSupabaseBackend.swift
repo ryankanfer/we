@@ -80,6 +80,10 @@ private struct LifeItemRow: Codable {
     /// Optional so a build running against a database that predates solo
     /// visibility still decodes. Absent resolves to `shared` in `map`.
     let visibility: String?
+    /// Optional for the same reason, one column later: a database that
+    /// predates `20260906120000_life_item_reached_out` has no such key, and a
+    /// build talking to it should still show the couple their Life.
+    let reached_out_at: Date?
 }
 
 /// The links a published share brought with it.
@@ -504,7 +508,8 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             isTimeCritical: row.is_time_critical,
             isDone: row.is_done,
             sourceURL: sourceURL,
-            visibility: row.visibility.flatMap(FieldVisibility.init(rawValue:))
+            visibility: row.visibility.flatMap(FieldVisibility.init(rawValue:)),
+            reachedOutAt: row.reached_out_at
         )
     }
 
@@ -710,6 +715,13 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         // whatever the column already had, and taking something *out* of an
         // occasion would have looked right and done nothing.
         payload["cluster_id"] = item.clusterID.map { .string($0) } ?? .null
+        // Explicitly null when absent, like the dates above and for a sharper
+        // reason: taking back an outward act is the whole point of the column
+        // being clearable, and an upsert that omitted the key would have put
+        // "somebody already called them" back on the next load.
+        payload["reached_out_at"] = item.reachedOutAt.map {
+            .string(ISO8601DateFormatter.we.string(from: $0))
+        } ?? .null
 
         _ = try await client
             .from("field_life_items")
