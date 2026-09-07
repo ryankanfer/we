@@ -70,8 +70,6 @@ struct FieldTodayZone: View {
                     FieldMomentView(moment: moment)
                 }
 
-                FieldCaptureField()
-                    .padding(.top, FieldMetrics.sectionGapLoose)
 
                 if sharedQuestionIsReady {
                     sharedJourneyHandoff
@@ -415,8 +413,13 @@ struct FieldMomentView: View {
                     .padding(.bottom, 20)
             }
 
-            FieldReasoning(text: moment.reasoning, accent: accentColor)
-                .padding(.bottom, 30)
+            DisclosureGroup("Why this?") {
+                FieldReasoning(text: moment.reasoning, accent: accentColor)
+                    .padding(.top, 12)
+            }
+            .font(FieldType.body)
+            .foregroundStyle(.fieldInk(.headline))
+            .padding(.bottom, 24)
 
             // The app opened the phone and does not know how it went. Asked
             // once, above the usual actions, and never asked again today.
@@ -427,14 +430,7 @@ struct FieldMomentView: View {
 
             actions
 
-            if let remainder = moment.remainder {
-                Text(remainder)
-                    .font(.system(size: 13.5, design: .serif))
-                    .foregroundStyle(.fieldInk(.metadataProse))
-                    .fieldLineHeight(1.6, size: 13.5)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 30)
-            }
+
         }
         .accessibilityIdentifier("field.today.moment")
         // Where anything outward gets confirmed. It is a sheet rather than an

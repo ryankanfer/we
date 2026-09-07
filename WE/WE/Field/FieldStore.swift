@@ -382,8 +382,8 @@ final class FieldStore {
     /// two surfaces have nothing else in common.
     var searchOpen = false
     var activeClusterIndex = 0
-    var captureDraft = ""
-    var lastReceipt: FieldReceipt?
+    var captureDraft = "" { didSet { persistCaptureDraft() } }
+    var lastReceipt: FieldReceipt? { didSet { persistCaptureDraft() } }
     /// Set when the user taps WRONG PLACE — the corrective picker.
     var correctingReceipt: FieldReceipt?
 
@@ -521,6 +521,13 @@ final class FieldStore {
         self.storedReadiness = .neither(
             on: FieldReadiness.localDate(for: self.clock.now)
         )
+        if let draft = (backend as? FieldOutbox)?.captureDraft() {
+            self.captureDraft = draft.text
+            if let receipt = draft.receipt, !self.state.lifeItems.contains(where: { $0.id == receipt.id }) {
+                self.lastReceipt = receipt
+            }
+        }
+
     }
 
     // MARK: The day turning
@@ -1122,6 +1129,18 @@ final class FieldStore {
         return ordered.indices.contains(next) ? ordered[next] : nil
     }
 
+    private(set) var draftSaveError: String?
+
+    private func persistCaptureDraft() {
+        guard let outbox else { return }
+        do {
+            try outbox.saveCaptureDraft(FieldCaptureDraft(text: captureDraft, receipt: lastReceipt))
+            draftSaveError = nil
+        } catch {
+            draftSaveError = "Your draft is only in memory. Keep WE open until it can be saved."
+        }
+    }
+
     // MARK: Capture
 
     /// Classify what was typed and show where it would go. Nothing is filed
@@ -1146,8 +1165,15 @@ final class FieldStore {
     /// `state` — the item appeared, and then vanished on the next load from
     /// Supabase, because nothing wrote it to its destination table. The
     /// backend has always had `upsert` for exactly this and nothing called it.
+    private(set) var captureSaveError: String?
+
     func send() {
+        captureSaveError = nil
         guard let receipt = lastReceipt else { return }
+        guard !state.lifeItems.contains(where: { $0.id == receipt.id }) else {
+            lastReceipt = nil
+            return
+        }
 
         // The chip carries the tidied thought, not the sentence. What was
         // literally typed still travels with the correction, which is the only
@@ -1158,6 +1184,16 @@ final class FieldStore {
             owner: speaker,
             capturedAt: now
         )
+        if let outbox {
+            let item = makeCapturedItem(receipt)
+            do {
+                try outbox.stage([.append(capture), .upsertItem(item)]
+                    + pendingCorrections.map { .record($0) })
+            } catch {
+                captureSaveError = "This has not been saved. Keep this screen open and try again."
+                return
+            }
+        }
         state.captures.insert(capture, at: 0)
         // Cleared before, so that what is on screen afterwards is about *this*
         // send and not a leftover from the last one. `materialise` sets it
@@ -1171,6 +1207,12 @@ final class FieldStore {
         pendingCorrections = []
         lastReceipt = nil
         correctingReceipt = nil
+
+        if outbox != nil {
+            refreshDeliveryStates()
+            Task { await flushPending() }
+            return
+        }
 
         // `self` rather than `[backend]` alone: enqueueing is what makes the
         // item's status true, so the status has to be reread once it has
@@ -1203,35 +1245,26 @@ final class FieldStore {
         // past lives" are recognised as the same thing — which is the
         // coincidence the note exists to name, and the highest-value
         // inference the app makes.
-        let match = state.lifeItems.first {
-            $0.title.localizedCaseInsensitiveCompare(receipt.title)
-                == .orderedSame && $0.owner != speaker && !$0.isDone
-        }
-
-        state.lifeItems.insert(
-            LifeItem(
-                id: receipt.id,
-                title: receipt.title,
-                category: receipt.category,
-                owner: match == nil ? speaker : .shared,
-                // The day the phrasing named, which is the whole reason for
-                // lifting it out of the string: an item with a real date can
-                // be ranked, surfaced, and fall due.
-                dueOn: receipt.dueOn,
-                closesAt: nil,
-                clusterID: nil,
-                source: .captured,
-                detail: match == nil ? nil : "Both added it, independently",
-                isTimeCritical: false,
-                isDone: false
-            ),
-            at: 0
-        )
+        state.lifeItems.insert(makeCapturedItem(receipt), at: 0)
 
         // Here rather than in `submitCapture`, so that looking at a receipt
         // changes nothing. A capture corrected to somewhere else never reaches
         // this line, and the group stays where the couple put it.
         reviveIfPutAway(receipt.category)
+    }
+
+    private func makeCapturedItem(_ receipt: FieldReceipt) -> LifeItem {
+        let match = state.lifeItems.first {
+            $0.title.localizedCaseInsensitiveCompare(receipt.title) == .orderedSame
+                && $0.owner != speaker && !$0.isDone
+        }
+        return LifeItem(
+            id: receipt.id, title: receipt.title, category: receipt.category,
+            owner: match == nil ? speaker : .shared, dueOn: receipt.dueOn,
+            closesAt: nil, clusterID: nil, source: .captured,
+            detail: match == nil ? nil : "Both added it, independently",
+            isTimeCritical: false, isDone: false
+        )
     }
 
     /// Puts a captured thing on today, or takes it back off.
@@ -1365,6 +1398,8 @@ final class FieldStore {
     /// dropping it would make the same mistake again next week. This is why it
     /// records a `FieldCorrection` exactly as `correct(to:)` does for a
     /// receipt.
+    private(set) var itemSaveError: String?
+
     func refile(_ itemID: String, to category: LifeCategory) {
         guard !isLegacyExternalRow(itemID),
               let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
@@ -1372,17 +1407,17 @@ final class FieldStore {
         else { return }
 
         let original = state.lifeItems[index].category
-        state.lifeItems[index].category = category
+        var item = state.lifeItems[index]
+        item.category = category
 
         // Moving into a category that does not carry dates drops the date
         // rather than putting a due date on a film — the same rule
         // `FieldClassifier.correct` applies to a receipt.
         if !category.carriesDates {
-            state.lifeItems[index].dueOn = nil
-            state.lifeItems[index].closesAt = nil
+            item.dueOn = nil
+            item.closesAt = nil
         }
 
-        let item = state.lifeItems[index]
         let correction = FieldCorrection(
             id: UUID().uuidString,
             input: item.title,
@@ -1390,6 +1425,8 @@ final class FieldStore {
             corrected: category,
             correctedAt: now
         )
+        guard stageItemChange([.upsertItem(item), .record(correction)]) else { return }
+        state.lifeItems[index] = item
         state.corrections.append(correction)
 
         // The picker does not offer a put-away group, so this is reachable
@@ -1397,6 +1434,11 @@ final class FieldStore {
         // anyway: a group with something filed into it is not away, whichever
         // device did the filing.
         reviveIfPutAway(category)
+        if outbox != nil {
+            refreshDeliveryStates()
+            Task { await flushPending() }
+            return
+        }
 
         Task { [backend] in
             try? await backend?.upsert(item)
@@ -1687,15 +1729,30 @@ final class FieldStore {
               state.lifeItems[index].category.carriesDates
         else { return }
 
-        state.lifeItems[index].dueOn = day.map {
-            Calendar.gregorianUS.startOfDay(for: $0)
+        var item = state.lifeItems[index]
+        item.dueOn = day.map { Calendar.gregorianUS.startOfDay(for: $0) }
+        if day == nil { item.closesAt = nil }
+        guard stageItemChange([.upsertItem(item)]) else { return }
+        state.lifeItems[index] = item
+        if outbox != nil {
+            refreshDeliveryStates()
+            Task { await flushPending() }
+        } else {
+            Task { [backend] in try? await backend?.upsert(item) }
         }
-        if day == nil {
-            state.lifeItems[index].closesAt = nil
-        }
+    }
 
-        let item = state.lifeItems[index]
-        Task { [backend] in try? await backend?.upsert(item) }
+    /// Corrections are durable before the interface acknowledges them.
+    private func stageItemChange(_ mutations: [FieldMutation]) -> Bool {
+        itemSaveError = nil
+        guard let outbox else { return true }
+        do {
+            try outbox.stage(mutations)
+            return true
+        } catch {
+            itemSaveError = "This change could not be saved on this phone. The original item is still here. Please try again."
+            return false
+        }
     }
 
     func answer(_ question: FieldQuestion, with choice: FieldChoice) {

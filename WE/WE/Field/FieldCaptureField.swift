@@ -34,6 +34,18 @@ struct FieldCaptureField: View {
     /// The chip somebody tapped. A capture carries the id of the thing it
     /// filed, so the proof-of-catch is also the way back to it.
     @State private var openItem: FieldItemReference?
+    @State private var savedItemID: String?
+
+    var onSaved: (String) -> Void = { _ in }
+    var onRetrieved: (String) -> Void = { _ in }
+
+    init(savedItemID: String? = nil,
+         onSaved: @escaping (String) -> Void = { _ in },
+         onRetrieved: @escaping (String) -> Void = { _ in }) {
+        _savedItemID = State(initialValue: savedItemID)
+        self.onSaved = onSaved
+        self.onRetrieved = onRetrieved
+    }
 
     var body: some View {
         @Bindable var store = store
@@ -41,11 +53,18 @@ struct FieldCaptureField: View {
         return VStack(alignment: .leading, spacing: 0) {
             FieldRuleLine()
 
-            FieldLabel("Tell WE anything")
+            Text("What is on your mind?")
+                .font(FieldType.pageHeadline)
+                .foregroundStyle(.fieldInk(.headline))
                 .padding(.top, 20)
                 .padding(.bottom, 14)
 
             field(store: store)
+
+            if let error = store.captureSaveError ?? store.draftSaveError {
+                Text(error).font(FieldType.body).foregroundStyle(.fieldInk(.headline))
+                    .accessibilityIdentifier("field.capture.saveError")
+            }
 
             if let receipt = store.lastReceipt {
                 if store.correctingReceipt != nil {
@@ -55,6 +74,19 @@ struct FieldCaptureField: View {
                     receiptCard(receipt)
                         .padding(.top, 14)
                 }
+            } else if let id = savedItemID, let item = store.state.lifeItems.first(where: { $0.id == id }) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(store.canReportDelivery ? deliveryDescription(id) : "Saved in this example.")
+                        .font(FieldType.body)
+                    Button("Open in Life") {
+                        store.go(to: .life)
+                        openItem = FieldItemReference(id: item.id)
+                        onRetrieved(item.id)
+                    }
+                    .buttonStyle(FieldFilledButtonStyle())
+                    .accessibilityIdentifier("field.capture.retrieve")
+                }
+                .padding(.top, 20)
             } else if let revived = store.lastRevival {
                 revivalNote(revived)
                     .padding(.top, 14)
@@ -91,6 +123,20 @@ struct FieldCaptureField: View {
                         .accessibilityIdentifier("field.capture.submitKeyboard")
                 }
             }
+        }
+    }
+
+    private func saveReceipt() {
+        savedItemID = store.lastReceipt?.id
+        store.send()
+        if store.lastReceipt == nil, let id = savedItemID { onSaved(id) }
+    }
+
+    private func deliveryDescription(_ id: String) -> String {
+        switch store.deliveryState(for: id) {
+        case .shared: "Saved and synced. Shared in Life."
+        case .savedLocally: "Saved on this phone. Waiting to sync."
+        case .needsAttention: "Saved on this phone. Open the item to retry syncing."
         }
     }
 
@@ -256,10 +302,9 @@ struct FieldCaptureField: View {
         return FieldCard(accent: accent) {
             VStack(alignment: .leading, spacing: 13) {
                 HStack(alignment: .firstTextBaseline) {
-                    FieldLabel(
-                        receipt.wasCorrected ? "Moved to" : "Filed to",
-                        ink: .labelQuiet
-                    )
+                    Text(receipt.wasCorrected ? "Move to" : "Save to")
+                        .font(FieldType.body)
+                        .foregroundStyle(.fieldInk(.headline))
 
                     Spacer()
 
@@ -313,6 +358,15 @@ struct FieldCaptureField: View {
                     }
                 }
 
+                if receipt.category.carriesDates, receipt.dueOn != nil {
+                    DatePicker("Date", selection: Binding(
+                        get: { store.lastReceipt?.dueOn ?? store.now },
+                        set: { store.lastReceipt?.dueOn = $0 }
+                    ), displayedComponents: .date)
+                    .font(FieldType.body)
+                    .accessibilityIdentifier("field.receipt.date")
+                }
+
                 Text(receipt.reasoning)
                     .font(FieldType.receiptReasoning)
                     .foregroundStyle(.fieldInk(.reasoning))
@@ -339,12 +393,31 @@ struct FieldCaptureField: View {
                     .accessibilityIdentifier("field.receipt.revival")
                 }
 
+                Text("Shared in Life. Both of you can see this after you save. For private writing, use Yours.")
+                    .font(FieldType.body)
+                    .foregroundStyle(.fieldInk(.headline))
+                    .accessibilityIdentifier("field.receipt.visibility")
+
                 // Send is the affirmative and carries the filled style,
                 // because it is the moment the thing actually crosses into
                 // the shared space. The other two cost nothing and change
                 // nothing yet, which is why they are the quiet ones.
+                ViewThatFits(in: .horizontal) {
+                    receiptActions(receipt)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Button("Save to Life") { saveReceipt() }.buttonStyle(FieldFilledButtonStyle()).accessibilityIdentifier("field.receipt.send")
+                        if receipt.category.carriesDates { receiptTodayButton(receipt) }
+                        Button("Wrong place") { store.beginCorrection() }.buttonStyle(FieldQuietButtonStyle()).accessibilityIdentifier("field.receipt.wrong")
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func receiptActions(_ receipt: FieldReceipt) -> some View {
                 HStack(spacing: 11) {
-                    Button("Send") { store.send() }
+                    Button("Save to Life") { saveReceipt() }
                         .buttonStyle(FieldFilledButtonStyle())
                         .accessibilityIdentifier("field.receipt.send")
                         .accessibilityHint(
@@ -362,12 +435,6 @@ struct FieldCaptureField: View {
                         .buttonStyle(FieldQuietButtonStyle())
                         .accessibilityIdentifier("field.receipt.wrong")
                 }
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(
-            "Filed to \(receipt.category.label). \(receipt.reasoning)"
-        )
     }
 
     /// "Today", "Tomorrow", or the weekday. A date beside a one-line title

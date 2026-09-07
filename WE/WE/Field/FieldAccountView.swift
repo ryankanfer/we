@@ -29,7 +29,7 @@ struct FieldAccountView: View {
 
     var body: some View {
         ZStack {
-            FieldPalette.bg.ignoresSafeArea()
+            WECanvas.cream.bg.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -63,9 +63,10 @@ struct FieldAccountView: View {
                 .padding(.bottom, 60)
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
         .accessibilityIdentifier("field.account")
         .overlay(alignment: .topTrailing) { closeButton }
+        .environment(\.weCanvas, WECanvas.cream)
         .fullScreenCover(isPresented: $showsDelete) {
             FieldDeleteAccountView()
                 .environmentObject(session)
@@ -80,7 +81,8 @@ struct FieldAccountView: View {
             NavigationStack {
                 WEPrivacyPolicyView(showsCloseButton: true)
             }
-            .preferredColorScheme(.dark)
+            .preferredColorScheme(.light)
+        .environment(\.weCanvas, WECanvas.cream)
         }
         .onChange(of: liveInvitation?.code) { _, _ in
             copiedInvitationCode = false
@@ -94,7 +96,7 @@ struct FieldAccountView: View {
             Text("Done")
                 .font(FieldType.subLabel)
                 .tracking(FieldTracking.subLabel)
-                .textCase(.uppercase)
+                .textCase(nil)
                 .foregroundStyle(.fieldInk(.recessive))
                 .padding(18)
                 .contentShape(Rectangle())
@@ -377,8 +379,7 @@ struct FieldAccountView: View {
             .accessibilityIdentifier("field.account.walkthrough")
             .padding(.bottom, 14)
 
-            Text("Three short journeys through what WE notices, told with a "
-                + "real couple.")
+            Text("Try a fictional example: put down a thought, correct its date, and find it in Life. Nothing from the example is saved to your account.")
                 .font(FieldType.body)
                 .foregroundStyle(.fieldInk(.metadataProse))
                 .fieldLineHeight(1.5, size: 14.5)
@@ -485,7 +486,7 @@ struct FieldDeleteAccountView: View {
 
     var body: some View {
         ZStack {
-            FieldPalette.bg.ignoresSafeArea()
+            WECanvas.cream.bg.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -502,7 +503,8 @@ struct FieldDeleteAccountView: View {
                 .padding(.bottom, 60)
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
+        .environment(\.weCanvas, WECanvas.cream)
         .accessibilityIdentifier("field.account.delete.screen")
         .confirmationDialog(
             "Delete your account and end this relationship?",

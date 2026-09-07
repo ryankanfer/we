@@ -153,7 +153,7 @@ struct WEApp: App {
                     .environmentObject(previewSession)
                     .task { await previewSession.restoreIfNeeded() }
             case .demo:
-                FieldZoneShell(store: FieldStore(state: .demo))
+                FieldZoneShell(store: FieldStore(state: .demo, now: FieldDemoData.today))
                     .environmentObject(previewSession)
                     .task { await previewSession.restoreIfNeeded() }
             case .sparse:

@@ -65,7 +65,8 @@ struct WELocalData {
         // they have to go, or the next person to sign in on this phone
         // inherits an answer about their private history that they never gave.
         for key in defaults.dictionaryRepresentation().keys
-        where key.hasPrefix(FieldCrossingDecision.defaultsPrefix) {
+        where key.hasPrefix(FieldCrossingDecision.defaultsPrefix)
+            || key.hasPrefix("we.firstSave.v1.") {
             defaults.removeObject(forKey: key)
         }
 

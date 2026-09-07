@@ -250,3 +250,46 @@ struct WalkthroughGateTests {
         #expect(!presenter.isPresented)
     }
 }
+
+@MainActor
+struct PrivateBetaWalkthroughTests {
+    @Test func fictionalThoughtCanBeCorrectedAndRetrievedWithoutBackend() throws {
+        let store = WalkthroughPractice.makeStore()
+        #expect(store.state.lifeItems.isEmpty)
+        #expect(!store.canReportDelivery)
+        store.captureDraft = WalkthroughPractice.input
+        store.submitCapture()
+        let receipt = try #require(store.lastReceipt)
+        #expect(receipt.category == .food)
+        let friday = try #require(receipt.dueOn)
+        #expect(Calendar.gregorianUS.component(.weekday, from: friday) == 6)
+        let saturday = try #require(Calendar.gregorianUS.date(byAdding: .day, value: 1, to: friday))
+        store.lastReceipt?.dueOn = saturday
+        store.send()
+        #expect(store.state.lifeItems.count == 1)
+        #expect(store.state.lifeItems.first?.dueOn == saturday)
+        store.redate(receipt.id, to: receipt.dueOn)
+        #expect(store.state.lifeItems.first?.dueOn == receipt.dueOn)
+        store.send()
+        #expect(store.state.lifeItems.count == 1)
+        #expect(WalkthroughPractice.makeStore().state.lifeItems.isEmpty)
+    }
+
+    @Test func firstSaveResumesOnlyForItsAccountAndRelationship() throws {
+        let suite = "firstSave-test-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let first = FirstSaveGuide(accountID: "a", coupleID: "one", defaults: defaults)
+        first.start()
+        first.saved("record")
+        let resumed = FirstSaveGuide(accountID: "a", coupleID: "one", defaults: defaults)
+        #expect(resumed.progress.phase == .saved)
+        #expect(resumed.progress.itemID == "record")
+        #expect(FirstSaveGuide(accountID: "b", coupleID: "one", defaults: defaults).progress.phase == .offered)
+        #expect(FirstSaveGuide(accountID: "a", coupleID: "two", defaults: defaults).progress.phase == .offered)
+        resumed.retrieved("other")
+        #expect(resumed.progress.phase == .saved)
+        resumed.retrieved("record")
+        #expect(resumed.progress.phase == .completed)
+    }
+}

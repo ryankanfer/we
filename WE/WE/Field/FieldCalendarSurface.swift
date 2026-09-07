@@ -38,7 +38,7 @@ struct FieldCalendarSurface: View {
 
     var body: some View {
         ZStack {
-            FieldPalette.bgDeep.ignoresSafeArea()
+            WECanvas.cream.bg.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 0) {
                 header
@@ -179,9 +179,9 @@ struct FieldCalendarSurface: View {
             .frame(maxWidth: .infinity)
             .background {
                 if isSelected {
-                    Rectangle().fill(FieldPalette.ink.opacity(0.07))
+                    Rectangle().fill(WECanvas.cream.ink.opacity(0.07))
                 } else if isToday {
-                    Rectangle().fill(FieldPalette.ink.opacity(0.04))
+                    Rectangle().fill(WECanvas.cream.ink.opacity(0.04))
                 }
             }
             .contentShape(Rectangle())

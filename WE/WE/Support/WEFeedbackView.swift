@@ -55,7 +55,7 @@ struct WEFeedbackView: View {
 
     var body: some View {
         ZStack {
-            FieldPalette.bg.ignoresSafeArea()
+            WECanvas.cream.bg.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -75,9 +75,10 @@ struct WEFeedbackView: View {
                 .padding(.bottom, 60)
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
         .accessibilityIdentifier("field.feedback")
         .overlay(alignment: .topTrailing) { closeButton }
+        .environment(\.weCanvas, WECanvas.cream)
         .task { diagnosticLines = Self.summaries(in: store) }
         .sheet(isPresented: $showsMail) {
             WEMailComposer(
@@ -111,7 +112,7 @@ struct WEFeedbackView: View {
             Text("Done")
                 .font(FieldType.subLabel)
                 .tracking(FieldTracking.subLabel)
-                .textCase(.uppercase)
+                .textCase(nil)
                 .foregroundStyle(.fieldInk(.recessive))
                 .padding(18)
                 .contentShape(Rectangle())
@@ -132,8 +133,7 @@ struct WEFeedbackView: View {
                 .fieldLineHeight(1.16, size: 32)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text("Say it however you'd say it out loud. What you were doing "
-                 + "matters more than what you think broke.")
+            Text("Tell us what you tried, what you expected, what happened, and whether it blocked you. The build version is added below. Screenshots and private details are optional.")
                 .font(FieldType.body)
                 .foregroundStyle(.fieldInk(.sectionSubtitle))
                 .fieldLineHeight(1.6, size: 14.5)
@@ -149,7 +149,7 @@ struct WEFeedbackView: View {
             .frame(minHeight: 140, alignment: .topLeading)
             .padding(14)
             .background(
-                FieldPalette.ink.opacity(0.06),
+                WECanvas.cream.ink.opacity(0.06),
                 in: RoundedRectangle(
                     cornerRadius: FieldMetrics.cardRadius,
                     style: .continuous
@@ -235,7 +235,7 @@ struct WEFeedbackView: View {
                 Text("Read it")
                     .font(FieldType.subLabel)
                     .tracking(FieldTracking.subLabel)
-                    .textCase(.uppercase)
+                    .textCase(nil)
                     .foregroundStyle(.fieldInk(.recessive))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -458,7 +458,7 @@ private struct WEAttachmentPreview: View {
 
     var body: some View {
         ZStack {
-            FieldPalette.bg.ignoresSafeArea()
+            WECanvas.cream.bg.ignoresSafeArea()
 
             ScrollView {
                 Text(data.flatMap { String(data: $0, encoding: .utf8) }
@@ -470,7 +470,7 @@ private struct WEAttachmentPreview: View {
                     .padding(20)
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
         .accessibilityIdentifier("field.feedback.attachment.preview")
     }
 }

@@ -870,7 +870,7 @@ enum FieldClassifier {
     ]
     private static let eatWords = [
         "steak", "dinner", "lunch", "restaurant", "eat", "hungry", "craving",
-        "pizza", "ramen", "sushi", "brunch", "cook",
+        "pizza", "ramen", "sushi", "brunch", "cook", "italian place",
     ]
     private static let moneyWords = ["rent", "bill", "invoice", "insurance", "fund", "save"]
     // "dentist" is deliberately absent. The app grows a Health category for

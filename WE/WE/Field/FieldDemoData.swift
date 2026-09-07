@@ -3,14 +3,14 @@
 //  WE
 //
 //  Demo account: `FieldSampleData`'s fictional couple, renamed to avoid
-//  the specificity of real names, and every date shifted three months
+//  the specificity of real names, and every date shifted thirteen weeks
 //  later — so this reads as a couple three months into using the app.
 //
 //  User 1, 33 — content creator at a real-estate brokerage. Warm colour.
 //  User 2, 30 — brand marketing at a bank. Cool colour.
 //  They do not live together. Both leases end June 2026. A pet, Miso.
 //
-//  "Today" is `FieldSampleData.today` plus three months.
+//  "Today" is `FieldSampleData.today` plus thirteen weeks.
 //
 
 import Foundation
@@ -19,7 +19,7 @@ enum FieldDemoData {
     static let today: Date = date(2025, 8, 13, hour: 9, minute: 40)
 
     /// Every literal date below is the same fictional-couple story as
-    /// `FieldDemoData`'s source, shifted three months later — so this couple
+    /// `FieldDemoData`'s source, shifted thirteen weeks later — so this couple
     /// reads as three months further into using the app, not a different
     /// history.
     static func date(
@@ -39,8 +39,8 @@ enum FieldDemoData {
             )
         ) ?? .distantPast
         return Calendar.gregorianUS.date(
-            byAdding: .month,
-            value: 3,
+            byAdding: .weekOfYear,
+            value: 13,
             to: base
         ) ?? base
     }

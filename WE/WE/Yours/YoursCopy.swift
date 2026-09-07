@@ -124,7 +124,7 @@ enum YoursCopy {
 
     static let teachingTitle = "Yours"
     static let teachingBody =
-        "A place to write that no one else can reach. Nothing here is kept unless you say so."
+        "A private place to write. Choose Keep indefinitely for anything you want to keep without an expiry."
 
     /// What VoiceOver announces for the mark, forever.
     ///
@@ -167,5 +167,5 @@ enum YoursCopy {
     /// that opening the space preserves their writing, which produces checking
     /// behaviour and makes absence feel dangerous.
     static let outerBoundDisclosure =
-        "Anything you haven't held has a longest possible life, whether or not it reaches you."
+        "Writing you have not held expires at most one year after its scheduled return, even if you have not read it. It may be let go sooner under the return and inactivity rules."
 }

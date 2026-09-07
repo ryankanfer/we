@@ -1,3 +1,11 @@
+# Current private beta handoff
+
+The approved September 7 private beta plan supersedes the historical design decisions below wherever they conflict, including cream Life/Account, visible Yours and Account entrances, sentence-case actions, and the interactive story walkthrough. Current reconciliation, release gates and testing checklist: [docs/PRIVATE_BETA.md](docs/PRIVATE_BETA.md).
+
+The historical notes below are retained as context, not evidence of current deployment or test status.
+
+---
+
 # WE — remaining work
 
 Branch `design/handoff-visual-directions`, on top of `3bc6dca`. Working tree

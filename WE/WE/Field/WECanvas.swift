@@ -1,28 +1,6 @@
-//
-//  WECanvas.swift
-//  WE
-//
-//  One ground, two deviations, one ink ramp.
-//
-//  The V2 handoff (§3) is unambiguous: near-black #0A0A09 everywhere, ink
-//  #F0EBDD, and "there is no light mode in v1 — an earlier light treatment for
-//  Life was cut so that geometry alone carries differentiation." So the cream
-//  canvas is gone, and with it the idea that the ground tells you which zone
-//  you are in. Structure does that now; see §2, the law of geometry.
-//
-//  What survives is the environment seam, and it earns its keep twice over.
-//  V2 names exactly two intentional deviations from the ground — the private
-//  room warms, the Sunday read cools — plus one elevated value for sheets. A
-//  surface still declares which ground it stands on rather than naming a
-//  colour, so those three remain one modifier rather than three hand-painted
-//  backgrounds.
-//
-//  The fifteen-step ink ramp in `FieldTokens.swift` is unchanged and is not
-//  duplicated here. A step is a *role* at a given prominence. With every
-//  ground now near-black and the ink common to all three, a role resolves to
-//  the same alpha everywhere — which is why `alpha(for:)` no longer carries a
-//  per-canvas table. The seam stays; the divergence it was solving is gone.
-//
+// WE canvas roles. Practical reading uses warm cream; Today and Us remain
+// dark, with warmer private and cooler reading variations. Every descendant
+// resolves ink, pigment and separators against its declared canvas.
 
 import SwiftUI
 
@@ -36,6 +14,8 @@ enum WECanvas: String, CaseIterable, Sendable {
     /// bottom edge has to sit *on* the ground rather than fight it, and a warm
     /// rust glow against a neutral page reads as soot.
     case ground
+    /// Practical reading surfaces use warm paper and dark ink.
+    case cream
 
     /// The private room — Yours (14f). Warmer than the ground, and the warmth
     /// is the whole signal: this is the one surface with no strip, no mark,
@@ -50,6 +30,7 @@ enum WECanvas: String, CaseIterable, Sendable {
     /// The page.
     var bg: Color {
         switch self {
+        case .cream: Color(hex: 0xF0EBDD)
         case .ground: Color(hex: 0x0A0A09)
         case .room: Color(hex: 0x15100D)
         case .page: Color(hex: 0x100E0C)
@@ -62,19 +43,20 @@ enum WECanvas: String, CaseIterable, Sendable {
     /// they read as a layer above the page." A sheet that took its elevation
     /// from whatever it happened to be covering would read as a layer above
     /// the room and a layer *below* the Sunday read.
-    var bgElevated: Color { Color(hex: 0x17140F) }
+    var bgElevated: Color { self == .cream ? Color(hex: 0xF8F4EA) : Color(hex: 0x17140F) }
 
     /// Below the page in perceived depth. Depth is a direction away from the
     /// page, and from a ground this near black there is very little room left
     /// — which is the honest answer, not a reason to invent one.
-    var bgDeep: Color { Color(hex: 0x050505) }
+    var bgDeep: Color { self == .cream ? Color(hex: 0xE8E1D2) : Color(hex: 0x050505) }
 
     /// Primary text at full prominence.
-    var ink: Color { Color(hex: 0xF0EBDD) }
+    var ink: Color { self == .cream ? Color(hex: 0x241F19) : Color(hex: 0xF0EBDD) }
 
     /// The ink channel as raw components, so alpha ramps stay one source.
     var inkRGB: (r: Double, g: Double, b: Double) {
-        (240.0 / 255, 235.0 / 255, 221.0 / 255)
+        if self == .cream { return (0.1411764706, 0.1215686275, 0.0980392157) }
+        return (0.9411764706, 0.9215686275, 0.8666666667)
     }
 
     /// What a ramp step is worth on this ground.
@@ -86,7 +68,9 @@ enum WECanvas: String, CaseIterable, Sendable {
     /// (#0A0A09 to #15100D) moves the worst step by well under a tenth of a
     /// ratio point. If a fourth ground ever arrives with a different problem,
     /// this is where it says so.
-    func alpha(for step: FieldInk) -> Double { step.rawValue }
+    func alpha(for step: FieldInk) -> Double {
+        self == .cream ? 0.36 + 0.64 * step.rawValue : step.rawValue
+    }
 
     /// The same, for hairlines. Rules are ink at a weight rather than a named
     /// role, so they pass straight through for the same reason.

@@ -55,30 +55,27 @@ final class WalkthroughUITests: XCTestCase {
     @MainActor
     func testEveryScreenIsExplicitAndCanBeReadToTheEnd() throws {
         let app = launchIntoWalkthrough()
-        let expected: [(button: String, progress: String)] = [
-            ("Next: Life", "Step 1 of 3"),
-            ("Next: Us", "Step 2 of 3"),
-            ("Open WE", "Step 3 of 3"),
-        ]
-
-        for (index, screen) in expected.enumerated() {
-            let button = index == expected.count - 1
-                ? app.buttons["walkthrough.done"]
-                : app.buttons["walkthrough.next"]
-
-            XCTAssertTrue(button.waitForExistence(timeout: 5))
-            XCTAssertEqual(button.label, screen.button)
-            XCTAssertTrue(app.buttons["walkthrough.skip"].exists)
-            XCTAssertTrue(
-                app.descendants(matching: .any)["walkthrough.navigation"]
-                    .exists
-            )
-            XCTAssertEqual(
-                app.descendants(matching: .any)["walkthrough.progress"].label,
-                screen.progress
-            )
-            button.tap()
-        }
+        let next = app.buttons["walkthrough.next"]
+        XCTAssertTrue(next.waitForExistence(timeout: 5))
+        next.tap()
+        let submit = app.buttons["field.capture.submit"]
+        XCTAssertTrue(submit.waitForExistence(timeout: 5))
+        submit.tap()
+        let save = app.buttons["field.receipt.send"]
+        for _ in 0..<6 where !save.isHittable { app.swipeUp() }
+        XCTAssertTrue(save.waitForExistence(timeout: 5))
+        save.tap()
+        XCTAssertTrue(next.waitForExistence(timeout: 5))
+        next.tap()
+        let item = app.buttons["walkthrough.savedItem"]
+        XCTAssertTrue(item.waitForExistence(timeout: 5))
+        item.tap()
+        let done = app.buttons["field.item.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        done.tap()
+        next.tap()
+        XCTAssertTrue(app.staticTexts["Space for you. Room for both."].waitForExistence(timeout: 5))
+        next.tap()
 
         XCTAssertTrue(
             app.buttons["welcome.start"].waitForExistence(timeout: 4),
@@ -92,7 +89,7 @@ final class WalkthroughUITests: XCTestCase {
 
         XCTAssertTrue(
             app.staticTexts[
-                "Swipe or tap LIFE and US. Tap WE to come home."
+                "Put a thought down. See where it goes. Find it when you need it."
             ].waitForExistence(timeout: 5)
         )
     }
@@ -124,12 +121,7 @@ final class WalkthroughUITests: XCTestCase {
         let next = app.buttons["walkthrough.next"]
         XCTAssertTrue(next.waitForExistence(timeout: 5))
         next.tap()
-        XCTAssertTrue(next.waitForExistence(timeout: 4))
-        next.tap()
-
-        XCTAssertTrue(
-            app.buttons["walkthrough.done"].waitForExistence(timeout: 4)
-        )
+        XCTAssertTrue(app.textViews["field.capture.input"].waitForExistence(timeout: 5))
         try app.performAccessibilityAudit(
             for: [.hitRegion, .sufficientElementDescription, .textClipped]
         )

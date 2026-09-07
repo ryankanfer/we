@@ -126,7 +126,7 @@ struct FieldLifeZone: View {
     // A real state, not a failure — and the app does not suggest filling it.
 
     private var emptyState: some View {
-        Text("Nothing is asking for you.")
+        Text("Your saved thoughts will be here. Add something in Today, or use Search to find it again.")
             .font(FieldType.pageHeadline)
             .foregroundStyle(.fieldInk(.headline))
             .fieldLineHeight(1.16, size: 32)
@@ -193,9 +193,9 @@ struct FieldLifeZone: View {
                     case .waitingOnSomeoneElse:
                         rows(items, prominent: false)
                     case .noHurry:
-                        subjectRun(items)
+                        rows(items, prominent: false)
                     case .fading:
-                        fadingCount(items)
+                        rows(items, prominent: false)
                     }
                 }
             }
@@ -489,7 +489,7 @@ struct FieldLifeZone: View {
     private var pullAffordance: some View {
         HStack(spacing: 18) {
             affordance(
-                "SEARCH",
+                "Search",
                 hint: "Finds anything either of you has written down",
                 id: "field.life.search"
             ) {
@@ -497,7 +497,7 @@ struct FieldLifeZone: View {
             }
 
             affordance(
-                "CALENDAR",
+                "Calendar",
                 hint: "Opens the month, and everything with a date on it",
                 id: "field.life.calendar"
             ) {
@@ -544,7 +544,7 @@ private struct FieldPutAwaySheet: View {
 
     var body: some View {
         ZStack {
-            FieldPalette.bgElevated.ignoresSafeArea()
+            WECanvas.cream.bgElevated.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -570,7 +570,8 @@ private struct FieldPutAwaySheet: View {
                 .padding(.bottom, 60)
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
+        .environment(\.weCanvas, WECanvas.cream)
         // Closes itself once the last one is back, because the row that opens
         // it has gone by then and there would be nothing here to look at.
         .onChange(of: store.putAwayCategories.isEmpty) { _, isEmpty in

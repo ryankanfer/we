@@ -39,7 +39,7 @@ struct FieldLifeSearch: View {
 
     var body: some View {
         ZStack {
-            FieldPalette.bgDeep.ignoresSafeArea()
+            WECanvas.cream.bg.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 0) {
                 field

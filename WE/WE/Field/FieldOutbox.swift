@@ -104,6 +104,12 @@ struct FieldOutboxLog: Codable, Sendable {
     }
 }
 
+/// An unfinished capture, protected and scoped exactly like its outbox.
+struct FieldCaptureDraft: Codable {
+    var text: String
+    var receipt: FieldReceipt?
+}
+
 /// Whose queue this is.
 ///
 /// Both halves matter. The user alone is not enough — a person can leave one
@@ -185,34 +191,50 @@ struct FieldOutboxStore: Sendable {
         return log.entries
     }
 
-    func save(
-        _ entries: [FieldOutboxEntry],
-        for partition: FieldOutboxPartition
-    ) {
-        do {
-            try FileManager.default.createDirectory(
-                at: directory,
-                withIntermediateDirectories: true,
-                attributes: [.protectionKey: FileProtectionType.complete]
-            )
-            let data = try encoder.encode(FieldOutboxLog(entries: entries))
-            try data.write(
-                to: url(for: partition),
-                options: [.atomic, .completeFileProtection]
-            )
-        } catch {
-            // Nothing useful to do: the write is still in memory and will be
-            // retried. Saying so is the point — this is the failure that
-            // silently costs somebody their sentence.
-            WELog.persistence.error(
-                "Could not persist the outbox: \(error.localizedDescription, privacy: .public)"
-            )
+    func save(_ entries: [FieldOutboxEntry], for partition: FieldOutboxPartition) {
+        do { try write(entries, for: partition) }
+        catch { WELog.persistence.error("Could not persist the outbox") }
+    }
+
+    /// A caller acknowledging a save must observe disk errors.
+    func write(_ entries: [FieldOutboxEntry], for partition: FieldOutboxPartition) throws {
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.complete]
+        )
+        let data = try encoder.encode(FieldOutboxLog(entries: entries))
+        try data.write(to: url(for: partition), options: [.atomic, .completeFileProtection])
+    }
+
+    private func draftURL(_ partition: FieldOutboxPartition) -> URL {
+        directory.appending(path: "draft-" + partition.filename)
+    }
+
+    func loadDraft(_ partition: FieldOutboxPartition) -> FieldCaptureDraft? {
+        guard let data = try? Data(contentsOf: draftURL(partition)) else { return nil }
+        return try? JSONDecoder().decode(FieldCaptureDraft.self, from: data)
+    }
+
+    func writeDraft(_ draft: FieldCaptureDraft, for partition: FieldOutboxPartition) throws {
+        if draft.text.isEmpty && draft.receipt == nil {
+            if FileManager.default.fileExists(atPath: draftURL(partition).path) {
+                try FileManager.default.removeItem(at: draftURL(partition))
+            }
+            return
         }
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.complete]
+        )
+        try JSONEncoder().encode(draft).write(
+            to: draftURL(partition), options: [.atomic, .completeFileProtection]
+        )
     }
 
     /// Part of the Phase 1d purge contract.
     func remove(_ partition: FieldOutboxPartition) {
         try? FileManager.default.removeItem(at: url(for: partition))
+        try? FileManager.default.removeItem(at: draftURL(partition))
     }
 
     /// Everything, for sign-out and account deletion — including partitions
@@ -286,6 +308,11 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
         self.cache = cache
         self.now = now
         self._entries = store.load(partition)
+    }
+
+    func captureDraft() -> FieldCaptureDraft? { store.loadDraft(partition) }
+    func saveCaptureDraft(_ draft: FieldCaptureDraft) throws {
+        try store.writeDraft(draft, for: partition)
     }
 
     // MARK: What to draw before the network answers (1c)
@@ -471,16 +498,26 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
     /// the mutation recoverable. The send is still attempted immediately,
     /// because the overwhelmingly common case is that it works and nobody
     /// should wait for a flush to notice.
-    private func enqueue(_ mutation: FieldMutation) async throws {
-        let snapshot: [FieldOutboxEntry] = lock.withLock {
-            _entries.append(
-                FieldOutboxEntry(mutation: mutation, queuedAt: now())
-            )
-            _entries = Self.compacted(_entries)
-            return _entries
+    /// Persist a logical save atomically before the interface acknowledges it.
+    /// Network delivery is separate; all constituent mutations survive a restart.
+    func stage(_ mutations: [FieldMutation]) throws {
+        try lock.withLock {
+            let next = Self.compacted(_entries + mutations.map {
+                FieldOutboxEntry(mutation: $0, queuedAt: now())
+            })
+            try store.write(next, for: partition)
+            _entries = next
         }
-        store.save(snapshot, for: partition)
+    }
 
+    func replayPending(over state: FieldState) -> FieldState {
+        var result = state
+        for entry in pending { entry.mutation.apply(to: &result) }
+        return result
+    }
+
+    private func enqueue(_ mutation: FieldMutation) async throws {
+        try stage([mutation])
         try await flush()
     }
 
@@ -519,7 +556,7 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
     /// server that was down, and holding the count against them would mean one
     /// bad afternoon permanently disabled the retry.
     func retryDelivery(itemID: String? = nil) async {
-        let snapshot: [FieldOutboxEntry] = lock.withLock {
+        lock.withLock {
             for index in _entries.indices
             where _entries[index].blockedAt != nil
                 && (itemID == nil
@@ -527,9 +564,8 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
                 _entries[index].blockedAt = nil
                 _entries[index].attempts = 0
             }
-            return _entries
+            store.save(_entries, for: partition)
         }
-        store.save(snapshot, for: partition)
         try? await flush()
     }
 
@@ -590,19 +626,18 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
     // MARK: -
 
     private func remove(_ id: UUID) {
-        let snapshot: [FieldOutboxEntry] = lock.withLock {
+        lock.withLock {
             _entries.removeAll { $0.id == id }
-            return _entries
+            store.save(_entries, for: partition)
         }
-        store.save(snapshot, for: partition)
     }
 
     private func recordFailure(of id: UUID) {
         var abandoned: FieldOutboxEntry?  // set aside, not dropped
 
-        let snapshot: [FieldOutboxEntry] = lock.withLock {
+        lock.withLock {
             guard let index = _entries.firstIndex(where: { $0.id == id })
-            else { return _entries }
+            else { return }
 
             _entries[index].attempts += 1
             if _entries[index].attempts >= Self.maximumAttempts,
@@ -622,10 +657,8 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
                 _entries[index].blockedAt = now()
                 abandoned = _entries[index]
             }
-            return _entries
+            store.save(_entries, for: partition)
         }
-
-        store.save(snapshot, for: partition)
 
         if let abandoned {
             WELog.persistence.error(

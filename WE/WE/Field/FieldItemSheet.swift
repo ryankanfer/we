@@ -48,7 +48,7 @@ struct FieldItemSheet: View {
 
     var body: some View {
         ZStack {
-            FieldPalette.bgElevated.ignoresSafeArea()
+            WECanvas.cream.bgElevated.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 if let item {
@@ -57,6 +57,12 @@ struct FieldItemSheet: View {
                             .padding(.bottom, FieldMetrics.sectionGap)
 
                         delivery
+
+                        if let error = store.itemSaveError {
+                            Text(error).font(FieldType.body)
+                                .padding(.bottom, 20)
+                                .accessibilityIdentifier("field.item.saveError")
+                        }
 
                         standing(item)
 
@@ -79,7 +85,8 @@ struct FieldItemSheet: View {
             }
         }
         .overlay(alignment: .topTrailing) { doneButton }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
+        .environment(\.weCanvas, WECanvas.cream)
         .animation(.fieldZone(reduceMotion), value: item?.category)
         .animation(.fieldZone(reduceMotion), value: item?.dueOn)
         .animation(.fieldZone(reduceMotion), value: isPickingDay)
@@ -104,7 +111,6 @@ struct FieldItemSheet: View {
                     + "undo."
             )
         }
-        .accessibilityIdentifier("field.item")
     }
 
     private var doneButton: some View {
@@ -313,7 +319,7 @@ struct FieldItemSheet: View {
                 name: { store.refile(itemID, toNewCategory: $0) },
                 title: "Where it lives",
                 selected: item.category,
-                selectedTint: store.identity.color(for: item.owner)
+                selectedTint: store.identity.color(for: item.owner, on: .cream)
             )
             .padding(.top, 18)
         }
@@ -340,7 +346,7 @@ struct FieldItemSheet: View {
                     FieldChip(
                         "TODAY",
                         isSelected: isOn(item, offsetFromToday: 0),
-                        tint: store.identity.color(for: item.owner)
+                        tint: store.identity.color(for: item.owner, on: .cream)
                     ) {
                         store.redate(itemID, to: store.now)
                     }
@@ -349,7 +355,7 @@ struct FieldItemSheet: View {
                     FieldChip(
                         "TOMORROW",
                         isSelected: isOn(item, offsetFromToday: 1),
-                        tint: store.identity.color(for: item.owner)
+                        tint: store.identity.color(for: item.owner, on: .cream)
                     ) {
                         store.redate(itemID, to: tomorrow)
                     }
@@ -380,7 +386,7 @@ struct FieldItemSheet: View {
                 displayedComponents: .date
             )
             .datePickerStyle(.graphical)
-            .tint(store.identity.color(for: item.owner))
+            .tint(store.identity.color(for: item.owner, on: .cream))
             .accessibilityIdentifier("field.item.dayPicker")
 
             Button("Back to the days") { isPickingDay = false }

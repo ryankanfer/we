@@ -132,7 +132,7 @@ struct WECanvasTests {
     /// the drift worth catching. The absolute floor is guarded separately, by
     /// `proseStepsClearAAOnEveryGround`.
     @Test func everyDeviationStaysCloseToTheGroundAtEveryStep() {
-        for canvas in WECanvas.allCases where canvas != .ground {
+        for canvas in WECanvas.allCases where canvas == .room || canvas == .page {
             for step in FieldInk.allCases {
                 let onGround = Self.contrast(
                     Self.composite(step, on: .ground),
@@ -200,7 +200,7 @@ struct WECanvasTests {
         let ground = Self.components(WECanvas.ground.bg)
         let ink = Self.components(WECanvas.ground.ink)
 
-        for canvas in WECanvas.allCases where canvas != .ground {
+        for canvas in WECanvas.allCases where canvas == .room || canvas == .page {
             let bg = Self.components(canvas.bg)
 
             #expect(
@@ -230,9 +230,9 @@ struct WECanvasTests {
     /// test that once proved the grounds were distinct now has to prove they
     /// are not, and that the orientation moved somewhere else rather than
     /// being dropped.
-    @Test func everyZoneStandsOnTheGround() {
+    @Test func practicalLifeUsesCreamAndOtherZonesStayDark() {
         for zone in FieldZone.allCases {
-            #expect(zone.canvas == .ground, "\(zone.label) left the ground")
+            #expect(zone.canvas == (zone == .life ? .cream : .ground))
         }
     }
 

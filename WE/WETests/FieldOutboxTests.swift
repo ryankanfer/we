@@ -173,6 +173,87 @@ struct FieldOutboxTests {
         )
     }
 
+    @Test func captureIsDurableBeforeSendReturnsAndSurvivesWithoutCache() throws {
+        let disk = store()
+        let server = FakeFieldServer(state: emptyState())
+        let queue = FieldOutbox(wrapping: server, partition: partition(), store: disk)
+        let field = FieldStore(state: emptyState(), now: Self.now, backend: queue)
+        field.captureDraft = "Call the plumber Friday"
+        field.submitCapture()
+        let id = try #require(field.lastReceipt?.id)
+        field.send()
+        // No suspension: the asynchronous delivery task cannot have run yet.
+        #expect(field.lastReceipt == nil)
+        #expect(queue.deliveryState(forItem: id) == .savedLocally)
+        let relaunched = FieldOutbox(wrapping: server, partition: partition(), store: disk)
+        let restored = relaunched.replayPending(over: emptyState())
+        #expect(restored.lifeItems.contains { $0.id == id })
+        #expect(restored.captures.contains { $0.id == id })
+    }
+
+    @Test func failedDiskWriteDoesNotAcknowledgeOrDiscardCapture() throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try Data("not a directory".utf8).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let queue = FieldOutbox(wrapping: FakeFieldServer(state: emptyState()),
+            partition: partition(), store: FieldOutboxStore(directory: file))
+        let field = FieldStore(state: emptyState(), now: Self.now, backend: queue)
+        field.captureDraft = "Call the plumber Friday"
+        field.submitCapture()
+        field.send()
+        #expect(field.lastReceipt != nil)
+        #expect(field.captureSaveError != nil)
+        #expect(field.state.lifeItems.isEmpty)
+        #expect(queue.isEmpty)
+    }
+
+    @Test func correctionsSurviveImmediateTermination() throws {
+        let disk = store()
+        defer { disk.removeAll() }
+        let server = FakeFieldServer(state: emptyState())
+        let queue = FieldOutbox(wrapping: server, partition: partition(), store: disk)
+        var initial = emptyState()
+        initial.lifeItems = [item()]
+        let field = FieldStore(state: initial, now: Self.now, backend: queue)
+        field.refile("item-1", to: .food)
+        field.redate("item-1", to: Self.now)
+        let relaunched = FieldOutbox(wrapping: server, partition: partition(), store: disk)
+        let recovered = relaunched.replayPending(over: initial)
+        #expect(recovered.lifeItems.first?.category == .food)
+        #expect(recovered.lifeItems.first?.dueOn == Calendar.gregorianUS.startOfDay(for: Self.now))
+        #expect(recovered.corrections.count == 1)
+    }
+
+    @Test func failedCorrectionKeepsOriginalItem() throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try Data("not a directory".utf8).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let queue = FieldOutbox(wrapping: FakeFieldServer(state: emptyState()),
+            partition: partition(), store: FieldOutboxStore(directory: file))
+        var initial = emptyState()
+        initial.lifeItems = [item()]
+        let field = FieldStore(state: initial, now: Self.now, backend: queue)
+        field.refile("item-1", to: .food)
+        #expect(field.state.lifeItems.first?.category == .notes)
+        #expect(field.state.corrections.isEmpty)
+        #expect(field.itemSaveError != nil)
+        #expect(queue.isEmpty)
+    }
+
+    @Test func unfinishedCaptureIsPartitionedAndPurged() throws {
+        let disk = store()
+        let server = FakeFieldServer(state: emptyState())
+        let queue = FieldOutbox(wrapping: server, partition: partition(), store: disk)
+        let field = FieldStore(state: emptyState(), now: Self.now, backend: queue)
+        field.captureDraft = "A private unfinished draft"
+        let restored = FieldStore(state: emptyState(), now: Self.now, backend: queue)
+        #expect(restored.captureDraft == field.captureDraft)
+        let other = FieldOutbox(wrapping: server, partition: partition(user: "other"), store: disk)
+        #expect(other.captureDraft() == nil)
+        queue.purge()
+        #expect(queue.captureDraft() == nil)
+    }
+
     // MARK: 1. Committed, then timed out
 
     /// The plan's first named failure, and the one that decides whether an
