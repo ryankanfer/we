@@ -526,7 +526,9 @@ insert into public.field_identity (
   swatch_b
 ) values (
   (select couple_id from field_contract_context limit 1),
-  'rust',
+  -- Deliberately not the 'rust' A already holds: if B wrote the same value
+  -- the assertion below would pass whether or not anything preserved it.
+  'amber',
   'teal'
 )
 on conflict (couple_id) do update
@@ -537,7 +539,7 @@ select is(
     select concat(swatch_a, ':', swatch_b)
     from public.field_identity
   ),
-  'clay:teal',
+  'rust:teal',
   'Partner B can choose side B but cannot overwrite Partner A''s swatch'
 );
 select is(
@@ -565,14 +567,18 @@ insert into public.field_captures (
   'trips',
   'Sunday gives this a real date.'
 );
+-- `client_id` is NOT NULL and unique per couple since 20260803120000: it is
+-- what makes a retry a no-op rather than a second row.
 insert into public.field_corrections (
   id,
+  client_id,
   couple_id,
   input,
   original_destination,
   corrected_destination,
   corrected_by
 ) values (
+  '84000000-0000-0000-0000-000000000003',
   '84000000-0000-0000-0000-000000000003',
   (select couple_id from field_contract_context limit 1),
   'Book the cabin Sunday',

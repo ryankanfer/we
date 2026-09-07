@@ -347,6 +347,16 @@ select is(
 -- MARK: Presence is never shared --------------------------------------------
 
 reset role;
+-- `request.jwt.claims` is transaction-local and survives `reset role`, so
+-- without this the claims still name B — and `field_preserve_actor` stamps
+-- `profile_id` from `auth.uid()`, not from the column written here. The row
+-- would become B's own window, which B can of course see, and the assertion
+-- below would fail while the policy it tests is working perfectly.
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"91000000-0000-0000-0000-000000000001","role":"authenticated"}',
+  true
+);
 insert into public.field_away_windows (
   couple_id, profile_id, starts_at, ends_at, reason
 )
