@@ -382,6 +382,9 @@ final class FieldRESTStub: URLProtocol, @unchecked Sendable {
 
         let payload: Any?
         switch function {
+        case "field_chat_page":
+            // These contracts start with no conversation messages.
+            payload = [[String: Any]]()
         case "field_readiness_mark":
             payload = Self.store.readinessMark(day: day)
         case "field_readiness_state":
