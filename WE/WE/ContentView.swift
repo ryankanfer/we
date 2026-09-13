@@ -1,6 +1,9 @@
 import SwiftUI
 
 struct ContentView: View {
+    @State private var privateCapture = false
+    @State private var privateLibrary = false
+    @State private var privateField = FieldStore(state: .empty(nameA: "You", nameB: "Your partner", now: Date()))
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var pendingInvitation: PendingInvitation
     @EnvironmentObject private var externalSurfaces:
@@ -51,6 +54,16 @@ struct ContentView: View {
             }
             .accessibilityHidden(showsPartnerArrival)
             .allowsHitTesting(!showsPartnerArrival)
+            .safeAreaInset(edge: .bottom) {
+                if session.user != nil && WEFeatureFlags.shareInboxEnabled {
+                    HStack {
+                        Button("Save · Only Me") { privateCapture = true }
+                        Button("Your saved items") { privateLibrary = true }
+                    }.padding().background(.regularMaterial)
+                }
+            }
+            .sheet(isPresented: $privateCapture) { WEPrivateCaptureView() }
+            .sheet(isPresented: $privateLibrary) { WEArtifactsView().environment(privateField) }
 
             if showsPartnerArrival {
                 PartnerArrivalCeremony {

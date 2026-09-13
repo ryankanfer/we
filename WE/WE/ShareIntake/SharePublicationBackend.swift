@@ -74,7 +74,7 @@ final class SupabaseSharePublicationBackend:
                 "byte_count": .integer($0.byteCount),
             ])
         }
-        let params: [String: AnyJSON] = [
+        var params: [String: AnyJSON] = [
             "p_snapshot": .string(snapshot.id.uuidString.lowercased()),
             "p_draft": .string(snapshot.draftID.uuidString.lowercased()),
             "p_revision": .integer(snapshot.revision),
@@ -85,8 +85,9 @@ final class SupabaseSharePublicationBackend:
             "p_resources": .array(resources),
         ]
 
+        if let details = snapshot.intelligenceDetails { params["p_details"] = try JSONDecoder().decode(AnyJSON.self, from: details) }
         return try await client
-            .rpc("share_create_publication_session", params: params)
+            .rpc(snapshot.intelligenceDetails == nil ? "share_create_publication_session" : "intake_create_publication", params: params)
             .execute()
             .value
     }
@@ -101,7 +102,7 @@ final class SupabaseSharePublicationBackend:
             throw SharePublicationError.privateResourceChanged
         }
 
-        _ = try await client.storage
+        do { _ = try await client.storage
             .from(bucket)
             .upload(
                 descriptor.objectPath,
@@ -109,7 +110,7 @@ final class SupabaseSharePublicationBackend:
                 options: FileOptions(
                     cacheControl: "3600",
                     contentType: descriptor.contentType,
-                    upsert: true,
+                    upsert: false,
                     metadata: [
                         "sha256": .string(descriptor.sha256),
                         "resource_id": .string(
@@ -117,14 +118,19 @@ final class SupabaseSharePublicationBackend:
                         ),
                     ]
                 )
-            )
+            ) } catch {
+            // An immutable object may already exist after a lost acknowledgment.
+            // The byte verifier below determines whether it is the approved object.
+        }
+        let verifier = try await WEIntelligenceBackend()
+        try await verifier.verify(bucket: bucket, path: descriptor.objectPath, sha: descriptor.sha256, bytes: descriptor.byteCount)
     }
 
     func finalize(sessionID: UUID) async throws -> UUID {
         guard let client else { throw SharePublicationError.unavailable }
         let result: SharePublicationResult = try await client
             .rpc(
-                "share_finalize_publication",
+                "intake_finalize_publication",
                 params: ["p_session": sessionID.uuidString.lowercased()]
             )
             .execute()

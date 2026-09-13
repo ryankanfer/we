@@ -175,6 +175,18 @@ struct FieldOutboxTests {
         )
     }
 
+    @Test func deleteEverywherePurgesOnlyAffectedPendingEdits() throws {
+        let disk = store()
+        let server = FakeFieldServer(state: emptyState())
+        let queue = FieldOutbox(wrapping: server, partition: partition(), store: disk)
+        try queue.stage([.upsertItem(item(id: "deleted")), .upsertItem(item(id: "independent"))])
+        try queue.cancelDeletedItems(["deleted"])
+        let relaunched = FieldOutbox(wrapping: server, partition: partition(), store: disk)
+        let restored = relaunched.replayPending(over: emptyState())
+        #expect(!restored.lifeItems.contains { $0.id == "deleted" })
+        #expect(restored.lifeItems.contains { $0.id == "independent" })
+    }
+
     @Test func captureIsDurableBeforeSendReturnsAndSurvivesWithoutCache() throws {
         let disk = store()
         let server = FakeFieldServer(state: emptyState())

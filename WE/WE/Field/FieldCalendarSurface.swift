@@ -29,6 +29,7 @@ struct FieldCalendarSurface: View {
     /// Which month is shown, as an offset from the month containing `now`.
     @State private var monthOffset = 0
     @State private var selectedDay: Date?
+    @State private var intelligence = WEIntelligenceStore.shared
     /// The agenda row somebody tapped. Presented from here rather than from
     /// the shell: this surface covers the shell, so a sheet mounted underneath
     /// it would open behind the takeover.
@@ -40,49 +41,45 @@ struct FieldCalendarSurface: View {
         ZStack {
             WECanvas.cream.bg.ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 0) {
-                header
-
-                weekdayRow
-                    .padding(.top, 24)
-                    .padding(.bottom, 10)
-
-                monthGrid
-
-                agenda
-                    .padding(.top, FieldMetrics.sectionGap)
-
-                Spacer(minLength: 0)
-
-                footer
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    header
+                    weekdayRow
+                        .padding(.top, 24)
+                        .padding(.bottom, 10)
+                    monthGrid
+                    if WEFeatureFlags.shareInboxEnabled {
+                        WEPrivateTimeItems(day: selectedDay ?? store.now).environment(store)
+                    }
+                    agenda.padding(.top, FieldMetrics.sectionGap)
+                }
+                .padding(.top, FieldMetrics.screenTop)
+                .padding(.horizontal, FieldMetrics.takeoverSide)
+                .padding(.bottom, 24)
             }
-            .padding(.top, FieldMetrics.screenTop)
-            .padding(.horizontal, FieldMetrics.takeoverSide)
-            .padding(.bottom, FieldMetrics.takeoverBottom)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                footer
+                    .padding(.horizontal, FieldMetrics.takeoverSide)
+                    .padding(.vertical, 12)
+                    .background(WECanvas.cream.bg)
+            }
         }
         .animation(.fieldZone(reduceMotion), value: monthOffset)
         .animation(.fieldZone(reduceMotion), value: selectedDay)
-        // Swipe sideways for the next month; either way vertically to leave.
-        // Down is how it arrived, so down puts it back — and up is what a hand
-        // does to push a full-screen thing away. Both mean the same here, and
-        // guessing which one somebody will reach for is a bet with no upside.
-        .gesture(
+        // Vertical gestures scroll long agendas; sideways gestures change month.
+        .simultaneousGesture(
             DragGesture(minimumDistance: 30)
                 .onEnded { value in
-                    if abs(value.translation.height) > 110,
-                       abs(value.translation.width) < 80 {
-                        store.closeCalendar()
-                    } else if value.translation.width < -60 {
-                        monthOffset += 1
-                    } else if value.translation.width > 60 {
-                        monthOffset -= 1
-                    }
+                    guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                    if value.translation.width < -60 { monthOffset += 1 }
+                    else if value.translation.width > 60 { monthOffset -= 1 }
                 }
         )
         .sheet(item: $openItem) { reference in
             FieldItemSheet(itemID: reference.id)
                 .environment(store)
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("field.calendar")
     }
 
@@ -96,7 +93,7 @@ struct FieldCalendarSurface: View {
 
             Spacer()
 
-            Text("\(datedOnThePage.count) DATED")
+            Text("\(datedObjectCountOnThePage) DATED")
                 .font(FieldType.dateCount)
                 .tracking(FieldTracking.dateCount)
                 .foregroundStyle(.fieldInk(.headerMeta))
@@ -163,13 +160,13 @@ struct FieldCalendarSurface: View {
                 //
                 // A day with nothing left open is still a marked day — it just
                 // stops asking for attention.
-                if let owner = leadingOwner(of: items) {
+                if let owner = leadingOwner(of: items) ?? (!privateItems(on: date).isEmpty ? store.speaker : nil) {
                     FieldDot(
                         owner: owner,
                         identity: store.identity,
                         size: FieldDotSize.inlinePair,
                         baselineNudge: 0,
-                        opacity: items.allSatisfy(\.isDone) ? 0.4 : 1
+                        opacity: items.allSatisfy(\.isDone) && privateItems(on: date).isEmpty ? 0.4 : 1
                     )
                 } else {
                     Color.clear.frame(height: FieldDotSize.inlinePair)
@@ -211,7 +208,7 @@ struct FieldCalendarSurface: View {
                 ink: .labelQuiet
             )
 
-            if items.isEmpty {
+            if items.isEmpty && privateItems(on: day).isEmpty {
                 // A real state, and the one to be pleased about.
                 Text(
                     calendar.isDate(day, inSameDayAs: store.now)
@@ -243,6 +240,7 @@ struct FieldCalendarSurface: View {
                                 // and never a removal. The page still reads
                                 // "that is behind you" without pretending it
                                 // never happened.
+                                WEPrivacyLabel(text: store.privacyLabel(for: item))
                                 Text(item.title)
                                     .font(FieldType.listItem)
                                     .foregroundStyle(
@@ -350,10 +348,14 @@ struct FieldCalendarSurface: View {
 
     /// Everything with a date, wherever it came from — a Life item somebody
     /// filed, or an event from the calendar they connected.
+    private func privateItems(on date: Date) -> [WEArtifactRecord] {
+        guard WEFeatureFlags.shareInboxEnabled else { return [] }
+        return intelligence.records.filter { $0.content.publishedItemID == nil && $0.content.completed != true && $0.content.timing?.includes(date, calendar: calendar) == true }
+    }
+
     private func items(on date: Date) -> [LifeItem] {
         dated.filter { item in
-            guard let dueOn = item.dueOn else { return false }
-            return calendar.isDate(dueOn, inSameDayAs: date)
+            item.objectTiming?.includes(date, calendar: calendar) == true
         }
         .sorted { left, right in
             switch (left.closesAt, right.closesAt) {
@@ -375,22 +377,24 @@ struct FieldCalendarSurface: View {
     /// Today is unaffected: `FieldTodaySelector.rank` drops completed items on
     /// its own, so nothing finished can resurface as something that needs you.
     private var dated: [LifeItem] {
-        store.state.lifeItems.filter { $0.dueOn != nil }
+        store.intelligenceEligibleLifeItems.filter { $0.objectTiming?.isResolved == true }
     }
 
     /// What the header counts: the six weeks actually drawn, not the calendar
     /// month. Derived from the same `gridDate` the grid uses, so the number
     /// and the dots can never disagree — which they did, reading "0 DATED"
     /// with a dot plainly visible on a trailing day of the next month.
-    private var datedOnThePage: [LifeItem] {
-        let first = calendar.startOfDay(for: gridDate(week: 0, weekday: 0))
-        let last = calendar.startOfDay(for: gridDate(week: 5, weekday: 6))
-
-        return dated.filter {
-            guard let dueOn = $0.dueOn else { return false }
-            let day = calendar.startOfDay(for: dueOn)
-            return day >= first && day <= last
+    private var datedObjectCountOnThePage: Int {
+        var lifeIDs = Set<String>()
+        var privateIDs = Set<UUID>()
+        for week in 0..<6 {
+            for weekday in 0..<7 {
+                let day = gridDate(week: week, weekday: weekday)
+                lifeIDs.formUnion(items(on: day).map(\.id))
+                privateIDs.formUnion(privateItems(on: day).map(\.id))
+            }
         }
+        return lifeIDs.count + privateIDs.count
     }
 
     private var weekdaySymbols: [String] {
@@ -402,8 +406,9 @@ struct FieldCalendarSurface: View {
         items: [LifeItem]
     ) -> String {
         let day = DateFormatter.fieldDayMonth.string(from: date)
-        guard !items.isEmpty else { return "\(day), nothing" }
-        return "\(day), \(items.count) — \(items.map(\.title).joined(separator: ", "))"
+        let privateCount = privateItems(on: date).count
+        guard !items.isEmpty || privateCount > 0 else { return "\(day), nothing" }
+        return "\(day), \(items.count) shared or Life items, \(privateCount) Only Me. \(items.map(\.title).joined(separator: ", "))"
     }
 }
 

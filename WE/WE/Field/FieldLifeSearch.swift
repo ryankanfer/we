@@ -30,6 +30,7 @@ struct FieldLifeSearch: View {
     @Bindable var store: FieldStore
 
     @State private var query = ""
+    @State private var privateSelection: WEArtifactSelection?
     /// The row somebody tapped. Presented from here rather than from the
     /// shell: this surface covers the shell, so a sheet mounted underneath it
     /// would open behind the takeover — the same reason
@@ -78,7 +79,8 @@ struct FieldLifeSearch: View {
         // The keyboard, without anybody having to ask for it. Search is the one
         // surface in this app where arriving and wanting to type are the same
         // act — nobody pulls this down to look at it.
-        .onAppear { isTyping = true }
+        .onAppear { isTyping = true; if WEFeatureFlags.shareInboxEnabled { WEIntelligenceStore.shared.reload() } }
+        .sheet(item: $privateSelection) { WEArtifactDetail(id: $0.id).environment(store) }
         // Stays a container.
         //
         // Without this the identifier below collapses the whole surface into
@@ -106,7 +108,7 @@ struct FieldLifeSearch: View {
                 .submitLabel(.done)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
-                .accessibilityLabel("Search everything you've written down")
+                .accessibilityLabel("Search saved items and Life plans")
                 .accessibilityIdentifier("field.search.field")
 
             FieldRuleLine()
@@ -122,15 +124,25 @@ struct FieldLifeSearch: View {
             // already the invitation. Saying "start typing" under a focused
             // cursor is the app narrating what a person is already doing.
             EmptyView()
-        } else if matches.isEmpty {
-            Text("Nothing written down about that.")
+        } else if matches.isEmpty && privateMatches.isEmpty {
+            Text("No saved items match that search.")
                 .font(FieldType.body)
                 .foregroundStyle(.fieldInk(.label))
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(privateMatches) { match in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Button(match.document.title) { if let id = UUID(uuidString: match.id.id) { privateSelection = .init(id: id) } }
+                            WEPrivacyLabel(text: "Only Me")
+                            DisclosureGroup("Why this?") { Text(match.reason).font(.footnote) }
+                        }.padding(.vertical, 12)
+                    }
                     ForEach(matches) { item in
                         row(item)
+                        if let result = semanticMatches.first(where: { $0.id.id == item.id }) {
+                            DisclosureGroup("Why this?") { Text(result.reason).font(.footnote) }.padding(.bottom, 12)
+                        }
                     }
                 }
             }
@@ -164,6 +176,7 @@ struct FieldLifeSearch: View {
                         .fixedSize(horizontal: false, vertical: true)
 
                     // The answer to the question that brought somebody here.
+                    WEPrivacyLabel(text: store.privacyLabel(for: item))
                     Text(item.category.word.uppercased())
                         .font(FieldType.subLabel)
                         .tracking(FieldTracking.subLabel)
@@ -245,19 +258,18 @@ struct FieldLifeSearch: View {
     /// Matches `detail` as well as `title`, because the second line is where
     /// the specifics go — a filter size, a room, a name — and those are
     /// precisely the words somebody comes here holding.
+    private var semanticMatches: [WESearchMatch] {
+        let eligible = store.intelligenceEligibleLifeItems
+        return WESemanticSearch.matches(trimmedQuery, eligible: eligible.map {
+            .init(id: .init(kind: .lifeItem, id: $0.id), title: $0.title, text: $0.detail ?? "", visibility: $0.objectVisibility)
+        })
+    }
+    private var privateMatches: [WESearchMatch] {
+        guard WEFeatureFlags.shareInboxEnabled else { return [] }
+        return WESemanticSearch.matches(trimmedQuery, eligible: WEIntelligenceStore.shared.searchDocuments)
+    }
     private var matches: [LifeItem] {
-        let needle = trimmedQuery
-        guard !needle.isEmpty else { return [] }
-
-        let found = store.state.lifeItems.filter { item in
-            item.title.localizedStandardContains(needle)
-                || (item.detail?.localizedStandardContains(needle) ?? false)
-        }
-
-        // Open first. Somebody searching for a thing is usually about to do
-        // something about it, and a screen that leads with what is already
-        // behind them answers a question nobody asked.
-        return found.filter { !$0.isDone } + found.filter(\.isDone)
+        semanticMatches.compactMap { result in store.intelligenceEligibleLifeItems.first { $0.id == result.id.id } }
     }
 
     private func close() {

@@ -5,7 +5,7 @@ import SwiftUI
 struct FieldUsZone: View {
     var body: some View {
         if WEFeatureFlags.sharedJourneysEnabled {
-            FieldGoalsSurface()
+            FieldRelationshipPortraitSurface()
         } else {
             LegacyFieldUsZone()
         }

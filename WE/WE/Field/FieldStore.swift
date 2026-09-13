@@ -475,6 +475,8 @@ final class FieldStore {
     }
 
     private(set) var loadState: LoadState = .loading
+    private(set) var sharedIntelligenceAuthorized = false
+    func invalidateSharedIntelligence() { sharedIntelligenceAuthorized = false; WESemanticSearch.invalidate() }
 
     /// What this person has already been shown once.
     ///
@@ -2012,6 +2014,10 @@ final class FieldStore {
 
         var item = state.lifeItems[index]
         item.dueOn = day.map { Calendar.gregorianUS.startOfDay(for: $0) }
+        if item.timing != nil {
+            item.timing = day.map { WEObjectTiming(precision: .day, startDay: DateFormatter.fieldDay.string(from: $0)) } ?? .init()
+            item.closesAt = nil
+        }
         if day == nil { item.closesAt = nil }
         guard stageItemChange([.upsertItem(item)]) else { return }
         state.lifeItems[index] = item
@@ -2021,6 +2027,27 @@ final class FieldStore {
         } else {
             Task { [backend] in try? await backend?.upsert(item) }
         }
+    }
+
+    func hideDeletedImportRepresentations() {
+        let deleted = WEIntelligenceStore.shared.deletedSharedIDs
+        do { try outbox?.cancelDeletedItems(deleted) }
+        catch { itemSaveError = "Deleted-item queue cleanup needs retry." }
+        state.lifeItems.removeAll { deleted.contains($0.id.lowercased()) }
+    }
+
+    @discardableResult func acceptTiming(_ timing: WEObjectTiming, for itemID: String) -> Bool {
+        guard timing.isResolved, let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
+              intelligenceEligibleLifeItems.contains(where: { $0.id == itemID }) else { return false }
+        var item = state.lifeItems[index]
+        item.timing = timing
+        item.dueOn = timing.precision == .day ? timing.anchor : nil
+        item.closesAt = timing.precision == .time && timing.kind == .deadline ? timing.start : nil
+        guard stageItemChange([.upsertItem(item)]) else { return false }
+        state.lifeItems[index] = item
+        if outbox != nil { refreshDeliveryStates(); Task { await flushPending() } }
+        else { Task { [backend] in try? await backend?.upsert(item) } }
+        return true
     }
 
     /// Corrections are durable before the interface acknowledges them.
@@ -2602,6 +2629,16 @@ final class FieldStore {
         refreshDeliveryStates()
     }
 
+    func reviewSharedEdit(itemID: String) async throws -> WESharedEditConflict {
+        guard let outbox else { throw SharePublicationError.unavailable }
+        return try await outbox.reviewSharedConflict(itemID: itemID)
+    }
+    func resolveSharedEdit(_ conflict: WESharedEditConflict, keepLocal: Bool) async throws {
+        guard let outbox else { throw SharePublicationError.unavailable }
+        try outbox.resolveSharedConflict(conflict, keepLocal: keepLocal)
+        await retryLoad()
+    }
+
     // MARK: Loading
 
     func load() async {
@@ -2610,6 +2647,7 @@ final class FieldStore {
             // state on hand is the whole truth and there is nothing to wait
             // for.
             loadState = .loaded
+            sharedIntelligenceAuthorized = true
             return
         }
 
@@ -2641,8 +2679,10 @@ final class FieldStore {
 
         do {
             state = try await backend.load()
+            hideDeletedImportRepresentations()
             lastLoadedAt = now
             loadState = .loaded
+            sharedIntelligenceAuthorized = true
             // Separate from state on purpose: this is one person's, and
             // `FieldState` is the couple's and is cached to disk.
             teachingMoments = Set((try? await backend.teachingMoments()) ?? [])
@@ -2654,6 +2694,7 @@ final class FieldStore {
             // saying so is more useful than an empty screen. Without a cache
             // there is nothing honest to draw, and the zones offer a retry.
             loadState = lastLoadedAt.map(LoadState.stale) ?? .failed
+            invalidateSharedIntelligence()
         }
     }
 

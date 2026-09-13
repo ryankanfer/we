@@ -149,9 +149,19 @@ struct WEApp: App {
                     .environmentObject(previewSession)
                     .task { await previewSession.restoreIfNeeded() }
             case .seeded:
+                #if DEBUG
+                if ProcessInfo.processInfo.environment["WE_INTELLIGENCE_PREVIEW"] == "1" {
+                    WEIntelligencePrototype()
+                } else {
+                    FieldZoneShell()
+                        .environmentObject(previewSession)
+                        .task { await previewSession.restoreIfNeeded() }
+                }
+                #else
                 FieldZoneShell()
                     .environmentObject(previewSession)
                     .task { await previewSession.restoreIfNeeded() }
+                #endif
             case .demo:
                 FieldZoneShell(store: FieldStore(state: .demo, now: FieldDemoData.today))
                     .environmentObject(previewSession)

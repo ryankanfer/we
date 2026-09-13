@@ -35,6 +35,9 @@ struct FieldZoneShell: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var store: FieldStore
     @State private var showsAccount = false
+    @State private var showsPrivateCapture = false
+    @State private var planNavigation = WEPlanNavigation.shared
+    @State private var intentPlan: FieldItemReference?
     @State private var showsYours = false
     @State private var showsCapture = false
     @State private var footerHeight: CGFloat = 240
@@ -115,30 +118,29 @@ struct FieldZoneShell: View {
         // phone in light mode would paint a black clock onto #0A0A09.
         .preferredColorScheme(store.activeZone.canvas == .cream ? .light : .dark)
         .safeAreaInset(edge: .top, spacing: 0) {
-            if !store.calendarOpen, !store.searchOpen {
-                HStack {
-                    if store.activeZone == .we {
-                        Button(action: openYours) {
-                            Text("Yours").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
-                        }
-                            .accessibilityIdentifier("field.openYours")
+            HStack {
+                if store.activeZone == .we && !store.calendarOpen && !store.searchOpen {
+                    Button(action: openYours) {
+                        Text("Yours").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                     }
-                    Spacer()
-                    Button { store.openConversation() } label: {
-                        HStack(spacing: 5) { Text("Chat"); if store.chatUnread { Circle().frame(width: 5, height: 5) } }.frame(minHeight: 44)
-                    }.accessibilityLabel(store.chatUnread ? "Chat, new messages" : "Chat")
-                    Button { showsAccount = true } label: {
-                        Text("Account").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
-                    }
-                        .accessibilityIdentifier("field.openAccount")
+                        .accessibilityIdentifier("field.openYours")
                 }
-                .font(FieldType.body)
-                .foregroundStyle(store.activeZone.canvas.ink)
-                .buttonStyle(.plain)
-                .frame(minHeight: 44)
-                .padding(.horizontal, FieldMetrics.screenSide)
-                .background(store.activeZone.canvas.bg)
+                Spacer()
+                Button { store.openConversation() } label: {
+                    HStack(spacing: 5) { Text("Chat"); if store.chatUnread { Circle().frame(width: 5, height: 5) } }.frame(minHeight: 44)
+                }.accessibilityLabel(store.chatUnread ? "Chat, new messages" : "Chat")
+                    .accessibilityIdentifier("field.openChat")
+                Button { showsAccount = true } label: {
+                    Text("Account").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                }
+                    .accessibilityIdentifier("field.openAccount")
             }
+            .font(FieldType.body)
+            .foregroundStyle(store.activeZone.canvas.ink)
+            .buttonStyle(.plain)
+            .frame(minHeight: 44)
+            .padding(.horizontal, FieldMetrics.screenSide)
+            .background(store.activeZone.canvas.bg)
         }
         .overlay(alignment: .bottom) {
             if !store.calendarOpen, !store.searchOpen {
@@ -205,8 +207,13 @@ struct FieldZoneShell: View {
                             Text("Put down one thought. You’ll review where it goes and who can see it before saving.")
                                 .font(FieldType.body)
                         }
+                        if WEFeatureFlags.shareInboxEnabled {
+                            Button("Save something · Only Me", systemImage: "lock") { showsPrivateCapture = true }
+                                .sheet(isPresented: $showsPrivateCapture) { WEPrivateCaptureView() }
+                        }
                         FieldCaptureField(
                             savedItemID: firstSave?.progress.itemID,
+                            compact: true,
                             onSaved: { firstSave?.saved($0) },
                             onRetrieved: { firstSave?.retrieved($0) }
                         )
@@ -224,7 +231,8 @@ struct FieldZoneShell: View {
                 }
                 .weCanvas(.cream)
             }
-            .presentationDetents([.large])
+            .presentationDetents([.height(410), .large])
+            .presentationBackground(.ultraThinMaterial)
             .presentationDragIndicator(.visible)
             .presentationCornerRadius(32)
             .preferredColorScheme(.light)
@@ -244,6 +252,18 @@ struct FieldZoneShell: View {
             }
         }
         .task { await store.load() }
+        .task {
+            if WEFeatureFlags.shareInboxEnabled { WEIntelligenceStore.shared.reload(); await WEIntelligenceStore.shared.synchronize() }
+        }
+        .sheet(item: $intentPlan) { FieldItemSheet(itemID: $0.id).environment(store) }
+        .task(id: planNavigation.pendingID) {
+            guard let id = planNavigation.pendingID else { return }
+            await store.retryLoad()
+            if store.intelligenceEligibleLifeItems.contains(where: { $0.id.caseInsensitiveCompare(id) == .orderedSame }) {
+                intentPlan = FieldItemReference(id: id)
+            }
+            planNavigation.pendingID = nil
+        }
         // The day turning, for as long as the app is on screen. Owned by the
         // store — it is the only thing that holds `now` — but driven from
         // here, because a `.task` is cancelled with the view and a Task the
@@ -260,11 +280,16 @@ struct FieldZoneShell: View {
         // just stopped being true. `.reconnecting` is the edge `AppSession`
         // publishes the instant the path comes back, ahead of its own refresh.
         .onChange(of: session.connectionState) { _, state in
-            guard state == .online || state == .reconnecting else { return }
-            Task { await store.flushPending() }
+            guard state == .online || state == .reconnecting else { store.invalidateSharedIntelligence(); return }
+            Task {
+                await store.flushPending()
+                await store.retryLoad()
+                if WEFeatureFlags.shareInboxEnabled { WEIntelligenceStore.shared.reload(); await WEIntelligenceStore.shared.synchronize() }
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .background || phase == .active else { return }
+            if phase == .background { store.invalidateSharedIntelligence() }
             if phase == .active {
                 store.tick()
                 // A write queued on a train drains when the app comes back,
@@ -272,7 +297,11 @@ struct FieldZoneShell: View {
                 // something else. `flushPending` is idempotent — every
                 // mutation is an upsert on a client-generated id — so a
                 // foreground during a flush cannot send anything twice.
-                Task { await store.flushPending() }
+                Task {
+                await store.flushPending()
+                await store.retryLoad()
+                if WEFeatureFlags.shareInboxEnabled { WEIntelligenceStore.shared.reload(); await WEIntelligenceStore.shared.synchronize() }
+            }
                 // §5's ninety-day rule is about the product, not this room, so
                 // this fires on every foreground whether or not Yours is ever
                 // opened. Without it, somebody who used the shared side daily

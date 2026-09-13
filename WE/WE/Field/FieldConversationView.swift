@@ -90,8 +90,8 @@ struct FieldConversationView: View {
                         }
                         if messages.isEmpty && !loading {
                             VStack(alignment: .leading, spacing: 12) {
-                                Text(decisionsOnly ? "What you decide, kept together." : focusedContext != nil ? "A place to talk about this." : "A little space for you two.").font(FieldType.pageHeadline)
-                                Text(decisionsOnly ? "Propose a decision from a message. It appears here after your partner confirms it." : "Send a link and it’s kept in Life. Bring a plan or a shared hope into the conversation. A next step is always your choice.").font(.system(.body)).foregroundStyle(.fieldInk(.reasoning))
+                                Text(!query.isEmpty ? "No decisions match that search." : decisionsOnly ? "What you decide, kept together." : focusedContext != nil ? "A place to talk about this." : "A little space for you two.").font(FieldType.pageHeadline)
+                                Text(!query.isEmpty ? "Try another word or clear your search." : decisionsOnly ? "Propose a decision from a message. It appears here after your partner confirms it." : "Send a link and it’s kept in Life. Bring a plan or a shared hope into the conversation. A next step is always your choice.").font(.system(.body)).foregroundStyle(.fieldInk(.reasoning))
                             }.padding(.vertical, 30)
                         }
                         ForEach(messages) { message in messageRow(message).id(message.id) }
@@ -170,13 +170,14 @@ struct FieldConversationView: View {
     }
     private var conversationTabs: some View {
         HStack(spacing: 24) {
-            tab("Conversation", selected: !decisionsOnly) { decisionsOnly = false }
+            tab("Conversation", selected: !decisionsOnly) { decisionsOnly = false; query = "" }
             tab("Decisions", selected: decisionsOnly) { decisionsOnly = true }
         }
     }
     private func tab(_ label: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Text(label).font(.system(.subheadline, weight: selected ? .semibold : .regular)).fixedSize(horizontal: true, vertical: false).padding(.vertical, 10)
+        Button(action: action) { Text(label).font(.system(.subheadline, weight: selected ? .semibold : .regular)).fixedSize(horizontal: true, vertical: false).padding(.vertical, 10).frame(minHeight: 44)
             .overlay(alignment: .bottom) { if selected { Rectangle().frame(height: 1) } } }.buttonStyle(.plain)
+            .accessibilityAddTraits(selected ? .isSelected : [])
     }
     private func messageRow(_ message: FieldChatMessage) -> some View {
         let mine = message.sender == store.speaker

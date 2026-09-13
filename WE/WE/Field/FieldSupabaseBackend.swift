@@ -66,6 +66,10 @@ private struct TeachingMomentRow: Codable {
 }
 
 private struct LifeItemRow: Codable {
+    var intelligence_version: Int?
+    var timing: WEObjectTiming?
+    var connected_plan_id: UUID?
+    var place: String?
     let source_url: String?
     let explicit_task: Bool?
     let id: UUID
@@ -537,6 +541,10 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
 
     private func map(_ row: LifeItemRow, sourceURL: URL?) -> LifeItem {
         LifeItem(
+            publicationVersion: row.intelligence_version,
+            timing: row.timing,
+            connectedPlanID: row.connected_plan_id?.uuidString,
+            place: row.place,
             explicitTask: row.explicit_task,
             id: row.id.uuidString,
             title: row.title,
@@ -768,6 +776,14 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             .string(ISO8601DateFormatter.we.string(from: $0))
         } ?? .null
 
+        if let timing = item.timing {
+            payload["timing"] = try JSONDecoder().decode(AnyJSON.self, from: JSONEncoder.share.encode(timing))
+        }
+        if let version = item.publicationVersion, version > 0 {
+            let encoded: AnyJSON = .object(payload)
+            _ = try await client.rpc("intake_update_life", params: ["p_id": AnyJSON.string(item.id), "p_expected": .integer(version), "p_fields": encoded]).execute()
+            return
+        }
         _ = try await client
             .from("field_life_items")
             .upsert(payload, onConflict: "id")

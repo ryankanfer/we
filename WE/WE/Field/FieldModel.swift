@@ -314,6 +314,10 @@ enum FieldVisibility: String, Codable, Sendable {
 }
 
 struct LifeItem: Identifiable, Codable, Hashable, Sendable {
+    var publicationVersion: Int? = nil
+    var timing: WEObjectTiming? = nil
+    var connectedPlanID: String? = nil
+    var place: String? = nil
     /// Keeps an explicitly created next step actionable without inventing a date.
     var explicitTask: Bool? = nil
     let id: String

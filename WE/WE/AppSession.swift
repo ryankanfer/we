@@ -204,6 +204,7 @@ final class AppSession: ObservableObject {
     }
 
     func returnToSignIn(message: String? = nil) {
+        WEIntelligenceStore.shared.reset()
         shareVault.deactivate()
         noticeMessage = message
         errorMessage = nil
@@ -265,6 +266,7 @@ final class AppSession: ObservableObject {
         noticeMessage = nil
         defer { isWorking = false }
         stopObservingRelationship()
+        WEIntelligenceStore.shared.reset()
         shareVault.deactivate()
 
         do {
@@ -313,6 +315,10 @@ final class AppSession: ObservableObject {
             // Do not destroy a private vault on a failed password or failed
             // server deletion. Once deletion is confirmed, purge it before
             // rendering the signed-out state.
+            if let context = try? self.shareVault.activeContext() {
+                try? WEIntelligencePersistence().remove(vaultID: context.pointer.vaultID)
+            }
+            WEIntelligenceStore.shared.reset()
             self.shareVault.purge(accountID: deletingUser.id)
             self.localData.purge()
             self.user = nil
@@ -880,6 +886,7 @@ final class AppSession: ObservableObject {
         }
 
         stopObservingRelationship()
+        WEIntelligenceStore.shared.reset()
         shareVault.deactivate()
         do {
             try await cache.remove(userID: storedUser.id)

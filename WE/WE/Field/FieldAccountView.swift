@@ -16,6 +16,7 @@ struct FieldAccountView: View {
 
     @State private var surface: FieldAccountSurface?
     @State private var showsDelete = false
+    @State private var showsRecovery = false
     @State private var showsFeedback = false
     @State private var showsPrivacyPolicy = false
     @State private var copiedInvitationCode = false
@@ -46,6 +47,10 @@ struct FieldAccountView: View {
                     understanding
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
+                    if WEFeatureFlags.shareInboxEnabled {
+                        Button("Needs attention") { showsRecovery = true }
+                            .frame(minHeight: 44).padding(.bottom, FieldMetrics.sectionGapLoose)
+                    }
                     trouble
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
@@ -87,6 +92,7 @@ struct FieldAccountView: View {
             .preferredColorScheme(.light)
             .environment(\.weCanvas, WECanvas.cream)
         }
+        .sheet(isPresented: $showsRecovery) { WERecoveryCenter().environment(store) }
         .sheet(item: $surface) { selection in
             FieldAccountSurfaceView(surface: selection).environment(store)
         }

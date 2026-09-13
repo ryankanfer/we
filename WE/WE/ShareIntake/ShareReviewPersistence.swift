@@ -67,6 +67,11 @@ struct ShareReviewPersistence: Sendable {
         )
     }
 
+    func removeVerified(draftID: UUID, vaultID: UUID) throws {
+        let url = fileURL(draftID: draftID, vaultID: vaultID)
+        if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+    }
+
     func remove(draftID: UUID, vaultID: UUID) {
         try? FileManager.default.removeItem(
             at: fileURL(draftID: draftID, vaultID: vaultID)

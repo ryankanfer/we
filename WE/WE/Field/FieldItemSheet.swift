@@ -59,6 +59,7 @@ struct FieldItemSheet: View {
                             .padding(.bottom, FieldMetrics.sectionGap)
 
                         delivery
+                        if WEFeatureFlags.shareInboxEnabled { WEPlanAttachments(planID: itemID).environment(store) }
 
                         if let error = store.itemSaveError {
                             Text(error).font(FieldType.body)
@@ -184,6 +185,7 @@ struct FieldItemSheet: View {
                 Spacer(minLength: 0)
             }
 
+            WEPrivacyLabel(text: store.privacyLabel(for: item))
             Text(whose(item))
                 .font(.system(.footnote))
                 .foregroundStyle(.fieldInk(.reasoning))

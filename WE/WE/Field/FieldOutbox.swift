@@ -473,6 +473,29 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
         try await base.approveGoal(id: id, revision: revision, approved: approved)
     }
 
+    func reviewSharedConflict(itemID: String) async throws -> WESharedEditConflict {
+        guard let entry = pending.last(where: { entry in
+            if case .upsertItem(let item) = entry.mutation { return item.id == itemID }; return false
+        }), case .upsertItem(let local) = entry.mutation else { throw SharePublicationError.unavailable }
+        let remoteState = try await base.load()
+        guard let remote = remoteState.lifeItems.first(where: { $0.id == itemID }) else { throw SharePublicationError.unavailable }
+        return WESharedEditConflict(id: entry.id, local: local, remote: remote)
+    }
+
+    func resolveSharedConflict(_ conflict: WESharedEditConflict, keepLocal: Bool) throws {
+        try lock.withLock {
+            guard !isFlushing, _entries.contains(where: { $0.id == conflict.id }) else { throw SharePublicationError.unavailable }
+            var next = _entries.filter { $0.id != conflict.id }
+            if keepLocal {
+                var chosen = conflict.local
+                chosen.publicationVersion = conflict.remote.publicationVersion
+                next = Self.compacted(next + [FieldOutboxEntry(mutation: .upsertItem(chosen), queuedAt: now())])
+            }
+            try store.write(next, for: partition)
+            _entries = next
+        }
+    }
+
     // MARK: Writing
 
     func append(_ capture: FieldCapture) async throws {
@@ -688,6 +711,18 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
             }
         }
         return result
+    }
+
+    func cancelDeletedItems(_ ids: Set<String>) throws {
+        try lock.withLock {
+            let next = _entries.filter { entry in
+                guard let id = Self.subjectID(of: entry.mutation) else { return true }
+                return !ids.contains(id.lowercased())
+            }
+            guard next.count != _entries.count else { return }
+            try store.write(next, for: partition)
+            _entries = next
+        }
     }
 
     /// Everything, gone. The outbox half of the Phase 1d purge contract.

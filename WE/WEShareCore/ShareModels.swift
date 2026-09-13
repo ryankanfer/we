@@ -59,6 +59,7 @@ struct IncomingShareResource: Codable, Hashable, Sendable, Identifiable {
     let byteCount: Int
     let pixelWidth: Int?
     let pixelHeight: Int?
+    var isOriginal: Bool? = nil
 }
 
 struct IncomingShareRepresentation: Codable, Hashable, Sendable, Identifiable {
@@ -154,6 +155,7 @@ struct NormalizedShareImage: Hashable, Sendable {
     let pixelWidth: Int
     let pixelHeight: Int
     let sha256: String
+    var isOriginal: Bool = false
 }
 
 struct ShareVaultPointer: Codable, Hashable, Sendable {
@@ -184,6 +186,7 @@ struct FrozenPublicationURL: Codable, Hashable, Sendable, Identifiable {
 }
 
 struct FrozenPublicationResource: Codable, Hashable, Sendable {
+    var sourceResourceID: UUID? = nil
     let id: UUID
     let sha256: String
     let contentType: String
@@ -191,6 +194,7 @@ struct FrozenPublicationResource: Codable, Hashable, Sendable {
 }
 
 struct FrozenPublicationSnapshot: Codable, Hashable, Sendable, Identifiable {
+    var intelligenceDetails: Data? = nil
     let id: UUID
     let draftID: UUID
     let revision: Int

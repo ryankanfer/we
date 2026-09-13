@@ -845,6 +845,7 @@ private struct YoursOfferComposer: View {
                 .font(FieldType.sectionLabel)
                 .foregroundStyle(.fieldInk(.label))
             TextField("", text: text)
+                .accessibilityLabel(label)
                 .font(FieldType.body)
                 .foregroundStyle(.fieldInk(.headline))
                 .padding(10)
@@ -878,6 +879,7 @@ private struct YoursHeldEditor: View {
                 .foregroundStyle(.fieldInk(.headline))
 
             TextEditor(text: $body_)
+                .accessibilityLabel("Edit held writing")
                 .font(FieldType.body)
                 .foregroundStyle(.fieldInk(.headline))
                 .scrollContentBackground(.hidden)

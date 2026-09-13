@@ -27,15 +27,25 @@ struct FieldCaptureField: View {
     /// filed, so the proof-of-catch is also the way back to it.
     @State private var openItem: FieldItemReference?
     @State private var savedItemID: String?
+    private var completion: FieldCaptureCompletion? {
+        let items = WEIntelligenceCapabilities.isPreview ? store.state.lifeItems : store.intelligenceEligibleLifeItems
+        return FieldCaptureCompletion.match(store.captureDraft, titles: items.filter(\.isSharedPresence).map(\.title))
+    }
+    private func acceptCompletion() {
+        guard let completion else { return }
+        store.captureDraft = completion.text
+    }
 
     var isWalkthrough = false
+    var compact = false
     var onSaved: (String) -> Void = { _ in }
     var onRetrieved: (String) -> Void = { _ in }
 
-    init(savedItemID: String? = nil, isWalkthrough: Bool = false,
+    init(savedItemID: String? = nil, isWalkthrough: Bool = false, compact: Bool = false,
          onSaved: @escaping (String) -> Void = { _ in },
          onRetrieved: @escaping (String) -> Void = { _ in }) {
         self.isWalkthrough = isWalkthrough
+        self.compact = compact
         _savedItemID = State(initialValue: savedItemID)
         self.onSaved = onSaved
         self.onRetrieved = onRetrieved
@@ -45,7 +55,7 @@ struct FieldCaptureField: View {
         @Bindable var store = store
 
         return VStack(alignment: .leading, spacing: 0) {
-            if !isWalkthrough {
+            if !isWalkthrough && !compact {
                 Text("What is on your mind?")
                     .font(FieldType.pageHeadline)
                     .foregroundStyle(.fieldInk(.headline))
@@ -86,12 +96,12 @@ struct FieldCaptureField: View {
             } else if let revived = store.lastRevival {
                 revivalNote(revived)
                     .padding(.top, 14)
-            } else if !isWalkthrough {
+            } else if !isWalkthrough && !compact {
                 samplePhrases(store: store)
                     .padding(.top, 14)
             }
 
-            if !isWalkthrough {
+            if !isWalkthrough && !compact {
                 caughtThisWeek
                     .padding(.top, FieldMetrics.sectionGap)
             }
@@ -195,19 +205,38 @@ struct FieldCaptureField: View {
                 TextEditor(text: $store.captureDraft)
                     .font(FieldType.captureWriting)
                     .lineSpacing(5)
-                    .foregroundStyle(.fieldInk(.headline))
+                    .foregroundStyle(completion == nil ? FieldInk.headline.color(on: .cream) : Color.clear)
                     .tint(WECanvas.cream.ink)
                     .scrollContentBackground(.hidden)
-                    .frame(minHeight: 150, maxHeight: 220)
+                    .frame(minHeight: compact ? 110 : 150, maxHeight: 220)
                     .focused($isFocused)
                     .accessibilityLabel("Tell WE anything")
                     .accessibilityIdentifier("field.capture.input")
+                if let completion {
+                    (Text(store.captureDraft).foregroundColor(FieldInk.headline.color(on: .cream)) +
+                     Text(String(completion.text.dropFirst(store.captureDraft.count))).italic().foregroundColor(FieldInk.reasoning.color(on: .cream)))
+                        .font(FieldType.captureWriting).lineSpacing(5)
+                        .padding(.horizontal, 5).padding(.top, 8)
+                        .allowsHitTesting(false).accessibilityHidden(true)
+                }
             }
             .contentShape(Rectangle())
             .onTapGesture { isFocused = true }
             .accessibilityElement(children: .contain)
             .accessibilityRespondsToUserInteraction(false)
 
+            if let completion {
+                Button(action: acceptCompletion) {
+                    Text("Swipe right to accept · or tap")
+                        .font(.caption).foregroundStyle(.fieldInk(.reasoning))
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                }.buttonStyle(.plain).accessibilityLabel("Accept completion: " + completion.text)
+                    .accessibilityIdentifier("field.capture.completion")
+                    .simultaneousGesture(DragGesture(minimumDistance: 35).onEnded { value in
+                        if value.translation.width > 60 && abs(value.translation.height) < 40 { acceptCompletion() }
+                    })
+                DisclosureGroup("Why this?") { Text(completion.reason).font(.footnote) }
+            }
             HStack(alignment: .center, spacing: 16) {
                 Text("A little less to carry.")
                     .font(FieldType.body)
@@ -232,9 +261,9 @@ struct FieldCaptureField: View {
             }
         }
         .padding(22)
-        .background(WECanvas.cream.bgElevated, in: RoundedRectangle(cornerRadius: 18))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 28))
         .overlay {
-            RoundedRectangle(cornerRadius: 18)
+            RoundedRectangle(cornerRadius: 28)
                 .strokeBorder(WECanvas.cream.ink.opacity(0.08), lineWidth: 0.5)
                 .accessibilityHidden(true)
         }

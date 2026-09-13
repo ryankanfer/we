@@ -66,6 +66,10 @@ struct FieldTodayZone: View {
                 }
                 .padding(.vertical, 12)
 
+                if WEFeatureFlags.shareInboxEnabled {
+                    WEPrivateTimeItems().environment(store).padding(.vertical, 12)
+                    WESharedTimeItems().environment(store).padding(.vertical, 12)
+                }
                 if sharedQuestionIsReady {
                     sharedJourneyHandoff
                         .padding(.top, FieldMetrics.sectionGapLoose)
@@ -326,6 +330,9 @@ struct FieldMomentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if let item = store.state.lifeItems.first(where: { $0.id == moment.id }) {
+                WEPrivacyLabel(text: store.privacyLabel(for: item)).padding(.bottom, 8)
+            }
             FieldLabel(moment.source)
                 .padding(.bottom, 22)
 

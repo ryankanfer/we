@@ -6,6 +6,8 @@ struct FieldLifeZone: View {
     @State private var openItem: FieldItemReference?
     @State private var putAwayIsOpen = false
     @State private var shareInboxIsOpen = false
+    @State private var recoveryIsOpen = false
+    @State private var intelligence = WEIntelligenceStore.shared
 
     private enum LifeFilter: String, CaseIterable {
         case plans = "Plans", saved = "Saved"
@@ -34,7 +36,14 @@ struct FieldLifeZone: View {
         FieldZoneScaffold(zone: .life, showsZoneLabel: false) {
             VStack(alignment: .leading, spacing: 28) {
                 header
-                if WEFeatureFlags.shareInboxEnabled { fromElsewhere }
+                if WEFeatureFlags.shareInboxEnabled {
+                    fromElsewhere
+                    if !intelligence.issues.isEmpty || store.deliveryStates.values.contains(.needsAttention) {
+                        Button("Needs attention", systemImage: "exclamationmark.circle") { recoveryIsOpen = true }
+                            .font(.subheadline).frame(minHeight: 44)
+                            .accessibilityIdentifier("intelligence.recovery")
+                    }
+                }
                 filters
                 if items.isEmpty {
                     Text("A place for the plans, choices and ideas you want to keep.")
@@ -54,8 +63,9 @@ struct FieldLifeZone: View {
             .foregroundStyle(.fieldInk(.headline))
         }
         .sheet(item: $openItem) { FieldItemSheet(itemID: $0.id).environment(store) }
+        .sheet(isPresented: $recoveryIsOpen) { WERecoveryCenter().environment(store) }
         .sheet(isPresented: $putAwayIsOpen) { FieldPutAwaySheet().environment(store) }
-        .fullScreenCover(isPresented: $shareInboxIsOpen) { ShareInboxView().environment(store) }
+        .fullScreenCover(isPresented: $shareInboxIsOpen) { WEArtifactsView().environment(store) }
     }
 
     private var fromElsewhere: some View {
@@ -64,7 +74,7 @@ struct FieldLifeZone: View {
                 Image(systemName: "square.and.arrow.down").font(.system(size: 23, weight: .light))
                 VStack(alignment: .leading, spacing: 6) {
                     Text("From elsewhere").font(FieldType.weLifeSection)
-                    Text("Bring a link into your shared life.")
+                    Text("Save a thought, image, or link. Only Me until you share.")
                         .font(.system(.subheadline)).foregroundStyle(.fieldInk(.reasoning))
                 }
                 Spacer(minLength: 0)
@@ -170,6 +180,7 @@ struct FieldLifeZone: View {
         Button { openItem = FieldItemReference(id: item.id) } label: {
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 8) {
+                    WEPrivacyLabel(text: store.privacyLabel(for: item))
                     Text(item.title)
                         .font(.system(.body, weight: .medium))
                         .fixedSize(horizontal: false, vertical: true)
