@@ -17,129 +17,40 @@ import SwiftUI
 struct FieldPresenceView: View {
     @Environment(FieldStore.self) private var store
 
-    private var absent: FieldPartner? { store.absentPartner }
-    private var present: FieldPartner? { store.presentPartner }
-
     var body: some View {
-        ZStack {
-            FieldPalette.bg.ignoresSafeArea()
-
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 0) {
-                    banner
-                        .padding(.bottom, FieldMetrics.sectionGapLoose)
-
-                    addressedMoment
-                        .padding(.bottom, FieldMetrics.sectionGapLoose)
-
-                    holdingBlock
-                        .padding(.bottom, FieldMetrics.sectionGap)
-
-                    closingCard
-                }
-                .padding(.top, FieldMetrics.screenTop)
-                .padding(.horizontal, FieldMetrics.screenSide)
-                .padding(.bottom, FieldMetrics.screenBottom)
-            }
-        }
-        .preferredColorScheme(.dark)
-        .accessibilityIdentifier("field.presence")
-    }
-
-    /// The absent partner's dot renders at 0.45 — dimmed because they are
-    /// unreachable, not because they are contributing less.
-    private var banner: some View {
-        FieldCard(accent: absentColor) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top, spacing: 11) {
-                    FieldDot(
-                        owner: absent?.owner ?? .a,
-                        identity: store.identity,
-                        size: FieldDotSize.prominentList,
-                        baselineNudge: 7,
-                        opacity: 0.45
-                    )
-
-                    Text(FieldSampleData.presenceBanner.statement)
-                        .font(FieldType.cardTitle)
-                        .foregroundStyle(.fieldInk(.headline))
-                        .fieldLineHeight(1.3, size: 19)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Spacer(minLength: 0)
-                }
-
-                Text(FieldSampleData.presenceBanner.reasoning)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                Text("Presence").font(FieldType.pageHeadline)
+                Text("Presence describes shared away windows. It never measures effort or compares you.")
                     .font(FieldType.reasoning)
-                    .foregroundStyle(.fieldInk(.reasoning))
-                    .fieldLineHeight(1.6, size: 13)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private var absentColor: Color {
-        store.identity.color(for: absent?.owner ?? .a)
-    }
-
-    /// The day's item, addressed to one person by name — with the override
-    /// always offered.
-    private var addressedMoment: some View {
-        FieldMomentView(moment: FieldSampleData.presenceMoment)
-    }
-
-    private var holdingBlock: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            FieldRuleLine()
-
-            HStack(alignment: .firstTextBaseline) {
-                FieldLabel("Holding until Sunday")
-                Spacer()
-                Text("\(FieldSampleData.holdingUntil.count)")
-                    .font(FieldType.dateCount)
-                    .tracking(FieldTracking.dateCount)
-                    .foregroundStyle(.fieldInk(.headerMeta))
-            }
-            .padding(.top, 20)
-            .padding(.bottom, 6)
-
-            ForEach(FieldSampleData.holdingUntil, id: \.title) { item in
-                VStack(alignment: .leading, spacing: 9) {
-                    Text(item.title)
-                        .font(FieldType.listItem)
-                        .foregroundStyle(.fieldInk(.quietListItem))
-
-                    Text(item.reason)
-                        .font(FieldType.reasoning)
-                        .foregroundStyle(.fieldInk(.reasoning))
-                        .fieldLineHeight(1.6, size: 13)
-                        .fixedSize(horizontal: false, vertical: true)
+                ForEach(store.state.partners) { partner in
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(partner.name).font(FieldType.cardTitle)
+                        if let window = partner.awayWindow(on: store.now) {
+                            Text(window.reason)
+                            Text("Until " + window.end.formatted(date: .abbreviated, time: .shortened))
+                        } else {
+                            Text("No shared away window right now.")
+                        }
+                    }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 14)
-                .overlay(alignment: .top) { FieldRuleLine(color: FieldRule.row) }
-                .accessibilityElement(children: .combine)
+                if store.state.partners.isEmpty {
+                    Text("No shared presence information is available yet.")
+                }
+                if !store.heldTopics.isEmpty {
+                    Text("What I'm holding").font(FieldType.body)
+                    ForEach(store.heldTopics) { topic in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(topic.title)
+                            Text(topic.reason).font(FieldType.reasoning)
+                        }
+                    }
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(24)
         }
-    }
-
-    /// "In one go, not four notifications." The promise that makes holding
-    /// feel like care rather than a queue.
-    private var closingCard: some View {
-        FieldCard(accent: store.identity.personB.color) {
-            HStack(alignment: .top, spacing: 11) {
-                FieldIntelligenceMark(identity: store.identity, diameter: 12)
-                    .padding(.top, 4)
-
-                Text(FieldSampleData.presenceClosing)
-                    .font(.system(size: 15, design: .serif))
-                    .foregroundStyle(.fieldInk(.cardProse))
-                    .fieldLineHeight(1.6, size: 15)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("field.presence")
     }
 }
 
@@ -161,31 +72,34 @@ struct FieldDailyMomentView: View {
         ZStack {
             lockBackground
 
-            VStack(spacing: 0) {
-                clock
-                    .padding(.top, 78)
+            ScrollView {
+                VStack(spacing: 0) {
+                    clock
+                        .padding(.top, 32)
 
-                Spacer(minLength: 28)
+                    Color.clear.frame(height: 28)
 
-                notification
-                    .padding(.horizontal, 18)
+                    notification
+                        .padding(.horizontal, 18)
 
-                Text(decision.restraintLine)
-                    .font(.system(size: 13, design: .serif))
-                    .foregroundStyle(.fieldInk(.metadataProse))
-                    .fieldLineHeight(1.6, size: 13)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 20)
-                    .padding(.horizontal, 40)
+                    Text(decision.shouldSend ? decision.restraintLine : "WE stays quiet when nothing needs you. Your notification permission also controls delivery.")
+                        .font(.system(size: 13, design: .serif))
+                        .foregroundStyle(.fieldInk(.metadataProse))
+                        .fieldLineHeight(1.6, size: 13)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 20)
+                        .padding(.horizontal, 40)
 
-                Spacer()
+                    Color.clear.frame(height: 32)
 
-                whyCard
-                    .padding(.horizontal, FieldMetrics.screenSide)
-                    .padding(.bottom, 44)
+                    whyCard
+                        .padding(.horizontal, FieldMetrics.screenSide)
+                        .padding(.bottom, 44)
+                }
             }
         }
+        .environment(\.weCanvas, WECanvas.ground)
         .preferredColorScheme(.dark)
         .accessibilityIdentifier("field.moment")
     }
@@ -255,12 +169,12 @@ struct FieldDailyMomentView: View {
 
                     Spacer()
 
-                    Text("now")
+                    Text("Preview")
                         .font(FieldType.subLabel)
                         .foregroundStyle(.fieldInk(.recessive))
                 }
 
-                Text(decision.statement ?? FieldSampleData.resolvedHeadline)
+                Text(decision.statement ?? "No moment is due right now.")
                     .font(FieldType.momentStatement)
                     .foregroundStyle(.fieldInk(.headline))
                     .fieldLineHeight(1.35, size: 20)
@@ -296,13 +210,19 @@ struct FieldDailyMomentView: View {
                     .fieldLineHeight(1.6, size: 13)
                     .fixedSize(horizontal: false, vertical: true)
 
-                HStack(spacing: 8) {
-                    pill("Earlier") { store.shiftMoment(byHours: -1) }
-                    pill("Later") { store.shiftMoment(byHours: 1) }
-                    pill("Not today") { store.skipToday() }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { momentActions }
+                    VStack(alignment: .leading, spacing: 12) { momentActions }
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private var momentActions: some View {
+        pill("Earlier") { store.shiftMoment(byHours: -1) }
+        pill("Later") { store.shiftMoment(byHours: 1) }
+        pill("Not today") { store.skipToday() }
     }
 
     private func pill(
@@ -316,6 +236,8 @@ struct FieldDailyMomentView: View {
                 .foregroundStyle(.fieldInk(.legend))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
+                .frame(minHeight: 44)
+                .fixedSize(horizontal: true, vertical: false)
                 .overlay {
                     Capsule().stroke(FieldRule.secondaryButton, lineWidth: 1)
                 }

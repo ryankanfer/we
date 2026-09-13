@@ -487,28 +487,10 @@ enum FieldTodaySelector {
         )
     }
 
-    /// The verb on the button under a moment.
-    ///
-    /// The wording, or nothing. There used to be a second tier here: when the
-    /// sentence gave no verb away, the *category* supplied one — Food said
-    /// "Send it", Care said "Book it", Buys said "Order it".
-    ///
-    /// Those were lies, and provably so. The category tier was reachable only
-    /// when `match(_:)` returned nil, which is exactly the condition under
-    /// which `primaryAct(for:)` returns `.none` — and `.none` is marked done
-    /// and nothing else (`FieldTodayZone.begin(_:)`). So the button under a bag
-    /// of groceries said SEND IT, sent nothing, and ticked the item off. The
-    /// word was chosen by the one part of the app that had been told it must
-    /// not choose: the comment on `primaryAct` below says a category "knows the
-    /// difference no better than it ever did", and then the verb was taken from
-    /// it anyway.
-    ///
-    /// Removing the tier costs Today its variety — a screen of MARK IT DONE
-    /// reads flatter than a screen of verbs. That flatness is the true picture
-    /// of what those items are, and a button that overstates what it will do
-    /// spends trust the app cannot re-earn by looking livelier.
+    /// Today opens the item's workspace. Its label describes the useful
+    /// next step rather than claiming the work has already happened.
     static func primaryVerb(for item: LifeItem) -> String {
-        verbFromWording(item.title) ?? "Mark it done"
+        FieldItemPurpose.actionLabel(item)
     }
 
     /// What the sentence itself asks for. Ordered most specific first, because

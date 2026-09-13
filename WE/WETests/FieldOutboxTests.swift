@@ -1103,72 +1103,27 @@ struct FieldOutboxTests {
     /// Wednesday's — the app moving somebody's invitation to a day they never
     /// chose.
     @Test
-    func aMarkMadeOfflineLandsOnTheDayItWasMade() async throws {
-        let store = store()
-        defer { store.removeAll() }
-
-        let tuesday = "2026-08-04"
+    func legacyReadinessIsDrainedWithoutSending() async throws {
+        let disk = store()
+        defer { disk.removeAll() }
         let server = FakeFieldServer(state: emptyState())
-        server.failuresRemaining = 1
-
-        let outbox = FieldOutbox(
-            wrapping: server,
-            partition: partition(),
-            store: store,
-            now: { Self.now }
-        )
-
-        await #expect(throws: (any Error).self) {
-            try await outbox.markReady(localDate: tuesday)
-        }
-        #expect(
-            server.markedDays.isEmpty,
-            "a rejected send left a mark behind anyway"
-        )
-        #expect(outbox.pending.count == 1, "the tap was dropped rather than queued")
-
+        let outbox = FieldOutbox(wrapping: server, partition: partition(), store: disk)
+        try outbox.stage([.markReady(localDate: "2026-08-04")])
         try await outbox.flush()
-
-        #expect(
-            server.markedDays == [tuesday],
-            "the mark arrived on the wrong day, or not at all"
-        )
+        #expect(outbox.pending.isEmpty)
+        #expect(server.markedDays.isEmpty)
     }
 
-    /// Tapping twice while offline is one mark, not two.
-    ///
-    /// The server's own `on conflict do nothing` would absorb the second, so
-    /// this is not about correctness on the far side — it is that nothing
-    /// about a repeat should ever leave the device. Somebody re-tapping
-    /// because they are unsure whether it worked must not queue a second
-    /// request at their partner.
     @Test
-    func tappingTwiceInOneDayIsOneQueuedMark() async throws {
-        let store = store()
-        defer { store.removeAll() }
-
-        let day = "2026-08-04"
+    func repeatedLegacyReadinessDoesNotReviveTheRitual() async throws {
+        let disk = store()
+        defer { disk.removeAll() }
         let server = FakeFieldServer(state: emptyState())
-        server.failuresRemaining = .max
-
-        let outbox = FieldOutbox(
-            wrapping: server,
-            partition: partition(),
-            store: store,
-            now: { Self.now }
-        )
-
-        await #expect(throws: (any Error).self) {
-            try await outbox.markReady(localDate: day)
-        }
-        await #expect(throws: (any Error).self) {
-            try await outbox.markReady(localDate: day)
-        }
-
-        #expect(
-            outbox.pending.map(\.mutation).compacted().count == 1,
-            "a second tap on the same day queued a second request"
-        )
+        let outbox = FieldOutbox(wrapping: server, partition: partition(), store: disk)
+        try await outbox.markReady(localDate: "2026-08-04")
+        try await outbox.markReady(localDate: "2026-08-04")
+        #expect(outbox.pending.isEmpty)
+        #expect(server.markedDays.isEmpty)
     }
 
     @Test

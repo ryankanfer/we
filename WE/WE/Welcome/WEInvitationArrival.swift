@@ -99,7 +99,7 @@ struct WEInvitationArrival: View {
 
     var body: some View {
         ZStack {
-            WECanvas.ground.bg.ignoresSafeArea()
+            WECanvas.cream.bg.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 0) {
                 Spacer(minLength: 0)
@@ -138,8 +138,8 @@ struct WEInvitationArrival: View {
                 .ignoresSafeArea(edges: .bottom)
         }
         .animation(.easeInOut(duration: 0.45), value: greeting)
-        .environment(\.weCanvas, .ground)
-        .preferredColorScheme(.dark)
+        .environment(\.weCanvas, .cream)
+        .preferredColorScheme(.light)
         .accessibilityElement(children: .contain)
         // A code held from a link is asked about immediately, so the sentence
         // is already the person's name by the time the screen settles.

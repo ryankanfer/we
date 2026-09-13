@@ -863,6 +863,8 @@ enum FieldType {
     static let metric = serif(21.5, .regular)
     /// The capture field's own text — 400 17/1.3.
     static let captureInput = serif(17, .regular)
+    /// Generous text on the capture sheet’s writing paper.
+    static let captureWriting = serif(23, .regular)
     /// The lock screen clock — 300 80/1.
     static let lockClock = serif(80, .light)
     /// The daily moment's statement — 400 20/1.35.

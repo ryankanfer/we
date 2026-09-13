@@ -81,7 +81,7 @@ struct ContentView: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.fieldInk(.legend))
+                    .foregroundStyle(WECanvas.cream.ink)
                     .accessibilityLabel("Open Profile")
                     .accessibilityHint("Account, archives, and privacy")
                     .accessibilityIdentifier("accountButton")
@@ -356,6 +356,7 @@ private struct PairingView: View {
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var pendingInvitation: PendingInvitation
     @State private var joinCode = ""
+    @State private var showsJoinCode = false
     @State private var selectedArchive: RelationshipArchive?
 
     var body: some View {
@@ -371,7 +372,11 @@ private struct PairingView: View {
 
                 invitation
 
-                joinCodeEntry
+                DisclosureGroup("Already invited? Join with a code", isExpanded: $showsJoinCode) {
+                    joinCodeEntry.padding(.top, 18)
+                }
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.headline))
 
                 SessionMessageView()
 
@@ -388,6 +393,7 @@ private struct PairingView: View {
             // than making them find the invitation again.
             if joinCode.isEmpty, let held = pendingInvitation.code {
                 joinCode = held
+                showsJoinCode = true
             }
         }
     }
@@ -429,8 +435,7 @@ private struct PairingView: View {
                 .padding(.top, 4)
 
             Text(
-                "Create an invitation. Your note and private proposal do not "
-                    + "travel with it."
+                "Create your shared space, then choose how to send the invitation. Your private notes stay yours."
             )
             .font(FieldType.body)
             .foregroundStyle(.fieldInk(.sectionSubtitle))
@@ -441,14 +446,14 @@ private struct PairingView: View {
                 Task { await createSharedSpace() }
             } label: {
                 if session.isWorking {
-                    ProgressView().tint(FieldPalette.bg)
+                    ProgressView().tint(WECanvas.cream.bg)
                 } else {
-                    Text("Create an invitation")
+                    Text("Create our space")
                 }
             }
             .buttonStyle(FieldFilledButtonStyle())
             .disabled(session.isWorking)
-            .accessibilityLabel("Create an invitation")
+            .accessibilityLabel("Create our space")
             .accessibilityIdentifier("pairing.createInvitation")
         }
     }
@@ -524,7 +529,6 @@ private struct PairingView: View {
 
 private struct PartnerWaitingView: View {
     @EnvironmentObject private var session: AppSession
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var copied = false
 
     /// Who the invitation is for, in their own name.
@@ -539,17 +543,6 @@ private struct PartnerWaitingView: View {
     /// on a server before the named person exists would be storing their name
     /// somewhere they never agreed to. It travels no further than this phone.
     @AppStorage("we.invitee.name") private var inviteeName = ""
-
-    /// Whether the invitation has left this phone.
-    ///
-    /// The distinction the screen turns on. Before it, there is something to
-    /// do; after it, there is nothing to do, and the app says so by going
-    /// still rather than by continuing to display the thing already done.
-    @AppStorage("we.invitation.sent") private var invitationSent = false
-
-    private var name: String {
-        invitee ?? "they"
-    }
 
     /// The name, or nothing. `WEGateCopy` writes the unnamed sentences out in
     /// full rather than assembling them around a placeholder, so what it wants
@@ -569,49 +562,11 @@ private struct PartnerWaitingView: View {
     private var isLive: Bool { couple?.hasLiveInvitation() ?? false }
 
     var body: some View {
-        if invitationSent, isLive {
-            stillness
-        } else {
-            invitationScreen
-        }
+        invitationScreen
     }
 
-    /// Nothing to do, so nothing to tap.
-    ///
-    /// The code was sent. Leaving it on screen with a share button beside it
-    /// would be the app asking to be checked on, and checking on it is the
-    /// behaviour the whole position is trying not to produce.
-    private var stillness: some View {
-        WEStillness(
-            line: WEGateCopy.stillness(for: name == "they" ? nil : name),
-            identity: FieldIdentity.seed,
-            withdrawal: WEGateCopy.withdraw,
-            onWithdraw: {
-                invitationSent = false
-                Task { await session.revokeInvitation() }
-            }
-        )
-    }
-
-    /// Two different endings, and only one of them is this person's doing.
-    ///
-    /// Withdrawing sets `invitationSent` back to false, so an invitation that
-    /// is no longer live while it is still marked as sent ended some other
-    /// way: it was declined, or it ran out. Those two are deliberately the
-    /// same sentence. Telling somebody they were turned down, as against
-    /// simply told the invitation is closed, is a fact they can do nothing
-    /// with and would be handed on the app's initiative.
-    private var closedTitle: String {
-        invitationSent
-            ? WEGateCopy.invitationClosedTitle
-            : WEGateCopy.invitationWithdrawnTitle
-    }
-
-    private var closedDetail: String {
-        invitationSent
-            ? WEGateCopy.invitationClosedDetail
-            : WEGateCopy.invitationWithdrawnDetail
-    }
+    private var closedTitle: String { WEGateCopy.invitationClosedTitle }
+    private var closedDetail: String { WEGateCopy.invitationClosedDetail }
 
     private var invitationScreen: some View {
         FieldGateScaffold {
@@ -671,6 +626,13 @@ private struct PartnerWaitingView: View {
                 invitationActions
                     .sensoryFeedback(.success, trigger: copied)
 
+                if isLive {
+                    Text("Your partner opens the link, creates their own account, and joins this space. Sharing or copying does not send anything automatically.")
+                        .font(FieldType.body)
+                        .foregroundStyle(.fieldInk(.reasoning))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
                 withdrawal
 
                 SessionMessageView()
@@ -700,23 +662,16 @@ private struct PartnerWaitingView: View {
     @ViewBuilder
     private var invitationActions: some View {
         if isLive {
-            if dynamicTypeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: 12) {
-                    sendInvitationButton
-                    copyInvitationButton
-                }
-            } else {
-                HStack(spacing: 12) {
-                    sendInvitationButton
-                    copyInvitationButton
-                }
+            VStack(alignment: .leading, spacing: 12) {
+                sendInvitationButton
+                copyInvitationButton
             }
         } else {
             Button {
                 Task { await session.createInvitation() }
             } label: {
                 if session.isWorking {
-                    ProgressView().tint(FieldPalette.bg)
+                    ProgressView().tint(WECanvas.cream.bg)
                 } else {
                     Text("Make a new invitation")
                 }
@@ -758,16 +713,12 @@ private struct PartnerWaitingView: View {
 
     private var sendInvitationButton: some View {
         ShareLink(item: invitationShareMessage) {
-            Text("Send the invitation")
+            Text("Share invitation")
         }
         .buttonStyle(FieldFilledButtonStyle())
-        .accessibilityLabel("Send the invitation")
+        .accessibilityLabel("Share invitation")
         .accessibilityIdentifier("waiting.share")
-        // Sharing is the last thing there is to do, so the app goes still
-        // once it is done. Optimistic on purpose: whether the message was
-        // actually sent is between two people and their messaging app, and
-        // WE having an opinion about it would mean watching for an answer.
-        .simultaneousGesture(TapGesture().onEnded { invitationSent = true })
+
     }
 
     private var invitationShareMessage: String {
@@ -779,9 +730,8 @@ private struct PartnerWaitingView: View {
         Button {
             UIPasteboard.general.string = code
             copied = true
-            invitationSent = true
         } label: {
-            Text(copied ? "Copied" : "Copy")
+            Text(copied ? "Code copied" : "Copy code")
         }
         .buttonStyle(FieldOutlinedButtonStyle())
         .accessibilityLabel(copied ? "Copied" : "Copy")

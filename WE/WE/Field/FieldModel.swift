@@ -55,7 +55,7 @@ enum FieldZone: Int, CaseIterable, Codable, Sendable, Identifiable {
     /// All three zones stand on the same ground.
     ///
     /// Practical reading uses cream; Today and Us retain the dark ground.
-    var canvas: WECanvas { self == .life ? .cream : .ground }
+    var canvas: WECanvas { .cream }
 
     /// Which way the light falls here.
     ///
@@ -314,6 +314,8 @@ enum FieldVisibility: String, Codable, Sendable {
 }
 
 struct LifeItem: Identifiable, Codable, Hashable, Sendable {
+    /// Keeps an explicitly created next step actionable without inventing a date.
+    var explicitTask: Bool? = nil
     let id: String
     var title: String
     var category: LifeCategory
@@ -333,11 +335,9 @@ struct LifeItem: Identifiable, Codable, Hashable, Sendable {
     var isDone: Bool
     /// The link this item arrived as, when it arrived from somewhere else.
     ///
-    /// Not a column. `field_life_resources` has stored the approved URLs of
-    /// every published share since private intake shipped, keyed to the item —
-    /// the app simply never read them back. This is that row, attached on
-    /// fetch, so the lookup policy can tell a thing somebody bought on Amazon
-    /// from a thing somebody wrote down.
+    /// Stored in `source_url` for captures and conversation links. Published
+    /// shares can also supply an approved URL through `field_life_resources`;
+    /// the backend falls back to that resource when the column is absent.
     ///
     /// Last in the list and optional on purpose: the memberwise initialiser
     /// keeps its default for every existing call site, and a cached item
@@ -505,6 +505,7 @@ struct FieldCluster: Identifiable, Codable, Hashable, Sendable {
 // MARK: - Us
 
 struct FieldHorizon: Identifiable, Codable, Hashable, Sendable {
+    var goalPlan: FieldGoalPlan? = nil
     let id: String
     /// "Japan," — the first line, largest type in the app.
     var title: String

@@ -1,137 +1,375 @@
 import SwiftUI
 
-/// A fictional practice session. No backend, session, outbox, or network resolver
-/// is injected: every interaction is confined to this view's in-memory store.
+/// One small, real interaction, held entirely in memory. This view never receives
+/// an account, backend, or outbox; replay starts with a fresh practice store.
 @MainActor
 struct WalkthroughView: View {
     let onFinish: () -> Void
     @State private var step = 0
     @State private var store = WalkthroughPractice.makeStore()
     @State private var openedItem: FieldItemReference?
-    @State private var hasOpenedItem = false
+    @State private var selectedSpace = 1
+    @State private var appeared = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @AccessibilityFocusState private var headingFocused: Bool
 
-    private var canvas: WECanvas { step == 3 ? .cream : .ground }
+    private var canvas: WECanvas { step == 0 || step == 4 ? .ground : .cream }
+    private var motion: Animation? { reduceMotion ? nil : .easeInOut(duration: 0.45) }
+    private var titles: [String] {
+        ["Make room for\nthe good part.", "Start with\na thought.",
+         "You decide what\ngets saved.", "Now it has\na place.",
+         "Life together.\nSpace for yourself."]
+    }
+    private var details: [String] {
+        ["A dinner you keep meaning to plan. A detail you don’t want to forget. A little less to carry between you.",
+         "An ordinary sentence is enough. Try this one, or make it your own.",
+         "Check the date before saving. Life is shared with both of you; private writing belongs in Yours.",
+         "Your dinner idea is in Life, with the date you chose. Open it to check or change the details.",
+         "A place for the practical things, the personal things, and what you choose together."]
+    }
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    Text("An example. Nothing here is saved to your account.")
-                        .font(FieldType.body)
-                        .foregroundStyle(.fieldInk(.reasoning))
-                    content
-                }
-                .padding(FieldMetrics.screenSide)
-            }
-            .safeAreaInset(edge: .bottom) {
-                if step != 1 {
-                    Button(actionLabel) { advance() }
-                        .buttonStyle(FieldFilledButtonStyle())
-                        .disabled(step == 3 && !hasOpenedItem)
-                        .accessibilityIdentifier("walkthrough.next")
-                        .padding(20)
+            VStack(spacing: 0) {
+                header
+                ScrollViewReader { proxy in
+                    ScrollView(showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 28) {
+                            Color.clear.frame(height: 0).id("top")
+                            if step == 0 && !typeSize.isAccessibilitySize {
+                                WalkthroughDinnerScene(appeared: appeared)
+                                    .frame(height: 230)
+                                    .dynamicTypeSize(.large)
+                                    .accessibilityHidden(true)
+                            }
+                            introduction
+                            stage
+                        }
+                        .frame(maxWidth: 480, alignment: .leading)
                         .frame(maxWidth: .infinity)
-                        .background(canvas.bg)
+                        .padding(.horizontal, 28)
+                        .padding(.bottom, 30)
+                    }
+                    .scrollBounceBehavior(.basedOnSize)
+                    .scrollDismissesKeyboard(.interactively)
+                    .onChange(of: step) { _, _ in
+                        proxy.scrollTo("top", anchor: .top)
+                        headingFocused = true
+                    }
                 }
+                footer
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Skip", action: onFinish)
-                        .accessibilityIdentifier("walkthrough.skip")
-                }
-            }
+            .background(canvas.bg.ignoresSafeArea())
             .weCanvas(canvas)
             .environment(store)
-            .preferredColorScheme(canvas == .cream ? .light : .dark)
+            .environment(\.colorScheme, canvas == .cream ? .light : .dark)
+            .preferredColorScheme(.dark)
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(item: $openedItem) { reference in
                 FieldItemSheet(itemID: reference.id)
                     .environment(store)
+                    .weCanvas(.cream)
+                    .environment(\.colorScheme, .light)
             }
-            .onChange(of: store.state.lifeItems.count) { _, count in
-                if step == 1 && count > 0 { step = 2 }
+            .onChange(of: store.lastReceipt != nil) { _, reviewing in
+                if reviewing && step == 1 { move(to: 2) }
+                else if !reviewing && step == 2 { move(to: 1) }
             }
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: step)
+            .onAppear { withAnimation(motion) { appeared = true } }
+            .animation(motion, value: canvas)
+            .sensoryFeedback(.selection, trigger: step)
         }
     }
 
-    @ViewBuilder private var content: some View {
-        switch step {
-        case 0:
-            Text("A little less to carry.").font(FieldType.hero)
-            Text("Put a thought down. See where it goes. Find it when you need it.")
+    private var header: some View {
+        HStack {
+            Text("WE").font(FieldType.mark).tracking(4)
+            if !typeSize.isAccessibilitySize {
+                Rectangle().fill(WECanvas.ground.ink.opacity(0.2)).frame(width: 1, height: 18)
+                    .padding(.horizontal, 8)
+                Text("ONE LITTLE PLAN").font(FieldType.subLabel).tracking(2)
+            }
+            Spacer()
+            Button(action: onFinish) {
+                Text("Skip")
+                    .font(FieldType.button)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("walkthrough.skip")
+        }
+        .foregroundStyle(.fieldInk(.headline))
+        .padding(.horizontal, 28)
+        .padding(.vertical, 8)
+        .weCanvas(.ground, ignoringSafeArea: false)
+        .background(WECanvas.ground.bg.ignoresSafeArea(edges: .top))
+    }
+
+    private var introduction: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(typeSize.isAccessibilitySize ? titles[step].replacingOccurrences(of: "\n", with: " ") : titles[step])
+                .font(typeSize.isAccessibilitySize ? .system(.title, design: .serif) : FieldType.hero)
+                .padding(.vertical, 4)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityFocused($headingFocused)
+                .accessibilityIdentifier("walkthrough.heading")
+            Text(details[step])
                 .font(FieldType.body)
-            Text(WalkthroughPractice.input).font(FieldType.pageHeadline)
-        case 1:
-            Text("One thought, a place for it.").font(FieldType.pageHeadline)
-            Text("Try this example. Review the date and who can see it before saving. Change Friday to Saturday if that works better.")
-                .font(FieldType.body)
-            FieldCaptureField()
-        case 2:
-            Text("Your thought has a place.").font(FieldType.pageHeadline)
-            Text("Saved in this example. Now use Life to find the same item again.")
-                .font(FieldType.body)
-            if let item = store.state.lifeItems.first {
-                Text(item.title).font(FieldType.pageHeadline)
-                if let date = item.dueOn {
-                    Text(date, format: .dateTime.weekday(.wide).month().day())
+                .foregroundStyle(.fieldInk(.sectionSubtitle))
+                .lineSpacing(4)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(.fieldInk(.headline))
+        .id(step)
+        .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: 12)))
+    }
+
+    @ViewBuilder private var stage: some View {
+        if step == 1 || step == 2 {
+            // Keep the same component alive across composition and review so
+            // keyboard focus, correction, and the receipt are not recreated.
+            VStack(alignment: .leading, spacing: 18) {
+                Label("Practice only · nothing saved to your account", systemImage: "lock")
+                    .font(FieldType.body)
+                    .foregroundStyle(.fieldInk(.reasoning))
+                FieldCaptureField(isWalkthrough: true, onSaved: { _ in move(to: 3) })
+            }
+        } else if step == 3 {
+            savedPlan
+        } else if step == 4 {
+            spaces
+        }
+    }
+
+    private var savedPlan: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.circle.fill")
+                Text("Saved in this example").font(FieldType.body)
+            }
+            .foregroundStyle(.fieldInk(.headline))
+            ForEach(store.state.lifeItems) { item in
+                Button {
+                    openedItem = FieldItemReference(id: item.id)
+                } label: {
+                    VStack(alignment: .leading, spacing: 22) {
+                        HStack {
+                            Text("LIFE / " + item.category.word.uppercased())
+                                .font(FieldType.subLabel).tracking(2)
+                            Spacer()
+                            Image(systemName: "arrow.up.right")
+                        }
+                        Text(item.title).font(FieldType.pageHeadline)
+                            .multilineTextAlignment(.leading)
+                        if let date = item.dueOn {
+                            Label {
+                                Text(date, format: .dateTime.weekday(.wide).month().day())
+                            } icon: { Image(systemName: "calendar") }
+                            .font(FieldType.body)
+                        }
+                        Divider()
+                        HStack {
+                            Text("Shared example")
+                            Spacer()
+                            Text("Open plan")
+                            Image(systemName: "arrow.right")
+                        }
+                        .font(FieldType.button)
+                    }
+                    .padding(24)
+                    .foregroundStyle(.fieldInk(.headline))
+                    .background(canvas.bgElevated, in: RoundedRectangle(cornerRadius: 22))
+                    .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(canvas.ink.opacity(0.12)))
+                }
+                .buttonStyle(WalkthroughPressStyle())
+                .accessibilityIdentifier("walkthrough.savedItem")
+            }
+            Text("Find it again in Life. Search for a detail, or use Calendar for dated plans.")
+                .font(FieldType.body).foregroundStyle(.fieldInk(.reasoning))
+        }
+        .transition(.opacity)
+    }
+
+    private var spaces: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            HStack(spacing: 8) {
+                ForEach(0..<3) { index in
+                    Button { withAnimation(motion) { selectedSpace = index } } label: {
+                        VStack(spacing: 12) {
+                            Text(["Life", "WE", "Us"][index])
+                                .font(index == 1 ? FieldType.mark : FieldType.button)
+                            Capsule()
+                                .fill(selectedSpace == index ? canvas.ink : canvas.ink.opacity(0.12))
+                                .frame(height: 2)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 52)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(selectedSpace == index ? .isSelected : [])
+                    .accessibilityIdentifier("walkthrough.space.\(index)")
+                }
+            }
+            VStack(alignment: .leading, spacing: 16) {
+                Text(["Keep the details close.", "A place to begin, every day.", "Choose what comes next, together."][selectedSpace])
+                    .font(FieldType.pageHeadline)
+                Text([
+                    "Practical information and plans, with Search and Calendar to find them again.",
+                    "Today offers a useful next step and a writing entrance for whatever is on your mind.",
+                    "Shared questions and directions. For mutual questions, answers appear only after you both submit."
+                ][selectedSpace])
+                .font(FieldType.body).foregroundStyle(.fieldInk(.sectionSubtitle))
+                .lineSpacing(4)
+                if selectedSpace == 1 {
+                    Divider().overlay(canvas.ink.opacity(0.15))
+                    Label("Yours · private writing, opened from Today", systemImage: "lock")
                         .font(FieldType.body)
                 }
             }
-        case 3:
-            Text("Find it in Life.").font(FieldType.pageHeadline)
-            Text("The same thought is here, with the date you chose. Open it to review or correct it.")
+            .fixedSize(horizontal: false, vertical: true)
+            .id(selectedSpace)
+            .transition(.opacity)
+            Text("Joining WE never gives blanket permission to share your private writing.")
                 .font(FieldType.body)
-            ForEach(store.state.lifeItems) { item in
-                Button {
-                    hasOpenedItem = true
-                    openedItem = FieldItemReference(id: item.id)
-                } label: {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(item.title).font(FieldType.pageHeadline)
-                        Text("Life · " + item.category.word).font(FieldType.body)
-                        if let date = item.dueOn {
-                            Text(date, format: .dateTime.weekday(.wide).month().day())
-                                .font(FieldType.body)
-                        }
-                        Text("Shared example").font(FieldType.body)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 20)
-                    .contentShape(Rectangle())
+                .foregroundStyle(.fieldInk(.reasoning))
+        }
+        .foregroundStyle(.fieldInk(.headline))
+    }
+
+    private var footer: some View {
+        VStack(spacing: 16) {
+            HStack(spacing: 8) {
+                ForEach(0..<5) { index in
+                    Capsule().fill(canvas.ink.opacity(index <= step ? 0.8 : 0.16))
+                        .frame(height: 2)
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("walkthrough.savedItem")
             }
-        default:
-            Text("Space for you. Room for both.").font(FieldType.hero)
-            Text("Yours is your private writing space. Life holds practical things you can find again. Check each item's visibility before saving or sharing.")
-                .font(FieldType.body)
-            Text("Us is where a shared question can become a direction you both choose. Joining WE does not give blanket permission to share your private writing.")
-                .font(FieldType.body)
-            Text("Next, you can try with something from your own life.")
-                .font(FieldType.body)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Step \(step + 1) of 5")
+            .accessibilityIdentifier("walkthrough.progress")
+            HStack(spacing: 18) {
+                if step > 0 {
+                    Button(action: goBack) {
+                        Image(systemName: "arrow.left").frame(width: 48, height: 52)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Back")
+                    .accessibilityIdentifier("walkthrough.back")
+                }
+                if step == 0 || step >= 3 {
+                    Button {
+                        if step == 4 { onFinish() }
+                        else if step == 0 {
+                            store.captureDraft = WalkthroughPractice.input
+                            move(to: 1)
+                        } else { move(to: 4) }
+                    } label: {
+                        HStack {
+                            Text(step == 0 ? "Try a little example" : step == 3 ? "Meet the rest of WE" : "Get started")
+                            Spacer(minLength: 8)
+                            Image(systemName: "arrow.right")
+                        }
+                        .font(FieldType.button)
+                        .padding(.horizontal, 22)
+                        .frame(minHeight: 56)
+                        .foregroundStyle(canvas.bg)
+                        .background(canvas.ink, in: Capsule())
+                    }
+                    .buttonStyle(WalkthroughPressStyle())
+                    .accessibilityIdentifier("walkthrough.next")
+                } else {
+                    Text(step == 1 ? "Start with the example above." : "Review and save the example above.")
+                        .font(FieldType.body)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
         }
+        .foregroundStyle(.fieldInk(.headline))
+        .padding(.horizontal, 28)
+        .padding(.top, 16)
+        .padding(.bottom, 12)
+        .background(canvas.bg)
     }
 
-    private var actionLabel: String {
-        switch step {
-        case 0: "Try the example"
-        case 2: "Find it in Life"
-        case 3: "What stays private?"
-        default: "Continue to WE"
-        }
+    private func move(to next: Int) {
+        withAnimation(motion) { step = next }
     }
 
-    private func advance() {
-        if step == 0 {
+    private func goBack() {
+        if step == 2 {
+            let input = store.lastReceipt?.input ?? store.captureDraft
+            store.lastReceipt = nil
+            store.correctingReceipt = nil
+            store.captureDraft = input
+            move(to: 1)
+        } else if step == 3 {
+            store = WalkthroughPractice.makeStore()
             store.captureDraft = WalkthroughPractice.input
-            step = 1
-        } else if step == 2 || step == 3 {
-            step += 1
-        } else {
-            onFinish()
+            move(to: 1)
+        } else { move(to: max(0, step - 1)) }
+    }
+}
+
+/// A little table for two, drawn in the app's two person pigments. Motion
+/// brings the place settings together once; nothing loops or demands attention.
+private struct WalkthroughDinnerScene: View {
+    let appeared: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            ZStack {
+                Ellipse()
+                    .fill(Color(hex: 0x24241D))
+                    .overlay(Ellipse().strokeBorder(Color(hex: 0x85785F).opacity(0.35)))
+                    .frame(width: width * 0.92, height: 206)
+                    .rotationEffect(.degrees(-12))
+                placeSetting(color: Color(hex: 0x9A6269))
+                    .offset(x: -width * 0.24, y: appeared ? -26 : -46)
+                placeSetting(color: Color(hex: 0x9AAB8B))
+                    .offset(x: width * 0.24, y: appeared ? 26 : 46)
+                VStack(spacing: 10) {
+                    Text("a little plan").font(FieldType.body).italic()
+                    Rectangle().fill(WECanvas.cream.ink.opacity(0.2)).frame(width: 28, height: 1)
+                    Text("just us two").font(FieldType.subLabel).tracking(1.5)
+                }
+                .foregroundStyle(WECanvas.cream.ink)
+                .padding(.horizontal, 20).padding(.vertical, 25)
+                .background(WECanvas.cream.bg, in: RoundedRectangle(cornerRadius: 2))
+                .rotationEffect(.degrees(appeared ? -8 : -16))
+                .shadow(color: .black.opacity(0.2), radius: 16, y: 12)
+            }
+            .frame(width: width, height: geometry.size.height)
+            .opacity(appeared || reduceMotion ? 1 : 0)
+            .scaleEffect(appeared || reduceMotion ? 1 : 0.96)
         }
+    }
+
+    private func placeSetting(color: Color) -> some View {
+        ZStack {
+            Circle().fill(color.opacity(0.18))
+            Circle().strokeBorder(color.opacity(0.8), lineWidth: 1)
+            Circle().strokeBorder(color.opacity(0.4), lineWidth: 1).padding(10)
+            Circle().strokeBorder(color.opacity(0.25), lineWidth: 0.5).padding(16)
+        }
+        .frame(width: 100, height: 100)
+    }
+}
+
+private struct WalkthroughPressStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.82 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: configuration.isPressed)
     }
 }
 

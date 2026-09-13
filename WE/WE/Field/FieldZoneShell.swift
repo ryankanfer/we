@@ -37,6 +37,7 @@ struct FieldZoneShell: View {
     @State private var showsAccount = false
     @State private var showsYours = false
     @State private var showsCapture = false
+    @State private var footerHeight: CGFloat = 240
     @State private var firstSave: FirstSaveGuide?
 
     /// Whether the way into Yours has been shown once on this device.
@@ -90,6 +91,8 @@ struct FieldZoneShell: View {
             .animation(.weCanvasCrossing, value: store.activeZone)
 
             pager
+                .ignoresSafeArea(.container, edges: .bottom)
+                .environment(\.fieldFooterHeight, footerHeight)
 
 
             if store.calendarOpen {
@@ -110,7 +113,7 @@ struct FieldZoneShell: View {
         // ground is near-black now, so this no longer varies — but it still
         // has to be stated, because the default follows the system and a
         // phone in light mode would paint a black clock onto #0A0A09.
-        .preferredColorScheme(store.activeZone == .life ? .light : .dark)
+        .preferredColorScheme(store.activeZone.canvas == .cream ? .light : .dark)
         .safeAreaInset(edge: .top, spacing: 0) {
             if !store.calendarOpen, !store.searchOpen {
                 HStack {
@@ -121,6 +124,9 @@ struct FieldZoneShell: View {
                             .accessibilityIdentifier("field.openYours")
                     }
                     Spacer()
+                    Button { store.openConversation() } label: {
+                        HStack(spacing: 5) { Text("Chat"); if store.chatUnread { Circle().frame(width: 5, height: 5) } }.frame(minHeight: 44)
+                    }.accessibilityLabel(store.chatUnread ? "Chat, new messages" : "Chat")
                     Button { showsAccount = true } label: {
                         Text("Account").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                     }
@@ -134,7 +140,7 @@ struct FieldZoneShell: View {
                 .background(store.activeZone.canvas.bg)
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .overlay(alignment: .bottom) {
             if !store.calendarOpen, !store.searchOpen {
                 VStack(spacing: 0) {
                     if store.activeZone == .we {
@@ -157,17 +163,37 @@ struct FieldZoneShell: View {
                                 Image(systemName: "square.and.pencil")
                             }
                             .font(FieldType.body)
-                            .padding(.horizontal, FieldMetrics.screenSide)
-                            .frame(minHeight: 52)
+                            .padding(.horizontal, 20)
+                            .frame(minHeight: 56)
+                            .glassEffect(.regular.interactive(), in: Capsule())
                         }
                         .buttonStyle(.plain)
+                        .padding(.horizontal, FieldMetrics.screenSide)
+                        .padding(.vertical, 12)
                         .accessibilityIdentifier("field.capture.open")
                     }
                     FieldLoadStateLine(store: store)
                     navigationBar
                 }
                 .foregroundStyle(store.activeZone.canvas.ink)
-                .background(store.activeZone.canvas.bg)
+                .padding(.top, 20)
+                .padding(.bottom, 8)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+                    footerHeight = $0
+                }
+                .background {
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                        .mask {
+                            LinearGradient(
+                                colors: [.clear, .black, .black],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        }
+                        .ignoresSafeArea(edges: .bottom)
+                        .allowsHitTesting(false)
+                }
             }
         }
         .sheet(isPresented: $showsCapture) {
@@ -176,9 +202,7 @@ struct FieldZoneShell: View {
                     VStack(alignment: .leading, spacing: 20) {
                         if let guide = firstSave,
                            guide.progress.phase == .started || guide.progress.phase == .saved {
-                            Text("Try with your life")
-                                .font(FieldType.pageHeadline)
-                            Text("Put down one thought. Review its destination and visibility, then save and open it. You can correct it there.")
+                            Text("Put down one thought. You’ll review where it goes and who can see it before saving.")
                                 .font(FieldType.body)
                         }
                         FieldCaptureField(
@@ -189,7 +213,8 @@ struct FieldZoneShell: View {
                     }
                     .padding(FieldMetrics.screenSide)
                 }
-                .navigationTitle("Put it down")
+                .scrollDismissesKeyboard(.interactively)
+                .navigationTitle("")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
@@ -197,9 +222,13 @@ struct FieldZoneShell: View {
                             .accessibilityIdentifier("field.capture.done")
                     }
                 }
-                .weCanvas(.ground)
+                .weCanvas(.cream)
             }
-            .preferredColorScheme(.dark)
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+            .presentationCornerRadius(32)
+            .preferredColorScheme(.light)
+            .environment(\.weCanvas, .cream)
             .environment(store)
         }
         .environment(store)
@@ -275,19 +304,8 @@ struct FieldZoneShell: View {
                 hue: store.identity.color(for: store.speaker)
             )
         }
-        // The circle. Presented from the shell rather than from Today, because
-        // the second person's tap can land while the first is reading Life —
-        // it belongs to both of them, not to one navigation zone.
-        .fullScreenCover(isPresented: roomBinding) {
-            FieldCircleRoom(
-                identity: store.identity,
-                // Non-nil whenever the state is `.both`, which is the only
-                // state this binding is true for. Nothing is invented locally
-                // if it somehow is nil — the room simply does not open, which
-                // is better than opening it around words nobody was given.
-                prompt: store.circle.prompt ?? "",
-                onClose: { store.closeRoom() }
-            )
+        .sheet(isPresented: Binding(get: { store.conversationOpen }, set: { store.conversationOpen = $0 })) {
+            FieldConversationView().environment(store).environmentObject(session)
         }
         // 2a. Asked once, on the first arrival in the zones after a second
         // person joins — which is where both people land, whichever of them
@@ -455,59 +473,17 @@ struct FieldZoneShell: View {
     // 16px 30px 30px; the bar occupies roughly 103pt."
 
     private var navigationBar: some View {
-        VStack(spacing: 10) {
-
-            HStack(alignment: .center, spacing: 0) {
-                zoneLabel(.life)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-
-                weMark
-                    .padding(.horizontal, 26)
-
-                zoneLabel(.us)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+        HStack(alignment: .center, spacing: 46) {
+            zoneLabel(.life)
+            weMark
+            zoneLabel(.us)
         }
-        .padding(.top, 16)
-        .padding(.horizontal, FieldMetrics.screenSide)
-        .padding(.bottom, 30)
-        // The bar is chrome over whichever page is showing, so it takes that
-        // page's canvas rather than a scaffold's. Without this the labels stay
-        // cream ink and vanish the moment Life scrolls under them.
+        .padding(.horizontal, 26)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
         .environment(\.weCanvas, store.activeZone.canvas)
         .animation(.weCanvasCrossing, value: store.activeZone)
-        .background(alignment: .bottom) {
-            ZStack(alignment: .bottom) {
-                LinearGradient(
-                    stops: [
-                        .init(color: store.activeZone.canvas.bg.opacity(0.96), location: 0),
-                        .init(color: store.activeZone.canvas.bg.opacity(0.96), location: 0.45),
-                        .init(color: .clear, location: 1),
-                    ],
-                    startPoint: .bottom,
-                    endPoint: .top
-                )
-
-                // Sits *behind* the navigation and below the words, at the
-                // display edge. It replaces the sliding indicator that used to
-                // live here: an indicator tracking the selected zone is a
-                // progress device, and the direction bans those. Selection is
-                // carried by the words themselves, full ink against reduced.
-                //
-                // Both hues, in every zone. The bar is the couple's chrome and
-                // all three zones hold both people's material; `.mine` is for
-                // the genuinely private surfaces — composition, the stillness,
-                // the Promise — which arrive with the ceremony.
-                WEColourField(state: .shared, identity: store.identity)
-            }
-            .ignoresSafeArea(edges: .bottom)
-            // Deliberately *not* `accessibilityHidden`. The scrim and the
-            // field are colour with no node of their own, and marking a view
-            // that is not an accessibility element hidden promotes it to one
-            // — an element carrying nothing but a hidden flag, which the
-            // audit then reports as a node with no description. Hiding what
-            // was never there is what created the defect.
-        }
     }
 
     /// Tap to go there. Tap it again, once you are there, to open the room
@@ -530,9 +506,8 @@ struct FieldZoneShell: View {
                 store.go(to: zone)
             }
         } label: {
-            Text(zone.navLabel)
-                .font(FieldType.zoneLabel)
-                .tracking(FieldTracking.zoneLabel)
+            Text(zone.navLabel.capitalized)
+                .font(.system(.subheadline, weight: .medium))
                 .foregroundStyle(
                     store.activeZone == zone
                         ? .fieldInk(.headline)
@@ -594,7 +569,7 @@ struct FieldZoneShell: View {
         // long-press have to be attached as peers to the same shape.
         ZStack {
             Circle()
-                .fill(FieldPalette.ink.opacity(0.06))
+                .fill(store.activeZone.canvas.ink.opacity(isHome ? 0.10 : 0.03))
                 .overlay {
                     Circle().strokeBorder(FieldRule.mark, lineWidth: 1)
                 }
@@ -743,7 +718,12 @@ extension Animation {
 // while the app is alive. That falls out of the paging TabView keeping all
 // three mounted — the scaffold does not track offsets itself, and adding a
 // second source of truth for them would only fight SwiftUI's.
+extension EnvironmentValues {
+    @Entry var fieldFooterHeight: CGFloat = 0
+}
+
 struct FieldZoneScaffold<Content: View>: View {
+    @Environment(\.fieldFooterHeight) private var footerHeight
     @Environment(\.dynamicTypeSize) private var typeSize
     let zone: FieldZone
     var horizontalPadding: CGFloat = FieldMetrics.screenSide
@@ -803,7 +783,7 @@ struct FieldZoneScaffold<Content: View>: View {
                 // is only correct at one setting. At the accessibility sizes
                 // the old 112 left the last row of every zone sitting under
                 // LIFE, WE, and US.
-                .padding(.bottom, 32)
+                .padding(.bottom, footerHeight + 32)
             }
             .scrollBounceBehavior(.basedOnSize)
             // Scrolling away from the capture field puts the keyboard away

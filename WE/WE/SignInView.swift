@@ -1,253 +1,207 @@
-//
-//  SignInView.swift
-//  WE
-//
-//  The account gates, in the app's own language.
-//
-//  Everything here is drawn on `FieldGateScaffold` — the same deep green, the
-//  same two families, the same hairlines as the zones behind it. It used to be
-//  cream, and the collapse in `WESplashView` handed a deep green mark to a
-//  light screen.
-//
-//  The identifiers are a contract with WEUITests and are load-bearing:
-//  `accountSubmitButton` and `updatePasswordButton` are how the suite signs in
-//  at all.
-//
-
 import SwiftUI
 
 struct SignInView: View {
-    /// Internal rather than private so `WelcomeView` can open this straight
-    /// into account creation. The default stays `.signIn` — "Welcome back." is
-    /// what the suite asserts on when the view is built with no argument.
     enum Mode: String, CaseIterable, Identifiable {
         case signIn = "Sign in"
         case create = "Create account"
         var id: String { rawValue }
-
-        /// The chip, which is uppercase and tracked like every other label in the
-        /// app. The raw value stays sentence case because it is also the
-        /// submit button's title.
-        var chip: String {
-            self == .signIn ? "SIGN IN" : "CREATE ACCOUNT"
-        }
     }
 
     @EnvironmentObject private var session: AppSession
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var mode: Mode
     @State private var name = ""
     @State private var email = ""
     @State private var password = ""
     @State private var confirmation = ""
     @State private var showsReset = false
+    @State private var submitting = false
+    @FocusState private var focus: WEAccountFocus?
 
-    init(initialMode: Mode = .signIn) {
-        _mode = State(initialValue: initialMode)
+    init(initialMode: Mode = .signIn) { _mode = State(initialValue: initialMode) }
+    private var busy: Bool { submitting || session.isWorking }
+    private var valid: Bool {
+        mode == .signIn
+            ? WEAccountInput.validSignIn(email: email, password: password)
+            : WEAccountInput.validCreation(name: name, email: email, password: password, confirmation: confirmation)
     }
 
     var body: some View {
-        FieldGateScaffold {
-            VStack(alignment: .leading, spacing: 30) {
-                FieldGateHeadline(
-                    title: mode == .signIn
-                        ? "Welcome back."
-                        : "Begin on your side.",
-                    subtitle: mode == .signIn
-                        ? "Return to your shared space."
-                        : "Your private account comes before the shared space."
-                )
-
-                // Two chips rather than a segmented control. A segmented
-                // control is UIKit chrome, and there is none anywhere else in
-                // the app.
-                HStack(spacing: 8) {
-                    ForEach(Mode.allCases) { option in
-                        FieldChip(
-                            option.chip,
-                            isSelected: mode == option
-                        ) {
-                            mode = option
-                        }
-                        .accessibilityLabel(option.rawValue)
-                        .accessibilityIdentifier(
-                            "account.mode.\(option == .signIn ? "signIn" : "create")"
-                        )
-                    }
-                }
-
-                fields
-
-                SessionMessageView()
-
-                VStack(alignment: .leading, spacing: 16) {
-                    Button { submit() } label: {
-                        if session.isWorking {
-                            ProgressView().tint(FieldPalette.bg)
-                        } else {
-                            Text(mode.rawValue)
-                        }
-                    }
-                    .buttonStyle(FieldFilledButtonStyle())
-                    .disabled(!isValid || session.isWorking)
-                    .accessibilityIdentifier("accountSubmitButton")
-
+        WEAccountSurface(
+            title: mode == .signIn ? "Welcome back." : "A little space for you two.",
+            subtitle: mode == .signIn ? "Your shared life, right where you left it." : "Start with your own account. You can invite your partner or join them next.",
+            closeLabel: "Close sign in", onClose: { dismiss() }
+        ) {
+            VStack(alignment: .leading, spacing: 28) {
+                fields.disabled(busy)
+                WEAccountFeedback()
+                VStack(spacing: 12) {
+                    WEAccountPrimaryButton(
+                        title: mode.rawValue,
+                        workingTitle: mode == .signIn ? "Signing in…" : "Creating your account…",
+                        isWorking: busy, enabled: valid, identifier: "accountSubmitButton", action: submit
+                    )
                     if mode == .signIn {
-                        // Every Field button style uppercases its label, so
-                        // the accessibility label is set back to the sentence
-                        // — VoiceOver should not be shouting, and the UI suite
-                        // addresses this one by name.
-                        Button("Forgot password?") { showsReset = true }
-                            .buttonStyle(FieldQuietButtonStyle())
-                            .accessibilityLabel("Forgot password?")
-                            .accessibilityIdentifier("account.forgotPassword")
+                        Button("Forgot password?") {
+                            focus = nil
+                            session.clearMessages()
+                            showsReset = true
+                        }
+                        .font(.system(.subheadline)).frame(minHeight: 44)
+                        .buttonStyle(.plain).disabled(busy)
+                        .accessibilityIdentifier("account.forgotPassword")
                     } else {
-                        Text(
-                            "At least 8 characters. You may need to verify "
-                                + "your email before you can pair."
-                        )
-                        .font(FieldType.reasoning)
-                        .foregroundStyle(.fieldInk(.reasoning))
-                        .fieldLineHeight(1.62, size: 13)
-                        .fixedSize(horizontal: false, vertical: true)
+                        Text("We may ask you to verify your email before you pair.")
+                            .font(.system(.footnote)).foregroundStyle(.fieldInk(.reasoning))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+                FieldRuleLine(color: FieldRule.row)
+                modeSwitch.disabled(busy)
             }
         }
         .sheet(isPresented: $showsReset) { PasswordResetView(email: $email) }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { focus = nil; WEAccountInput.dismissKeyboard() }
+            }
+        }
         .onChange(of: mode) { _, _ in session.clearMessages() }
     }
 
     private var fields: some View {
         VStack(alignment: .leading, spacing: 24) {
             if mode == .create {
-                FieldTextField(
-                    label: "Your name",
-                    text: $name,
-                    contentType: .name,
-                    autocapitalization: .words
-                )
+                WEAccountTextField(label: "Your name", placeholder: "What should we call you?", text: $name,
+                    field: .name, focus: $focus, contentType: .name, capitalization: .words,
+                    onSubmit: { focus = .email })
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -8)))
             }
-
-            FieldTextField(
-                label: "Email",
-                text: $email,
-                contentType: .emailAddress,
-                keyboard: .emailAddress,
-                autocapitalization: .never
-            )
-
-            FieldTextField(
-                label: "Password",
-                text: $password,
-                isSecure: true,
-                contentType: disablesCredentialPrompts
-                    ? nil
-                    : (mode == .create ? .newPassword : .password),
-                autocapitalization: .never
-            )
-
+            WEAccountTextField(label: "Email", placeholder: "you@example.com", text: $email,
+                field: .email, focus: $focus, contentType: .emailAddress, keyboard: .emailAddress,
+                problem: WEAccountInput.validEmail(email) ? nil : "Enter your email address, including the @.",
+                onSubmit: { focus = .password })
+            WEAccountTextField(label: "Password", placeholder: mode == .signIn ? "Your password" : "Choose a password", text: $password,
+                field: .password, focus: $focus, secure: true,
+                contentType: disablesCredentialPrompts ? nil : (mode == .signIn ? .password : .newPassword),
+                submitLabel: mode == .signIn ? .go : .next,
+                hint: mode == .create ? "At least 8 characters." : nil,
+                problem: mode == .create && !password.isEmpty && password.count < 8 ? "Use at least 8 characters." : nil,
+                onSubmit: { if mode == .signIn { submit() } else { focus = .confirmation } })
+                .id(mode)
             if mode == .create {
-                FieldTextField(
-                    label: "Confirm password",
-                    text: $confirmation,
-                    isSecure: true,
-                    contentType: disablesCredentialPrompts
-                        ? nil
-                        : .newPassword,
-                    autocapitalization: .never
-                )
+                WEAccountTextField(label: "Confirm password", placeholder: "Once more", text: $confirmation,
+                    field: .confirmation, focus: $focus, secure: true,
+                    contentType: disablesCredentialPrompts ? nil : .newPassword, submitLabel: .go,
+                    problem: password == confirmation ? nil : "These passwords don’t match yet.", onSubmit: submit)
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: 8)))
             }
         }
     }
 
-    private var isValid: Bool {
-        let basic = email.contains("@") && password.count >= 8
-        return mode == .signIn
-            ? basic
-            : basic
-                && !name.trimmingCharacters(in: .whitespaces).isEmpty
-                && password == confirmation
+    private var modeSwitch: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) { modePrompt; modeButton }.fixedSize(horizontal: true, vertical: false)
+            VStack(alignment: .leading, spacing: 4) { modePrompt; modeButton }
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
-
+    private var modePrompt: some View {
+        Text(mode == .signIn ? "New to WE?" : "Already have an account?")
+            .font(.system(.subheadline)).foregroundStyle(.fieldInk(.reasoning))
+    }
+    private var modeButton: some View {
+        Button(mode == .signIn ? "Create an account" : "Sign in") {
+            focus = nil
+            WEAccountInput.dismissKeyboard()
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
+                mode = mode == .signIn ? .create : .signIn
+            }
+        }
+        .font(.system(.subheadline, weight: .medium)).frame(minHeight: 44)
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(mode == .signIn ? "account.mode.create" : "account.mode.signIn")
+    }
     private var disablesCredentialPrompts: Bool {
-        ProcessInfo.processInfo.environment[
-            "WE_DISABLE_CREDENTIAL_PROMPTS"
-        ] == "1"
+        ProcessInfo.processInfo.environment["WE_DISABLE_CREDENTIAL_PROMPTS"] == "1"
     }
-
     private func submit() {
-        // The next account gate can appear before iOS finishes dismissing the
-        // secure-field keyboard. Resign first so its first action is not
-        // present-but-untappable behind the outgoing input surface.
-        UIApplication.shared.sendAction(
-            #selector(UIResponder.resignFirstResponder),
-            to: nil,
-            from: nil,
-            for: nil
-        )
+        guard valid, !busy else { return }
+        let submittedMode = mode
+        let submittedEmail = WEAccountInput.email(email)
+        let submittedPassword = password
+        let submittedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        submitting = true
+        focus = nil
+        WEAccountInput.dismissKeyboard()
         Task {
-            if mode == .signIn {
-                await session.signIn(email: email, password: password)
+            defer { submitting = false }
+            if submittedMode == .signIn {
+                await session.signIn(email: submittedEmail, password: submittedPassword)
             } else {
-                await session.signUp(
-                    name: name,
-                    email: email,
-                    password: password
-                )
+                await session.signUp(name: submittedName, email: submittedEmail, password: submittedPassword)
             }
         }
     }
 }
 
-/// Reached from "Forgot password?". A plain stack, not a `Form` — a grouped
-/// inset list cannot be made to look like this app, and there are two controls
-/// on it.
 private struct PasswordResetView: View {
     @EnvironmentObject private var session: AppSession
     @Environment(\.dismiss) private var dismiss
     @Binding var email: String
+    @State private var sentEmail: String?
+    @State private var submitting = false
+    @FocusState private var focus: WEAccountFocus?
+    private var busy: Bool { submitting || session.isWorking }
 
     var body: some View {
-        ZStack {
-            FieldGateScaffold {
-                VStack(alignment: .leading, spacing: 30) {
-                    FieldGateHeadline(
-                        title: "We'll send a link.",
-                        subtitle: "Your shared data will not be changed."
-                    )
-
-                    FieldTextField(
-                        label: "Email",
-                        text: $email,
-                        contentType: .emailAddress,
-                        keyboard: .emailAddress,
-                        autocapitalization: .never
-                    )
-
-                    SessionMessageView()
-
-                    Button("Send reset link") {
-                        Task { await session.sendPasswordReset(email: email) }
+        WEAccountSurface(
+            title: sentEmail == nil ? "We'll send a link." : "Check your email.",
+            subtitle: sentEmail == nil ? "A secure way back into your shared space." : "If there’s an account for this address, a reset link is on its way.",
+            onClose: { dismiss() }
+        ) {
+            VStack(alignment: .leading, spacing: 28) {
+                if let sentEmail {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label("Reset link requested", systemImage: "checkmark.circle")
+                            .font(.system(.subheadline, weight: .medium))
+                            .foregroundStyle(FieldSwatch.sage.color(on: .cream))
+                        Text(sentEmail).font(.system(.body)).textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .buttonStyle(FieldFilledButtonStyle())
-                    .disabled(!email.contains("@") || session.isWorking)
-                    .accessibilityIdentifier("sendResetLinkButton")
+                    .accessibilityIdentifier("account.reset.sent")
+                    WEAccountPrimaryButton(title: "Back to sign in", workingTitle: "", isWorking: false,
+                        enabled: true, identifier: "account.reset.back", action: { dismiss() })
+                    Button("Use a different email") { self.sentEmail = nil; session.clearMessages(); focus = .email }
+                        .font(.system(.subheadline)).frame(minHeight: 44).buttonStyle(.plain)
+                } else {
+                    WEAccountTextField(label: "Email", placeholder: "you@example.com", text: $email,
+                        field: .email, focus: $focus, contentType: .emailAddress, keyboard: .emailAddress,
+                        submitLabel: .send, problem: WEAccountInput.validEmail(email) ? nil : "Enter your email address, including the @.",
+                        onSubmit: send)
+                        .disabled(busy)
+                    WEAccountFeedback()
+                    WEAccountPrimaryButton(title: "Send reset link", workingTitle: "Sending your link…", isWorking: busy,
+                        enabled: WEAccountInput.validEmail(email), identifier: "sendResetLinkButton", action: send)
+                    Text("Your plans and conversations stay as they are.")
+                        .font(.system(.footnote)).foregroundStyle(.fieldInk(.reasoning))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
-        .overlay(alignment: .topTrailing) {
-            Button {
-                dismiss()
-            } label: {
-                Text("DONE ✕")
-                    .font(FieldType.button)
-                    .tracking(FieldTracking.button)
-                    .foregroundStyle(.fieldInk(.legend))
-                    .padding(FieldMetrics.screenSide)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Done")
+    }
+    private func send() {
+        guard WEAccountInput.validEmail(email), !busy else { return }
+        let address = WEAccountInput.email(email)
+        focus = nil
+        WEAccountInput.dismissKeyboard()
+        submitting = true
+        Task {
+            defer { submitting = false }
+            await session.sendPasswordReset(email: address)
+            if session.errorMessage == nil { sentEmail = address }
         }
     }
 }
@@ -256,53 +210,38 @@ struct NewPasswordView: View {
     @EnvironmentObject private var session: AppSession
     @State private var password = ""
     @State private var confirmation = ""
+    @State private var submitting = false
+    @FocusState private var focus: WEAccountFocus?
+    private var busy: Bool { submitting || session.isWorking }
 
     var body: some View {
-        FieldGateScaffold {
-            VStack(alignment: .leading, spacing: 30) {
-                FieldGateHeadline(
-                    title: "Choose a new password.",
-                    subtitle: "Your recovery link is confirmed. At least "
-                        + "8 characters, and you're back."
-                )
-
-                VStack(alignment: .leading, spacing: 24) {
-                    FieldTextField(
-                        label: "New password",
-                        text: $password,
-                        isSecure: true,
-                        contentType: .newPassword,
-                        autocapitalization: .never
-                    )
-
-                    FieldTextField(
-                        label: "Confirm new password",
-                        text: $confirmation,
-                        isSecure: true,
-                        contentType: .newPassword,
-                        autocapitalization: .never
-                    )
-                }
-
-                SessionMessageView()
-
-                Button {
-                    Task { await session.completePasswordRecovery(password) }
-                } label: {
-                    if session.isWorking {
-                        ProgressView().tint(FieldPalette.bg)
-                    } else {
-                        Text("Update password")
-                    }
-                }
-                .buttonStyle(FieldFilledButtonStyle())
-                .disabled(
-                    password.count < 8
-                        || password != confirmation
-                        || session.isWorking
-                )
-                .accessibilityIdentifier("updatePasswordButton")
+        WEAccountSurface(title: "Choose a new password.", subtitle: "Your recovery link is confirmed. Let’s get you back in.") {
+            VStack(alignment: .leading, spacing: 28) {
+                VStack(spacing: 24) {
+                    WEAccountTextField(label: "New password", placeholder: "Choose a password", text: $password,
+                        field: .password, focus: $focus, secure: true, contentType: .newPassword,
+                        hint: "At least 8 characters.",
+                        problem: !password.isEmpty && password.count < 8 ? "Use at least 8 characters." : nil,
+                        onSubmit: { focus = .confirmation })
+                    WEAccountTextField(label: "Confirm new password", placeholder: "Once more", text: $confirmation,
+                        field: .confirmation, focus: $focus, secure: true, contentType: .newPassword, submitLabel: .go,
+                        problem: password == confirmation ? nil : "These passwords don’t match yet.", onSubmit: submit)
+                }.disabled(busy)
+                WEAccountFeedback()
+                WEAccountPrimaryButton(title: "Update password", workingTitle: "Updating your password…", isWorking: busy,
+                    enabled: WEAccountInput.validPassword(password, confirmation: confirmation), identifier: "updatePasswordButton", action: submit)
             }
+        }
+    }
+    private func submit() {
+        guard WEAccountInput.validPassword(password, confirmation: confirmation), !busy else { return }
+        let value = password
+        submitting = true
+        focus = nil
+        WEAccountInput.dismissKeyboard()
+        Task {
+            defer { submitting = false }
+            await session.completePasswordRecovery(value)
         }
     }
 }

@@ -117,8 +117,9 @@ enum FieldLookupPolicy {
         // Where FieldOutreach already has somewhere to go, it goes there
         // alone. Two systems offering to handle the same vet appointment is
         // worse than either of them doing it.
-        guard leavesItToUs(FieldTodaySelector.primaryAct(for: item)) else {
-            return []
+        guard leavesItToUs(FieldTodaySelector.primaryAct(for: item)),
+              !item.title.lowercased().hasPrefix("send ") else {
+            return sourceChoice(for: item, shop: FieldRetailer.from(host: item.sourceURL?.host)).map { [$0] } ?? []
         }
 
         let lowered = item.title.lowercased()
@@ -184,7 +185,8 @@ enum FieldLookupPolicy {
         shop: FieldRetailer?
     ) -> FieldLookupChoice? {
         guard let url = item.sourceURL,
-              url.scheme?.lowercased() == "https"
+              url.scheme?.lowercased() == "https",
+              url.host != nil
         else { return nil }
 
         return FieldLookupChoice(

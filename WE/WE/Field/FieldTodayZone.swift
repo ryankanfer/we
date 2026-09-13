@@ -30,52 +30,41 @@ struct FieldTodayZone: View {
     /// thing back.
     @State private var openItem: FieldItemReference?
 
-    /// Whether the circle has ever been explained on this device.
-    ///
-    /// Local rather than a column, and per device rather than per account, for
-    /// the same reason `yours.gesture.hinted` is: what it records is that a
-    /// hand has been shown what a control does. A new phone is a new place to
-    /// learn it, and nothing about a person's relationship is stored here.
-    @AppStorage("field.circle.taught") private var hasTaughtCircle = false
-
-    @State private var showsCircleTeaching = false
-
     var body: some View {
         FieldZoneScaffold(
             zone: .we,
-            headerMeta: DateFormatter.fieldDayMonth
-                .string(from: store.now)
-                .uppercased()
+            showsZoneLabel: false
         ) {
             VStack(alignment: .leading, spacing: 0) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Today").font(FieldType.pageHeadline)
+                        Spacer()
+                        todayDate
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Today").font(FieldType.pageHeadline)
+                        todayDate
+                    }
+                }
+                .foregroundStyle(.fieldInk(.headline))
+                .padding(.bottom, 24)
+
                 if let error = store.itemSaveError {
                     Text(error).font(FieldType.body)
                         .foregroundStyle(.fieldInk(.headline))
                         .padding(.bottom, 20)
                         .accessibilityIdentifier("field.today.saveError")
                 }
-                // One hairline under the Today header, purely as a signal that
-                // the space is jointly held. This is a sanctioned use of the
-                // blend — it is not decoration and it appears nowhere else on
-                // this screen.
-                Rectangle()
-                    .fill(store.identity.blend())
-                    .frame(height: 1)
-                    .opacity(0.55)
-                    .padding(.bottom, 30)
-                    .accessibilityHidden(true)
-
-                // The hero, then the way in. Capture sits directly under
-                // whatever the app has to say, because saying something back
-                // is the reply to it — everything else on this screen is
-                // context and belongs below.
-                switch store.todaySelection {
-                case .resolved(let headline, let detail, _):
-                    resolvedHero(headline, detail)
-                case .needsYou(let moment):
-                    FieldMomentView(moment: moment)
+                Group {
+                    switch store.todaySelection {
+                    case .resolved(let headline, let detail, _):
+                        resolvedHero(headline, detail)
+                    case .needsYou(let moment):
+                        FieldMomentView(moment: moment)
+                    }
                 }
-
+                .padding(.vertical, 12)
 
                 if sharedQuestionIsReady {
                     sharedJourneyHandoff
@@ -104,11 +93,14 @@ struct FieldTodayZone: View {
             FieldDeferralView()
                 .environment(store)
         }
-        .sheet(isPresented: $showsCircleTeaching) {
-            FieldCircleTeachingSheet(identity: store.identity) {
-                showsCircleTeaching = false
-            }
-        }
+
+    }
+
+    private var todayDate: some View {
+        Text(store.now, format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
+            .font(FieldType.body)
+            .foregroundStyle(.fieldInk(.reasoning))
+            .fixedSize()
     }
 
     private var sharedQuestionIsReady: Bool {
@@ -177,7 +169,7 @@ struct FieldTodayZone: View {
                         .fixedSize(horizontal: false, vertical: true)
 
                     Text(detail)
-                        .font(.system(size: 15, design: .serif))
+                        .font(FieldType.body)
                         .foregroundStyle(.fieldInk(.sectionSubtitle))
                         .fieldLineHeight(1.6, size: 15)
                         .multilineTextAlignment(.center)
@@ -197,70 +189,14 @@ struct FieldTodayZone: View {
         }
     }
 
-    // MARK: The circle
-    //
-    // The mark above "Today is clear." is the app's avatar for itself, and it
-    // is now the one place a person can say they are open to a moment
-    // together. See `FieldReadiness` and `FieldCircleSurfaces`.
-
-    /// A control where there is somebody to be open to, and the same quiet
-    /// drawing everywhere else.
-    ///
-    /// Nothing here reveals anything about the partner: the only states it can
-    /// draw are "you have not marked" and "you have", both of which this device
-    /// already knew. The bloom is not drawn here at all — it takes the whole
-    /// screen, from the shell.
-    @ViewBuilder
     private var circleMark: some View {
-        if store.isCircleAvailable {
+        Button { store.openConversation() } label: {
             VStack(spacing: 10) {
-                Button {
-                    // The mark lands first, then the explanation. Teaching
-                    // *before* the first tap would be a modal nobody asked for
-                    // on somebody's first quiet morning in the app; teaching
-                    // at the moment of the tap answers the question the tap
-                    // just raised, which is the only moment it is genuinely
-                    // wanted. The tap is not spent — it counts.
-                    Task { await store.markReady() }
-                    if !hasTaughtCircle {
-                        hasTaughtCircle = true
-                        showsCircleTeaching = true
-                    }
-                } label: {
-                    FieldIntelligenceMark(
-                        identity: store.identity,
-                        diameter: 28,
-                        ringDiameter: 70
-                    )
-                    .frame(width: 70, height: 70)
-                    // The ring, not the 28pt disc. Anything smaller is a
-                    // target nobody can hit; anything larger starts stealing
-                    // taps from the headline underneath.
-                    .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(FieldCircleCopy.markLabel)
-                .accessibilityIdentifier("field.circle.mark")
-
-                // For the person who marked, and only for them. The partner's
-                // screen is unchanged either way — this says what *you* did,
-                // never what is being waited for.
-                if store.circle.state == .you {
-                    Text(FieldCircleCopy.marked)
-                        .font(FieldType.reasoning)
-                        .foregroundStyle(.fieldInk(.legend))
-                        .transition(.opacity)
-                }
-            }
-            .animation(.easeInOut(duration: 0.4), value: store.circle.state)
-        } else {
-            FieldIntelligenceMark(
-                identity: store.identity,
-                diameter: 28,
-                ringDiameter: 70
-            )
-            .frame(height: 70)
-        }
+                Image(systemName: "bubble.left.and.bubble.right").font(.system(size: 24, weight: .light))
+                    .frame(width: 64, height: 64).glassEffect(.regular.interactive(), in: Circle())
+                Text("Your conversation").font(.system(.subheadline))
+            }.foregroundStyle(.fieldInk(.headline))
+        }.buttonStyle(.plain).accessibilityIdentifier("field.conversation.open")
     }
 
     private func watchingBlock(_ items: [FieldWatchItem]) -> some View {
@@ -379,12 +315,13 @@ struct FieldTodayZone: View {
 
 struct FieldMomentView: View {
     @Environment(FieldStore.self) private var store
+    @State private var actionItem: FieldItemReference?
     let moment: FieldMoment
 
     private var accentColor: Color {
         moment.accent == .shared
-            ? store.identity.personB.color
-            : store.identity.color(for: moment.accent)
+            ? store.identity.personB.color(on: .cream)
+            : store.identity.color(for: moment.accent, on: .cream)
     }
 
     var body: some View {
@@ -398,7 +335,7 @@ struct FieldMomentView: View {
                 Text("FOR \(store.identity.name(for: addressee).uppercased()), ALONE")
                     .font(FieldType.dateCount)
                     .tracking(FieldTracking.dateCount)
-                    .foregroundStyle(store.identity.color(for: addressee))
+                    .foregroundStyle(store.identity.color(for: addressee, on: .cream))
                     .padding(.bottom, 14)
             }
 
@@ -412,7 +349,7 @@ struct FieldMomentView: View {
 
             if case .question(let question) = moment.shape {
                 Text(question.stakes)
-                    .font(.system(size: 15, design: .serif))
+                    .font(FieldType.body)
                     .foregroundStyle(.fieldInk(.sectionSubtitle))
                     .fieldLineHeight(1.6, size: 15)
                     .fixedSize(horizontal: false, vertical: true)
@@ -443,17 +380,10 @@ struct FieldMomentView: View {
         // inline card because it is the one screen in the app that stands
         // between a tap and something happening in the world, and it should
         // take the whole of somebody's attention for the second it needs.
-        .sheet(item: outreachBinding) { request in
-            FieldOutreachConfirmation(request: request)
+        .sheet(item: $actionItem) { reference in
+            FieldItemSheet(itemID: reference.id)
                 .environment(store)
         }
-    }
-
-    private var outreachBinding: Binding<FieldOutreachRequest?> {
-        Binding(
-            get: { store.pendingOutreach },
-            set: { if $0 == nil { store.dismissOutreach() } }
-        )
     }
 
     /// "You called the vet. Is that one done?"
@@ -495,7 +425,7 @@ struct FieldMomentView: View {
                         .buttonStyle(
                             FieldOutlinedButtonStyle(
                                 tint: action.tint.map {
-                                    store.identity.color(for: $0)
+                                    store.identity.color(for: $0, on: .cream)
                                 }
                             )
                         )
@@ -508,8 +438,14 @@ struct FieldMomentView: View {
                 // and these are two.
                 ForEach(moment.actions.filter { $0.weight != .quiet }) { action in
                     if action.weight == .filled {
-                        Button(action.title) { perform(action) }
-                            .buttonStyle(FieldFilledButtonStyle())
+                        Button { perform(action) } label: {
+                            Text(action.title)
+                                .font(FieldType.button)
+                                .padding(.horizontal, 12)
+                                .frame(minHeight: 44)
+                        }
+                            .buttonStyle(.glassProminent)
+                            .tint(WECanvas.cream.ink)
                             .accessibilityIdentifier(identifier(for: action))
                     } else {
                         Button(action.title) { perform(action) }
@@ -578,30 +514,7 @@ struct FieldMomentView: View {
     /// it can and then stops, because the last decision before something
     /// leaves the phone is never the app's.
     private func begin(_ act: FieldAct) {
-        guard store.state.lifeItems.contains(where: {
-            $0.id == moment.id
-        }) else {
-            store.complete(moment.id)
-            return
-        }
-
-        switch act {
-        case .call, .message, .email, .book:
-            // Booking is a phone call when there is somebody to call — that
-            // is what booking a vet actually is. The store finds what it can
-            // and then stops.
-            Task { await store.begin(act, for: moment.id) }
-
-        case .schedule:
-            // LIFE's own calendar already holds the date. External calendar
-            // accounts are deliberately outside this release.
-            store.complete(moment.id)
-
-        case .pay, .order, .none:
-            // Real acts with no honest destination on this phone. Paying a
-            // bill means somebody's banking app and the app has no idea
-            // which; opening the wrong one is worse than opening nothing.
-            store.complete(moment.id)
-        }
+        guard store.state.lifeItems.contains(where: { $0.id == moment.id }) else { return }
+        actionItem = FieldItemReference(id: moment.id)
     }
 }

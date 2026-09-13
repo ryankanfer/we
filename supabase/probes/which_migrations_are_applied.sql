@@ -160,4 +160,16 @@ select '20260907030000_lint_dead_locals',
            and p.proname = 'pass_journey_question'
            and pg_get_functiondef(p.oid) not ilike '%v_couple%'
        )
+union all
+-- Read as a repair. `field_journeys.subject_references` was missing in
+-- production on 7 September 2026 even though 20260808120000 is recorded as
+-- applied, because that migration names the column inside a
+-- `create table if not exists`. FALSE here means sign-in still fails with
+-- 42703 and the journey surface cannot load.
+select '20260907120000_journey_subject_references_column',
+       exists (
+         select 1 from information_schema.columns
+         where table_schema = 'public' and table_name = 'field_journeys'
+           and column_name = 'subject_references'
+       )
 order by 1;

@@ -267,15 +267,15 @@ struct FieldUsFieldSurface: View {
         let steps = FieldUsMentions.steps(for: mentions)
 
         VStack(alignment: .leading, spacing: 0) {
-            // §4: the rule is stated, not left to be inferred.
-            FieldLabel(
-                "SIZE IS HOW OFTEN IT COMES UP",
-                font: FieldType.subLabel,
-                tracking: FieldTracking.subLabel,
-                ink: .label
-            )
-            .padding(.bottom, 40)
-            .accessibilityIdentifier("field.us.field.rule")
+            Text("What you keep coming back to.")
+                .font(FieldType.pageHeadline)
+                .foregroundStyle(.fieldInk(.headline))
+                .padding(.bottom, 12)
+            Text("Shared hopes, rhythms, and agreements. Larger words have more shared history behind them. Tap one to explore.")
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.reasoning))
+                .padding(.bottom, 32)
+                .accessibilityIdentifier("field.us.field.rule")
 
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(mentions.enumerated()), id: \.element.id) { index, mention in
@@ -378,7 +378,7 @@ private struct FieldMentionSheet: View {
 
     var body: some View {
         ZStack {
-            FieldPalette.bgElevated.ignoresSafeArea()
+            WECanvas.cream.bgElevated.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -425,7 +425,8 @@ private struct FieldMentionSheet: View {
                 .padding(.bottom, 48)
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
+        .environment(\.weCanvas, .cream)
         .accessibilityIdentifier("field.us.mention")
     }
 }

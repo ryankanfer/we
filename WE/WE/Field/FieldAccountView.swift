@@ -2,15 +2,7 @@
 //  FieldAccountView.swift
 //  WE
 //
-//  The account surface, reached by long-pressing the WE mark.
-//
-//  The handoff specifies eleven screens and none of them is settings — every
-//  surface it draws is the product. So this is new, and it is deliberately
-//  the smallest thing that is honest: who you are, what the app is allowed to
-//  notice, and how to leave. Anything else belongs in a zone.
-//
-//  It carries no navigation chrome of its own beyond a close action, because
-//  the handoff forbids a tab bar and this is not an exception to that.
+//  Account, privacy and response preferences, reached from each main zone.
 //
 
 import SwiftUI
@@ -22,6 +14,7 @@ struct FieldAccountView: View {
     @EnvironmentObject private var walkthrough: WalkthroughPresenter
     @Environment(\.dismiss) private var dismiss
 
+    @State private var surface: FieldAccountSurface?
     @State private var showsDelete = false
     @State private var showsFeedback = false
     @State private var showsPrivacyPolicy = false
@@ -36,15 +29,15 @@ struct FieldAccountView: View {
                     header
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
-                    identity
-                        .padding(.bottom, FieldMetrics.sectionGapLoose)
-
                     if canInvitePartner {
                         partnerConnection
                             .padding(.bottom, FieldMetrics.sectionGapLoose)
                     }
 
                     noticing
+                        .padding(.bottom, FieldMetrics.sectionGapLoose)
+
+                    responseSettings
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
                     privacy
@@ -58,14 +51,24 @@ struct FieldAccountView: View {
 
                     leaving
                 }
-                .padding(.top, FieldMetrics.screenTop)
+                .padding(.top, 20)
                 .padding(.horizontal, FieldMetrics.screenSide)
                 .padding(.bottom, 60)
             }
         }
         .preferredColorScheme(.light)
+        .foregroundStyle(.fieldInk(.headline))
+        .tint(store.identity.personA.color(on: .cream))
         .accessibilityIdentifier("field.account")
-        .overlay(alignment: .topTrailing) { closeButton }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HStack {
+                FieldLabel("Account")
+                Spacer()
+                closeButton
+            }
+            .padding(.leading, FieldMetrics.screenSide)
+            .background(WECanvas.cream.bg)
+        }
         .environment(\.weCanvas, WECanvas.cream)
         .fullScreenCover(isPresented: $showsDelete) {
             FieldDeleteAccountView()
@@ -82,11 +85,49 @@ struct FieldAccountView: View {
                 WEPrivacyPolicyView(showsCloseButton: true)
             }
             .preferredColorScheme(.light)
-        .environment(\.weCanvas, WECanvas.cream)
+            .environment(\.weCanvas, WECanvas.cream)
+        }
+        .sheet(item: $surface) { selection in
+            FieldAccountSurfaceView(surface: selection).environment(store)
         }
         .onChange(of: liveInvitation?.code) { _, _ in
             copiedInvitationCode = false
         }
+    }
+
+    private var responseSettings: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldRuleLine()
+            FieldLabel("How WE responds")
+                .padding(.top, 20)
+                .padding(.bottom, 18)
+            ForEach(FieldAccountSurface.allCases) { selection in
+                Button { surface = selection } label: {
+                    HStack(spacing: 16) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(selection.rawValue)
+                                .font(FieldType.listItem)
+                                .foregroundStyle(.fieldInk(.headline))
+                            Text(selection.summary)
+                                .font(FieldType.body)
+                                .foregroundStyle(.fieldInk(.metadataProse))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.fieldInk(.recessive))
+                            .accessibilityHidden(true)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .padding(.vertical, 14)
+                    .contentShape(Rectangle())
+                }
+                .accessibilityIdentifier("field.account." + selection.accessibilityID)
+                FieldRuleLine(color: FieldRule.row)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private var closeButton: some View {
@@ -107,8 +148,6 @@ struct FieldAccountView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 16) {
-            FieldLabel("Account")
-
             Text(store.identity.name(for: .shared))
                 .font(FieldType.pageHeadline)
                 .foregroundStyle(.fieldInk(.headline))
@@ -131,7 +170,7 @@ struct FieldAccountView: View {
         VStack(alignment: .leading, spacing: 0) {
             FieldRuleLine()
 
-            FieldLabel("Partner connection")
+            Text("Invite your partner").font(FieldType.weLifeSection)
                 .padding(.top, 20)
                 .padding(.bottom, 6)
 
@@ -188,6 +227,12 @@ struct FieldAccountView: View {
             .buttonStyle(FieldOutlinedButtonStyle())
             .accessibilityIdentifier("field.account.invitation.copy")
 
+            Text("They’ll open the link, create their own account, and join you here. Your private writing stays yours.")
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.reasoning))
+
+            DisclosureGroup("Manage invitation") {
+                VStack(alignment: .leading, spacing: 14) {
             Button("Replace this invitation") {
                 Task { await session.createInvitation() }
             }
@@ -206,6 +251,11 @@ struct FieldAccountView: View {
             .buttonStyle(FieldQuietButtonStyle())
             .disabled(session.isWorking || !session.canMutate)
             .accessibilityIdentifier("field.account.invitation.revoke")
+                }
+                .padding(.top, 14)
+            }
+            .font(FieldType.body)
+            .foregroundStyle(.fieldInk(.headline))
         }
     }
 
@@ -229,38 +279,6 @@ struct FieldAccountView: View {
         }
     }
 
-    // MARK: Identity
-
-    private var identity: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            FieldRuleLine()
-
-            FieldLabel("Your colours")
-                .padding(.top, 20)
-                .padding(.bottom, 6)
-
-            Text(
-                "Anything of \(store.identity.nameA)'s is one colour, anything "
-                    + "of \(store.identity.nameB)'s is the other, and anything "
-                    + "you share is both."
-            )
-            .font(FieldType.body)
-            .foregroundStyle(.fieldInk(.sectionSubtitle))
-            .fieldLineHeight(1.6, size: 14.5)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.bottom, 22)
-
-            FieldSwatchRow(owner: .a, identity: store.identity) { swatch in
-                store.choose(swatch, for: .a)
-            }
-            .padding(.bottom, FieldMetrics.sectionGap)
-
-            FieldSwatchRow(owner: .b, identity: store.identity) { swatch in
-                store.choose(swatch, for: .b)
-            }
-        }
-    }
-
     // MARK: What the app is allowed to notice
 
     private var noticing: some View {
@@ -272,8 +290,8 @@ struct FieldAccountView: View {
                 .padding(.bottom, 6)
 
             Text(
-                "I only read what you both allow. Private reflection is "
-                    + "outside the intelligence entirely, and stays that way."
+                "Choose which shared signals WE can notice. Private writing "
+                    + "is never used to shape a response."
             )
             .font(FieldType.body)
             .foregroundStyle(.fieldInk(.sectionSubtitle))
@@ -282,8 +300,31 @@ struct FieldAccountView: View {
             .padding(.bottom, 8)
 
             ForEach(SignalKind.allCases, id: \.self) { signal in
-                signalToggle(signal)
+                if signal.isPermanentlyDisabled {
+                    Label {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("Private writing stays private")
+                                .font(FieldType.listItem)
+                                .foregroundStyle(.fieldInk(.legend))
+                            Text("Never used to shape WE’s responses. Always off.")
+                                .font(FieldType.body)
+                                .foregroundStyle(.fieldInk(.metadataProse))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    } icon: {
+                        Image(systemName: "lock")
+                            .foregroundStyle(.fieldInk(.metadataProse))
+                    }
+                    .padding(.vertical, 14)
+                    .overlay(alignment: .top) { FieldRuleLine(color: FieldRule.row) }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("field.account.signal.\(signal.rawValue)")
+                } else {
+                    signalToggle(signal)
+                }
             }
+
+            FieldSessionMessage()
         }
     }
 
@@ -308,16 +349,14 @@ struct FieldAccountView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .tint(store.identity.personA.color)
+        .tint(store.identity.personA.color(on: .cream))
         .disabled(signal.isPermanentlyDisabled || !session.canMutate)
         .padding(.vertical, 14)
         .overlay(alignment: .top) { FieldRuleLine(color: FieldRule.row) }
         .accessibilityIdentifier("field.account.signal.\(signal.rawValue)")
     }
 
-    /// Permanently-disabled signals read as off regardless of what is stored —
-    /// private reflection is never an input, and the control says so by being
-    /// off and untouchable rather than by a caveat underneath it.
+    /// Private reflection can never be enabled, regardless of stored consent.
     private func isEnabled(_ signal: SignalKind) -> Bool {
         guard !signal.isPermanentlyDisabled else { return false }
         return session.v2State.signalConsents.first {
@@ -396,7 +435,7 @@ struct FieldAccountView: View {
         VStack(alignment: .leading, spacing: 0) {
             FieldRuleLine()
 
-            FieldLabel("If something goes wrong")
+            FieldLabel("Help and feedback")
                 .padding(.top, 20)
                 .padding(.bottom, 18)
 
@@ -411,6 +450,11 @@ struct FieldAccountView: View {
                 .foregroundStyle(.fieldInk(.metadataProse))
                 .fieldLineHeight(1.5, size: 14.5)
                 .fixedSize(horizontal: false, vertical: true)
+            Link("Get support online", destination: WEPrivacyPolicyView.publicURL)
+                .font(FieldType.body)
+                .frame(minHeight: 44)
+                .padding(.top, 14)
+                .accessibilityIdentifier("field.account.support")
         }
     }
 

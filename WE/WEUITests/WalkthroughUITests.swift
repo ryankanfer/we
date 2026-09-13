@@ -66,7 +66,6 @@ final class WalkthroughUITests: XCTestCase {
         XCTAssertTrue(save.waitForExistence(timeout: 5))
         save.tap()
         XCTAssertTrue(next.waitForExistence(timeout: 5))
-        next.tap()
         let item = app.buttons["walkthrough.savedItem"]
         XCTAssertTrue(item.waitForExistence(timeout: 5))
         item.tap()
@@ -74,7 +73,7 @@ final class WalkthroughUITests: XCTestCase {
         XCTAssertTrue(done.waitForExistence(timeout: 5))
         done.tap()
         next.tap()
-        XCTAssertTrue(app.staticTexts["Space for you. Room for both."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Life together.\nSpace for yourself."].waitForExistence(timeout: 5))
         next.tap()
 
         XCTAssertTrue(
@@ -89,9 +88,41 @@ final class WalkthroughUITests: XCTestCase {
 
         XCTAssertTrue(
             app.staticTexts[
-                "Put a thought down. See where it goes. Find it when you need it."
+                "Make room for\nthe good part."
             ].waitForExistence(timeout: 5)
         )
+    }
+
+    @MainActor
+    func testBackNavigationAndSpaceOverview() throws {
+        let app = launchIntoWalkthrough()
+        let next = app.buttons["walkthrough.next"]
+        XCTAssertTrue(next.waitForExistence(timeout: 5))
+        next.tap()
+        app.buttons["field.capture.submit"].tap()
+        XCTAssertTrue(app.staticTexts["You decide what\ngets saved."].waitForExistence(timeout: 5))
+        app.buttons["walkthrough.back"].tap()
+        XCTAssertTrue(app.textViews["field.capture.input"].waitForExistence(timeout: 5))
+        app.buttons["field.capture.submit"].tap()
+        app.buttons["field.receipt.dismiss"].tap()
+        XCTAssertTrue(app.staticTexts["Start with\na thought."].waitForExistence(timeout: 5))
+        app.buttons["walkthrough.back"].tap()
+        next.tap()
+        app.buttons["field.capture.submit"].tap()
+        let save = app.buttons["field.receipt.send"]
+        for _ in 0..<6 where !save.isHittable { app.swipeUp() }
+        save.tap()
+        // Opening the example is optional: the visible way forward stays enabled.
+        XCTAssertTrue(next.waitForExistence(timeout: 5))
+        next.tap()
+        app.buttons["walkthrough.space.0"].tap()
+        XCTAssertTrue(app.staticTexts["Keep the details close."].exists)
+        app.buttons["walkthrough.space.2"].tap()
+        XCTAssertTrue(app.staticTexts["Choose what comes next, together."].exists)
+        app.buttons["walkthrough.back"].tap()
+        XCTAssertTrue(app.buttons["walkthrough.savedItem"].exists)
+        app.buttons["walkthrough.skip"].tap()
+        XCTAssertTrue(app.buttons["welcome.start"].waitForExistence(timeout: 5))
     }
 
     // MARK: Reachable
@@ -146,6 +177,7 @@ final class WalkthroughUITests: XCTestCase {
             "-hasSeenWalkthrough", "NO",
         ]
         if accessibilityTextSize {
+            app.launchEnvironment["WE_TEST_DYNAMIC_TYPE"] = "accessibility5"
             app.launchArguments += [
                 "-UIPreferredContentSizeCategoryName",
                 "UICTContentSizeCategoryAccessibilityExtraExtraExtraLarge",

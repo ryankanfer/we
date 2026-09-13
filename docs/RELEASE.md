@@ -170,18 +170,42 @@ That file also checks the half of `20260907020000` that actually does the
 work — the column privileges on `yours_entries` — and confirms the withdrawn
 `statement_timestamp` version is not what landed.
 
+## Addendum, 7 September: sign-in was broken before any of this
+
+Sign-in returns `column field_journeys.subject_references does not exist`.
+Verified against the deployed schema, not inferred: every other column the
+client selects from `field_journeys` resolves and this one alone returns
+42703. It has nothing to do with the four September migrations —
+`20260808120000_shared_journeys_v1` is recorded as applied, but it names that
+column inside a `create table if not exists`, so a database that already had
+`field_journeys` never received it. The same blind spot as the version
+question above, one file earlier.
+
+`20260907120000_journey_subject_references_column` states the column on its
+own and rebuilds provenance for the journeys that have been running without
+it. It also unbreaks the accumulation triggers from `20260819140000`, which
+have been throwing on every life item or evidence row attached to a journey —
+a plpgsql body is not resolved until it runs, so that function was created
+cleanly against a column that was not there.
+
+Apply it the same way as the rest of this release, then re-run the probe: its
+last row must read `true`.
+
 ## Finishing it
 
+0. Apply `supabase/migrations/20260907120000_journey_subject_references_column.sql`.
+   This one fixes sign-in; do it first.
 1. Apply `supabase/migrations/20260907030000_lint_dead_locals.sql`.
 2. Run `supabase/probes/verify_september_release.sql`. All rows `true`.
 3. Run `supabase/probes/which_migrations_are_applied.sql`. All rows `true`.
-4. Record all twelve, which deploys nothing:
+4. Record all thirteen, which deploys nothing:
 
 ```bash
 supabase migration repair --status applied \
   20260820210000 20260820230000 20260821120000 20260824120000 \
   20260824130000 20260824140000 20260904120000 20260906120000 \
-  20260907000000 20260907010000 20260907020000 20260907030000
+  20260907000000 20260907010000 20260907020000 20260907030000 \
+  20260907120000
 ```
 
 5. `supabase migration list --linked` — every local version has a remote

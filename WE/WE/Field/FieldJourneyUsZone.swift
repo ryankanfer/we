@@ -5,14 +5,14 @@ import SwiftUI
 struct FieldUsZone: View {
     var body: some View {
         if WEFeatureFlags.sharedJourneysEnabled {
-            SharedJourneyUsSurface()
+            FieldGoalsSurface()
         } else {
             LegacyFieldUsZone()
         }
     }
 }
 
-private struct SharedJourneyUsSurface: View {
+struct SharedJourneyUsSurface: View {
     @EnvironmentObject private var session: AppSession
     @Environment(FieldStore.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -39,11 +39,13 @@ private struct SharedJourneyUsSurface: View {
     var body: some View {
         FieldZoneScaffold(
             zone: .us,
-            horizontalPadding: FieldMetrics.usSide,
-            background: AnyView(glow),
+            horizontalPadding: FieldMetrics.screenSide,
             showsZoneLabel: false
         ) {
-            Group {
+            VStack(alignment: .leading, spacing: 24) {
+                Text("Us").font(FieldType.hero).foregroundStyle(.fieldInk(.headline))
+                    .accessibilityAddTraits(.isHeader)
+                Group {
                 switch presentation {
                 case .empty:
                     empty
@@ -56,6 +58,7 @@ private struct SharedJourneyUsSurface: View {
                 case .active(let journeys):
                     active(journeys)
                 }
+            }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .transition(.opacity.combined(with: .offset(y: 8)))
@@ -89,25 +92,6 @@ private struct SharedJourneyUsSurface: View {
         }
     }
 
-    private var glow: some View {
-        ZStack {
-            RadialGradient(
-                colors: [store.identity.personA.color.opacity(0.09), Color.clear],
-                center: UnitPoint(x: 0.4, y: 0.14),
-                startRadius: 0,
-                endRadius: 390
-            )
-            RadialGradient(
-                colors: [store.identity.personB.color.opacity(0.09), Color.clear],
-                center: UnitPoint(x: 0.6, y: 0.14),
-                startRadius: 0,
-                endRadius: 390
-            )
-        }
-        .ignoresSafeArea()
-        .allowsHitTesting(false)
-    }
-
     /// Us at rest.
     ///
     /// "Empty" names the *journey* state, not the screen: no question is
@@ -122,7 +106,6 @@ private struct SharedJourneyUsSurface: View {
             nothingYet
         } else {
             FieldUsFieldSurface()
-                .padding(.top, 34)
         }
     }
 
@@ -133,7 +116,7 @@ private struct SharedJourneyUsSurface: View {
                 .padding(.top, 34)
                 .padding(.bottom, 40)
 
-            Text("This room changes only when something real asks for a shared direction.")
+            Text("What matters to both of you.")
                 .font(FieldType.pageHeadline)
                 .foregroundStyle(.fieldInk(.headline))
                 .fieldLineHeight(1.18, size: 32)
@@ -142,7 +125,7 @@ private struct SharedJourneyUsSurface: View {
                 .accessibilityIdentifier("field.us.journey.empty")
 
             Text(
-                "WE may bring one question from a plan, a repeated hope, or a rhythm that needs a new shape. You each answer privately. Nothing becomes part of Life until you both choose the direction it creates."
+                "Your shared hopes, everyday rhythms, and the choices you want to make together live here. When a question comes up, you each answer privately. A proposed direction enters Life only when you both choose it."
             )
             .font(FieldType.body)
             .foregroundStyle(.fieldInk(.sectionSubtitle))
@@ -191,7 +174,7 @@ private struct SharedJourneyUsSurface: View {
                                 .fill(
                                     selectedChoice == option
                                         ? store.identity.personA.color
-                                        : FieldPalette.ink.opacity(0.16)
+                                        : WECanvas.cream.ink.opacity(0.16)
                                 )
                                 .frame(width: 8, height: 8)
                             Text(option)
@@ -454,13 +437,11 @@ private struct SharedJourneyUsSurface: View {
                     .padding(.top, 26)
             }
 
-            Button("Enter this journey") {
+            Button("Open our direction") {
                 store.teach(FieldTeaching.journeyOpened)
                 openJourney = journey
             }
-            .buttonStyle(.plain)
-            .font(FieldType.reasoning)
-            .foregroundStyle(.fieldInk(.legend))
+            .buttonStyle(FieldFilledButtonStyle())
             .padding(.top, 26)
             .accessibilityIdentifier("field.us.journey.enter")
 

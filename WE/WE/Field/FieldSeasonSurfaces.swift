@@ -23,7 +23,7 @@ struct FieldSeasonClosedView: View {
     @Environment(FieldStore.self) private var store
     @Environment(\.dismiss) private var dismiss
 
-    var season: FieldSeason = FieldSampleData.closedSeason
+    let season: FieldSeason
 
     var body: some View {
         ZStack {
@@ -52,7 +52,6 @@ struct FieldSeasonClosedView: View {
                     didntHappen
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
-                    whatComesNext
                 }
                 .padding(.top, FieldMetrics.screenTop)
                 .padding(.horizontal, FieldMetrics.usSide)
@@ -179,38 +178,6 @@ struct FieldSeasonClosedView: View {
         }
     }
 
-    private var whatComesNext: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            FieldRuleLine(color: FieldRule.us)
-
-            FieldLabel("What comes next")
-                .padding(.top, 2)
-
-            if let horizon = store.primaryHorizon {
-                Text(
-                    [horizon.title, horizon.window]
-                        .compactMap { $0 }
-                        .joined(separator: " ")
-                )
-                .font(FieldType.cardTitle)
-                .foregroundStyle(.fieldInk(.headline))
-            }
-
-            Text(FieldSampleData.nextHorizonPrompt)
-                .font(FieldType.reasoning)
-                .foregroundStyle(.fieldInk(.reasoning))
-                .fieldLineHeight(1.65, size: 13)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 11) {
-                Button("Name the season") {}
-                    .buttonStyle(FieldFilledButtonStyle())
-
-                Button("Keep this") { dismiss() }
-                    .buttonStyle(FieldOutlinedButtonStyle(tint: nil))
-            }
-        }
-    }
 }
 
 // MARK: - 6f. Onboarding

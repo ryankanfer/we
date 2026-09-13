@@ -492,7 +492,7 @@ struct ShareInboxView: View {
 
     var body: some View {
         ZStack {
-            FieldPalette.bgElevated.ignoresSafeArea()
+            WECanvas.cream.bgElevated.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 header
@@ -504,9 +504,8 @@ struct ShareInboxView: View {
                             .foregroundStyle(.fieldInk(.headline))
 
                         Text(
-                            "Private drafts from the Share Sheet. Nothing "
-                                + "enters your shared LIFE until you release "
-                                + "the exact version together."
+                            "An article, a recipe, somewhere to go. Save it from another app, "
+                                + "then review what you want to share in Life."
                         )
                         .font(FieldType.body)
                         .foregroundStyle(.fieldInk(.sectionSubtitle))
@@ -523,7 +522,8 @@ struct ShareInboxView: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
+        .environment(\.weCanvas, .cream)
         .task { model.load() }
         .sheet(item: $selected, onDismiss: model.load) { manifest in
             ShareReviewView(manifest: manifest) {
@@ -536,9 +536,9 @@ struct ShareInboxView: View {
 
     private var header: some View {
         HStack {
-            FieldLabel("Private intake")
+            FieldLabel("Your incoming links")
             Spacer(minLength: 12)
-            Button("DONE ✕") { dismiss() }
+            Button("Done") { dismiss() }
                 .font(FieldType.button)
                 .tracking(FieldTracking.button)
                 .foregroundStyle(.fieldInk(.legend))
@@ -548,14 +548,14 @@ struct ShareInboxView: View {
         }
         .padding(.horizontal, FieldMetrics.screenSide)
         .frame(minHeight: 56)
-        .background(FieldPalette.bgElevated.opacity(0.98))
+        .background(WECanvas.cream.bgElevated.opacity(0.98))
     }
 
     @ViewBuilder
     private var content: some View {
         if model.isLoading {
             ProgressView()
-                .tint(FieldInk.headline.color(on: .ground))
+                .tint(FieldInk.headline.color(on: .cream))
                 .frame(maxWidth: .infinity, minHeight: 180)
                 .accessibilityLabel("Opening private drafts")
         } else if let message = model.message {
@@ -563,11 +563,11 @@ struct ShareInboxView: View {
         } else if model.drafts.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 FieldRuleLine()
-                Text("Nothing waiting.")
+                Text("Saw something they’d love?")
                     .font(FieldType.listItemLarge)
                     .foregroundStyle(.fieldInk(.headline))
                     .padding(.top, 18)
-                Text("Use “Send to WE” from another app to keep something here.")
+                Text("In Safari or another app, tap Share, then Send to WE. Your link waits here privately until you choose to share it. Find shared links in Life → Saved.")
                     .font(FieldType.body)
                     .foregroundStyle(.fieldInk(.reasoning))
                     .fixedSize(horizontal: false, vertical: true)

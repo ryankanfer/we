@@ -16,17 +16,9 @@
 import SwiftUI
 
 struct FieldCaptureField: View {
-    /// What the field says before this couple has said anything.
-    ///
-    /// An instruction, not an example. It names the one thing the field does
-    /// and asks for nothing in particular, which is the only honest thing to
-    /// say to somebody the app has never met.
-    static let coldPlaceholder = "Anything. I'll work out where it goes."
-
     @Environment(FieldStore.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var isFocused: Bool
-    @State private var caretIsVisible = false
     /// Collapsed by default. The chips are a reassurance that nothing was
     /// dropped, not a list anybody works from — and Today is the one screen
     /// that must not accumulate.
@@ -36,12 +28,14 @@ struct FieldCaptureField: View {
     @State private var openItem: FieldItemReference?
     @State private var savedItemID: String?
 
+    var isWalkthrough = false
     var onSaved: (String) -> Void = { _ in }
     var onRetrieved: (String) -> Void = { _ in }
 
-    init(savedItemID: String? = nil,
+    init(savedItemID: String? = nil, isWalkthrough: Bool = false,
          onSaved: @escaping (String) -> Void = { _ in },
          onRetrieved: @escaping (String) -> Void = { _ in }) {
+        self.isWalkthrough = isWalkthrough
         _savedItemID = State(initialValue: savedItemID)
         self.onSaved = onSaved
         self.onRetrieved = onRetrieved
@@ -51,15 +45,17 @@ struct FieldCaptureField: View {
         @Bindable var store = store
 
         return VStack(alignment: .leading, spacing: 0) {
-            FieldRuleLine()
+            if !isWalkthrough {
+                Text("What is on your mind?")
+                    .font(FieldType.pageHeadline)
+                    .foregroundStyle(.fieldInk(.headline))
+                    .padding(.top, 12)
+                    .padding(.bottom, 24)
+            }
 
-            Text("What is on your mind?")
-                .font(FieldType.pageHeadline)
-                .foregroundStyle(.fieldInk(.headline))
-                .padding(.top, 20)
-                .padding(.bottom, 14)
-
-            field(store: store)
+            if !isWalkthrough || store.lastReceipt == nil {
+                field(store: store)
+            }
 
             if let error = store.captureSaveError ?? store.draftSaveError {
                 Text(error).font(FieldType.body).foregroundStyle(.fieldInk(.headline))
@@ -90,13 +86,15 @@ struct FieldCaptureField: View {
             } else if let revived = store.lastRevival {
                 revivalNote(revived)
                     .padding(.top, 14)
-            } else {
+            } else if !isWalkthrough {
                 samplePhrases(store: store)
                     .padding(.top, 14)
             }
 
-            caughtThisWeek
-                .padding(.top, FieldMetrics.sectionGap)
+            if !isWalkthrough {
+                caughtThisWeek
+                    .padding(.top, FieldMetrics.sectionGap)
+            }
         }
         .sheet(item: $openItem) { reference in
             FieldItemSheet(itemID: reference.id)
@@ -110,7 +108,10 @@ struct FieldCaptureField: View {
         // the way out, and it is also the second place the thing can be filed.
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
-                Button("Done") { isFocused = false }
+                Button { isFocused = false } label: {
+                    Image(systemName: "keyboard.chevron.compact.down")
+                }
+                    .accessibilityLabel("Hide keyboard")
                     .accessibilityIdentifier("field.capture.dismiss")
 
                 Spacer()
@@ -118,7 +119,7 @@ struct FieldCaptureField: View {
                 if !store.captureDraft.trimmingCharacters(
                     in: .whitespacesAndNewlines
                 ).isEmpty {
-                    Button("File it") { submit() }
+                    Button("Review") { submit() }
                         .fontWeight(.semibold)
                         .accessibilityIdentifier("field.capture.submitKeyboard")
                 }
@@ -175,121 +176,70 @@ struct FieldCaptureField: View {
         isFocused = false
     }
 
-    // MARK: The field
-    //
-    // 15pt vertical / 16pt horizontal padding, ink .06 fill, 1pt ink .16
-    // border, 3pt radius. An 8pt blend dot, then the text, then a 1.5 × 19pt
-    // caret pulsing at 1.4s.
+    // MARK: The writing paper
 
     private func field(store: FieldStore) -> some View {
         @Bindable var store = store
 
-        return HStack(alignment: .center, spacing: 11) {
-            Circle()
-                .fill(store.identity.blend())
-                .frame(width: 8, height: 8)
-                .accessibilityHidden(true)
-
-            ZStack(alignment: .leading) {
-                if store.captureDraft.isEmpty && !isFocused {
-                    // The placeholder is a suggestion too, and the same one
-                    // the first pill offers — the field demonstrates itself
-                    // with something true about this week.
-                    //
-                    // Before there is a week to read, it falls back to an
-                    // instruction rather than to the demo phrases. A
-                    // placeholder cannot be tapped into the draft, so this is
-                    // the one place a cold field can say what it is for
-                    // without putting words in somebody's mouth.
-                    Text(store.captureSuggestions.first ?? Self.coldPlaceholder)
-                        .font(FieldType.captureInput)
-                        .foregroundStyle(.fieldInk(.label))
+        return VStack(alignment: .leading, spacing: 20) {
+            ZStack(alignment: .topLeading) {
+                if store.captureDraft.isEmpty {
+                    Text("A thought, a plan, something to remember…")
+                        .font(FieldType.captureWriting)
+                        .foregroundStyle(.fieldInk(.reasoning))
+                        .padding(.horizontal, 5)
+                        .padding(.top, 8)
+                        .allowsHitTesting(false)
                 }
 
                 TextEditor(text: $store.captureDraft)
-                    .font(FieldType.captureInput)
+                    .font(FieldType.captureWriting)
+                    .lineSpacing(5)
                     .foregroundStyle(.fieldInk(.headline))
-                    .tint(store.identity.personA.color)
+                    .tint(WECanvas.cream.ink)
                     .scrollContentBackground(.hidden)
-                    .frame(minHeight: 48, maxHeight: 128)
+                    .frame(minHeight: 150, maxHeight: 220)
                     .focused($isFocused)
                     .accessibilityLabel("Tell WE anything")
                     .accessibilityIdentifier("field.capture.input")
             }
-            // Keep the broad focus affordance off the enclosing HStack. A tap
-            // gesture on that ancestor wins hit testing over the trailing
-            // submit Button, leaving "File it" visible to accessibility but
-            // impossible to activate.
             .contentShape(Rectangle())
             .onTapGesture { isFocused = true }
-            // The tap gesture promotes this stack to an interactive
-            // accessibility element in its own right, and it has nothing to
-            // say — the thing worth announcing is the editor inside it. The
-            // broad tap target exists so a finger does not have to find the
-            // editor exactly; assistive technology has no such problem and
-            // should be routed straight to the labelled child.
             .accessibilityElement(children: .contain)
             .accessibilityRespondsToUserInteraction(false)
 
-            if store.captureDraft.isEmpty {
-                caret
-            } else {
-                Button {
-                    submit()
-                } label: {
-                    Text("→")
-                        .font(.system(size: 17))
-                        .foregroundStyle(.fieldInk(.legend))
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
+            HStack(alignment: .center, spacing: 16) {
+                Text("A little less to carry.")
+                    .font(FieldType.body)
+                    .foregroundStyle(.fieldInk(.reasoning))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 0)
+
+                Button { submit() } label: {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 19, weight: .medium))
+                        .foregroundStyle(WECanvas.cream.ink)
+                        .frame(width: 48, height: 48)
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("File it")
+                .glassEffect(.regular.interactive(), in: Circle())
+                .disabled(store.captureDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .opacity(store.captureDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
+                .accessibilityLabel("Review thought")
                 .accessibilityIdentifier("field.capture.submit")
             }
         }
-        .padding(.vertical, 15)
-        .padding(.horizontal, 16)
-        .background(FieldPalette.ink.opacity(0.06))
+        .padding(22)
+        .background(WECanvas.cream.bgElevated, in: RoundedRectangle(cornerRadius: 18))
         .overlay {
-            RoundedRectangle(
-                cornerRadius: FieldMetrics.cardRadius,
-                style: .continuous
-            )
-            .stroke(FieldRule.primary, lineWidth: 1)
-            // A drawn border and nothing else. Hairlines became a resolving
-            // `ShapeStyle` when the second canvas arrived, and a shape filled
-            // with one earns its own accessibility node — which then has
-            // nothing to describe, because it is a rectangle.
-            //
-            // This belongs to the border, not to the field. Chained onto the
-            // outer stack instead, it hid the whole capture surface — editor
-            // included — from assistive technology.
-            .accessibilityHidden(true)
+            RoundedRectangle(cornerRadius: 18)
+                .strokeBorder(WECanvas.cream.ink.opacity(0.08), lineWidth: 0.5)
+                .accessibilityHidden(true)
         }
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: FieldMetrics.cardRadius,
-                style: .continuous
-            )
-        )
-    }
-
-    private var caret: some View {
-        Rectangle()
-            .fill(FieldPalette.ink)
-            .frame(width: 1.5, height: 19)
-            .opacity(reduceMotion ? 0.7 : (caretIsVisible ? 1 : 0.15))
-            .animation(
-                reduceMotion
-                    ? nil
-                    : .easeInOut(duration: 1.4).repeatForever(
-                        autoreverses: true
-                    ),
-                value: caretIsVisible
-            )
-            .onAppear { caretIsVisible = true }
-            .accessibilityHidden(true)
+        .shadow(color: WECanvas.cream.ink.opacity(0.06), radius: 20, x: 0, y: 8)
+        .environment(\.weCanvas, .cream)
     }
 
     // MARK: The receipt
@@ -297,7 +247,7 @@ struct FieldCaptureField: View {
     // ink .05 fill with a 2pt left border in the destination's colour.
 
     private func receiptCard(_ receipt: FieldReceipt) -> some View {
-        let accent = store.identity.color(for: receipt.accent)
+        let accent = store.identity.color(for: receipt.accent, on: .cream)
 
         return FieldCard(accent: accent) {
             VStack(alignment: .leading, spacing: 13) {
@@ -358,20 +308,30 @@ struct FieldCaptureField: View {
                     }
                 }
 
-                if receipt.category.carriesDates, receipt.dueOn != nil {
-                    DatePicker("Date", selection: Binding(
-                        get: { store.lastReceipt?.dueOn ?? store.now },
-                        set: { store.lastReceipt?.dueOn = $0 }
-                    ), displayedComponents: .date)
-                    .font(FieldType.body)
-                    .accessibilityIdentifier("field.receipt.date")
+                if receipt.category.carriesDates {
+                    HStack(spacing: 12) {
+                        if receipt.dueOn != nil {
+                            DatePicker("Date", selection: Binding(
+                                get: { store.lastReceipt?.dueOn ?? store.now },
+                                set: { store.lastReceipt?.dueOn = $0 }
+                            ), displayedComponents: .date)
+                            .font(FieldType.body)
+                            .accessibilityIdentifier("field.receipt.date")
+                        }
+                        receiptTodayButton(receipt)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
                 }
 
-                Text(receipt.reasoning)
-                    .font(FieldType.receiptReasoning)
-                    .foregroundStyle(.fieldInk(.reasoning))
-                    .fieldLineHeight(1.65, size: 13.5)
-                    .fixedSize(horizontal: false, vertical: true)
+                DisclosureGroup("Why here?") {
+                    Text(receipt.reasoning)
+                        .font(FieldType.body)
+                        .foregroundStyle(.fieldInk(.reasoning))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 6)
+                }
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.reasoning))
 
                 // Said before the fact, in the future tense, because nothing
                 // has happened yet — the group comes back on Send and not on
@@ -393,48 +353,36 @@ struct FieldCaptureField: View {
                     .accessibilityIdentifier("field.receipt.revival")
                 }
 
-                Text("Shared in Life. Both of you can see this after you save. For private writing, use Yours.")
+                Text("Shared with both of you after saving. Private thoughts belong in Yours.")
                     .font(FieldType.body)
                     .foregroundStyle(.fieldInk(.headline))
                     .accessibilityIdentifier("field.receipt.visibility")
 
-                // Send is the affirmative and carries the filled style,
-                // because it is the moment the thing actually crosses into
-                // the shared space. The other two cost nothing and change
-                // nothing yet, which is why they are the quiet ones.
-                ViewThatFits(in: .horizontal) {
-                    receiptActions(receipt)
-                    VStack(alignment: .leading, spacing: 12) {
-                        Button("Save to Life") { saveReceipt() }.buttonStyle(FieldFilledButtonStyle()).accessibilityIdentifier("field.receipt.send")
-                        if receipt.category.carriesDates { receiptTodayButton(receipt) }
-                        Button("Wrong place") { store.beginCorrection() }.buttonStyle(FieldQuietButtonStyle()).accessibilityIdentifier("field.receipt.wrong")
-                    }
-                }
+                receiptActions
             }
         }
         .accessibilityElement(children: .contain)
     }
 
-    private func receiptActions(_ receipt: FieldReceipt) -> some View {
-                HStack(spacing: 11) {
-                    Button("Save to Life") { saveReceipt() }
-                        .buttonStyle(FieldFilledButtonStyle())
-                        .accessibilityIdentifier("field.receipt.send")
-                        .accessibilityHint(
-                            "Files it to \(receipt.category.label)"
-                        )
+    private var receiptActions: some View {
+        VStack(spacing: 8) {
+            Button { saveReceipt() } label: {
+                Text(isWalkthrough ? "Save example" : "Save to Life")
+                    .font(FieldType.button)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.glassProminent)
+            .tint(WECanvas.cream.ink)
+            .accessibilityIdentifier("field.receipt.send")
+            .accessibilityHint("Saves this where both of you can see it")
 
-                    // Only where a date is not a lie. The confirmation is the
-                    // TODAY chip that appears above — the app shows what it is
-                    // about to do rather than announcing that it did it.
-                    if receipt.category.carriesDates {
-                        receiptTodayButton(receipt)
-                    }
-
-                    Button("Wrong place") { store.beginCorrection() }
-                        .buttonStyle(FieldQuietButtonStyle())
-                        .accessibilityIdentifier("field.receipt.wrong")
-                }
+            Button("Change category") { store.beginCorrection() }
+                .font(FieldType.button)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .buttonStyle(.plain)
+                .foregroundStyle(.fieldInk(.legend))
+                .accessibilityIdentifier("field.receipt.wrong")
+        }
     }
 
     /// "Today", "Tomorrow", or the weekday. A date beside a one-line title
@@ -459,7 +407,7 @@ struct FieldCaptureField: View {
 
     private func receiptTodayButton(_ receipt: FieldReceipt) -> some View {
         let forToday = isForToday(receipt)
-        return Button(forToday ? "Not today" : "For today") {
+        return Button(forToday ? "Clear date" : "Today") {
             store.toggleForToday()
         }
         .buttonStyle(FieldQuietButtonStyle())
@@ -519,13 +467,10 @@ struct FieldCaptureField: View {
                 } label: {
                     Text(phrase)
                         .font(FieldType.button)
-                        .tracking(FieldTracking.button)
                         .foregroundStyle(.fieldInk(.label))
                         .padding(.horizontal, 11)
                         .padding(.vertical, 7)
-                        .overlay {
-                            Capsule().stroke(FieldRule.row, lineWidth: 1)
-                        }
+                        .background(.ultraThinMaterial, in: Capsule())
                         // Keep the compact capsule while giving the button the
                         // full iOS touch target around it.
                         .frame(minHeight: 44)
@@ -551,37 +496,36 @@ struct FieldCaptureField: View {
         let caught = store.capturesThisWeek
         let count = caught.count
 
-        VStack(alignment: .leading, spacing: 14) {
-            Button {
-                caughtIsOpen.toggle()
-            } label: {
-                HStack(spacing: 8) {
-                    FieldLabel("Caught this week · \(count)")
+        if count > 0 {
+            VStack(alignment: .leading, spacing: 14) {
+                Button {
+                    caughtIsOpen.toggle()
+                } label: {
+                    HStack(spacing: 8) {
+                        FieldLabel("Caught this week · \(count)")
 
-                    if count > 0 {
                         Text(caughtIsOpen ? "−" : "+")
                             .font(FieldType.subLabel)
                             .foregroundStyle(.fieldInk(.recessive))
-                    }
 
-                    Spacer()
-                }
-                .frame(minHeight: 30)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(count == 0)
-            .accessibilityLabel("Caught this week, \(count)")
-            .accessibilityHint(caughtIsOpen ? "Collapses the list" : "Shows the list")
-            .accessibilityIdentifier("field.caught.toggle")
-
-            if caughtIsOpen {
-                FieldFlowLayout(spacing: 7, lineSpacing: 7) {
-                    ForEach(caught) { capture in
-                        chip(capture)
+                        Spacer()
                     }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
                 }
-                .transition(.opacity)
+                .buttonStyle(.plain)
+                .accessibilityLabel("Caught this week, \(count)")
+                .accessibilityHint(caughtIsOpen ? "Collapses the list" : "Shows the list")
+                .accessibilityIdentifier("field.caught.toggle")
+
+                if caughtIsOpen {
+                    FieldFlowLayout(spacing: 7, lineSpacing: 7) {
+                        ForEach(caught) { capture in
+                            chip(capture)
+                        }
+                    }
+                    .transition(.opacity)
+                }
             }
         }
     }

@@ -2,10 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>WESharedJourneysEnabled</key>
-	<string>$(WE_SHARED_JOURNEYS_ENABLED)</string>
-	<key>WEShareInboxEnabled</key>
-	<string>$(WE_SHARE_INBOX_ENABLED)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>AppIdentifierPrefix</key>
 	<string>$(AppIdentifierPrefix)</string>
 	<key>CFBundleDevelopmentRegion</key>
@@ -41,35 +39,14 @@
 	<true/>
 	<key>NSAccentColorName</key>
 	<string>AccentColor</string>
-	<key>NSSupportsLiveActivities</key>
-	<true/>
-	<!--
-	  Where in-app feedback and diagnostics are addressed. Read from the
-	  bundle rather than compiled in, so a TestFlight build and a development
-	  build can differ without a code change. Blank turns the Send button
-	  into the Share Sheet rather than into a message addressed nowhere.
-	-->
-	<key>WESupportEmail</key>
-	<string>kanfer.ryan@gmail.com</string>
-	<key>SUPABASE_PUBLISHABLE_KEY</key>
-	<string>sb_publishable__suAVQyAW3B9BmcN7srkrA_ZlIfZxuY</string>
-	<key>SUPABASE_URL</key>
-	<string>https://tizunrayxyorzrvopnsw.supabase.co</string>
-	<key>UIApplicationSceneManifest</key>
-	<dict>
-		<key>UIApplicationSupportsMultipleScenes</key>
-		<true/>
-		<key>UISceneConfigurations</key>
-		<dict/>
-	</dict>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>remote-notification</string>
-	</array>
-	<key>UIApplicationSupportsIndirectInputEvents</key>
-	<true/>
 	<key>NSContactsUsageDescription</key>
 	<string>When you ask me to call or text someone, I look them up in your contacts to find the number. I look for the one name you asked about, I do not read the rest of your address book, and I do not keep a copy.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>SUPABASE_PUBLISHABLE_KEY</key>
+	<string>$(SUPABASE_PUBLISHABLE_KEY)</string>
+	<key>SUPABASE_URL</key>
+	<string>$(SUPABASE_URL)</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Newsreader_14pt-Light.ttf</string>
@@ -82,26 +59,32 @@
 		<string>Newsreader_36pt-Italic.ttf</string>
 		<string>DMSans-9pt.ttf</string>
 	</array>
-	<!--
-	  UILaunchScreen and UILaunchStoryboardName cannot both be present: the
-	  dict wins and the storyboard is ignored, silently. The storyboard is
-	  what carries the full-bleed gradient, which a plist launch screen
-	  cannot express.
-	-->
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<true/>
+		<key>UISceneConfigurations</key>
+		<dict/>
+	</dict>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>UISupportedInterfaceOrientations~ipad</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
+	<key>WEShareInboxEnabled</key>
+	<string>$(WE_SHARE_INBOX_ENABLED)</string>
+	<key>WESharedJourneysEnabled</key>
+	<string>$(WE_SHARED_JOURNEYS_ENABLED)</string>
+	<key>WESupportURL</key>
+	<string>https://we-privacy-policy.kanfery.chatgpt.site</string>
+	<key>WESupportEmail</key>
+	<string>kanfer.ryan@gmail.com</string>
 </dict>
 </plist>

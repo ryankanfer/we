@@ -46,6 +46,8 @@ struct FieldItemSheet: View {
         store.state.lifeItems.first { $0.id == itemID }
     }
 
+    @State private var showsChat = false
+
     var body: some View {
         ZStack {
             WECanvas.cream.bgElevated.ignoresSafeArea()
@@ -64,27 +66,55 @@ struct FieldItemSheet: View {
                                 .accessibilityIdentifier("field.item.saveError")
                         }
 
-                        standing(item)
+                        if item.sourceURL != nil { FieldItemHelp(item: item, sourceOnly: true) }
 
-                        whereItLives(item)
-                            .padding(.bottom, FieldMetrics.sectionGap)
-
-                        if item.category.carriesDates {
-                            when(item)
-                                .padding(.bottom, FieldMetrics.sectionGap)
-                        }
+                        FieldItemActionPanel(item: item)
+                            .id(itemID)
 
                         FieldItemHelp(item: item)
 
+                        if FieldItemPurpose.resolve(item) != .reference {
+                            when(item)
+                                .padding(.bottom, 24)
+                        }
+
+                        if FieldItemPurpose.resolve(item) == .task {
+                            Button("Mark complete") { store.complete(itemID) }
+                                .buttonStyle(FieldWorkspacePrimaryStyle())
+                                .padding(.bottom, 28)
+                                .disabled(item.isDone)
+                                .accessibilityIdentifier("field.item.complete")
+                        }
+
+                        if item.isSharedPresence {
+                            Button("Discuss this together") { store.conversationContext = .init(kind: "life", id: item.id); showsChat = true }
+                                .buttonStyle(FieldWorkspacePrimaryStyle()).padding(.bottom, 24)
+                        }
+                        standing(item)
+
+                        DisclosureGroup("Organize this item") {
+                            whereItLives(item)
+                                .padding(.top, 16)
+                        }
+                        .font(.system(.body, weight: .medium))
+                        .padding(.bottom, 28)
+
                         removeIt
                     }
-                    .padding(.top, 48)
+                    .padding(.top, 72)
                     .padding(.horizontal, FieldMetrics.screenSide)
                     .padding(.bottom, 60)
                 }
             }
         }
         .overlay(alignment: .topTrailing) { doneButton }
+        .sheet(item: Binding(
+            get: { store.pendingOutreach },
+            set: { if $0 == nil { store.dismissOutreach() } }
+        )) { request in
+            FieldOutreachConfirmation(request: request).environment(store)
+        }
+        .sheet(isPresented: $showsChat) { FieldConversationView(initialContext: .init(kind: "life", id: itemID)).environment(store) }
         .preferredColorScheme(.light)
         .environment(\.weCanvas, WECanvas.cream)
         .animation(.fieldZone(reduceMotion), value: item?.category)
@@ -94,6 +124,9 @@ struct FieldItemSheet: View {
         // or removing it succeeds. A sheet over nothing is not a state.
         .onChange(of: item == nil) { _, gone in
             if gone { dismiss() }
+        }
+        .onChange(of: item?.isDone) { _, done in
+            if done == true { dismiss() }
         }
         .confirmationDialog(
             "Remove this?",
@@ -116,11 +149,12 @@ struct FieldItemSheet: View {
         Button {
             dismiss()
         } label: {
-            Text("DONE ✕")
-                .font(FieldType.button)
-                .tracking(FieldTracking.button)
+            Image(systemName: "xmark")
+                .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(.fieldInk(.legend))
-                .padding(FieldMetrics.screenSide)
+                .frame(width: 44, height: 44)
+                .glassEffect(.regular.interactive(), in: Circle())
+                .padding(16)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -132,7 +166,7 @@ struct FieldItemSheet: View {
 
     private func header(_ item: LifeItem) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            FieldLabel(item.category.word)
+            Text(item.category.word).font(.system(.subheadline, weight: .medium))
 
             HStack(alignment: .top, spacing: 11) {
                 FieldDot(
@@ -143,25 +177,23 @@ struct FieldItemSheet: View {
                 )
 
                 Text(item.title)
-                    .font(FieldType.listItemLarge)
+                    .font(FieldType.hero)
                     .foregroundStyle(.fieldInk(.headline))
-                    .fieldLineHeight(1.25, size: 18)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Spacer(minLength: 0)
             }
 
             Text(whose(item))
-                .font(FieldType.dateCount)
-                .tracking(FieldTracking.dateCount)
-                .foregroundStyle(.fieldInk(.headerMeta))
+                .font(.system(.footnote))
+                .foregroundStyle(.fieldInk(.reasoning))
         }
     }
 
     private func whose(_ item: LifeItem) -> String {
-        let owner = store.identity.name(for: item.owner).uppercased()
+        let owner = store.identity.name(for: item.owner)
         guard let dueOn = item.dueOn else { return owner }
-        return "\(owner) · \(DateFormatter.fieldDayMonth.string(from: dueOn).uppercased())"
+        return "\(owner) · \(DateFormatter.fieldDayMonth.string(from: dueOn))"
     }
 
     // MARK: Whether the other phone has it
@@ -433,4 +465,151 @@ struct FieldItemSheet: View {
         itemID: store.state.lifeItems.first?.id ?? ""
     )
     .environment(store)
+}
+
+/// Working with an item comes before organising it.
+private struct FieldItemActionPanel: View {
+    @Environment(FieldStore.self) private var store
+    let item: LifeItem
+    @State private var decision = ""
+    @State private var note = ""
+    @State private var shareText = ""
+    @State private var savedMessage: String?
+    @State private var isResolving = false
+
+    private var purpose: FieldItemPurpose { FieldItemPurpose.resolve(item) }
+    private var contactAct: FieldAct? {
+        let act = FieldTodaySelector.primaryAct(for: item)
+        return [.call, .message, .email, .book].contains(act) ? act : nil
+    }
+    private var options: [String] {
+        if item.category == .food { return ["Cook at home", "Go out", "Order in"] }
+        return []
+    }
+    private var sharing: String {
+        item.isSharedPresence ? "Saved on this shared item, visible to both of you." : "Saved on this private item."
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            if let detail = item.detail, !detail.isEmpty {
+                Text(detail)
+                    .font(FieldType.body)
+                    .foregroundStyle(.fieldInk(.reasoning))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+
+            if let savedMessage {
+                Label(savedMessage, systemImage: "checkmark")
+                    .font(.system(.subheadline, weight: .medium))
+                    .accessibilityIdentifier("field.item.action.saved")
+            }
+
+            if purpose == .decision {
+                Text("Choose a direction.")
+                    .font(FieldType.pageHeadline)
+                if !options.isEmpty {
+                    VStack(spacing: 0) {
+                        ForEach(options, id: \.self) { option in
+                            Button { decision = option } label: {
+                                HStack {
+                                    Text(option).font(FieldType.captureWriting)
+                                    Spacer()
+                                    Image(systemName: decision == option ? "checkmark.circle.fill" : "circle")
+                                        .font(.system(size: 22, weight: .light))
+                                }
+                                .padding(.vertical, 17)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(decision == option ? .isSelected : [])
+                            .accessibilityIdentifier("field.item.decision.option")
+                            FieldRuleLine(color: FieldRule.watching)
+                        }
+                    }
+                }
+                TextField("Make it specific, or write another choice", text: $decision, axis: .vertical)
+                    .font(FieldType.body)
+                    .lineLimit(2...5)
+                    .padding(16)
+                    .background(WECanvas.cream.bg, in: RoundedRectangle(cornerRadius: 12))
+                    .accessibilityIdentifier("field.item.decision.choice")
+                Text(sharing).font(.system(.footnote)).foregroundStyle(.fieldInk(.reasoning))
+                Button("Save decision") {
+                    if store.saveDecision(on: item.id, choice: decision) {
+                        savedMessage = "Decision saved. Your plan is ready."
+                        decision = ""
+                    }
+                }
+                .buttonStyle(FieldWorkspacePrimaryStyle())
+                .disabled(decision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || decision.count > 240)
+                .accessibilityIdentifier("field.item.decision.save")
+            } else {
+                if item.title.lowercased().hasPrefix("send ") {
+                    TextField("Write the list or message to share", text: $shareText, axis: .vertical)
+                        .font(FieldType.body)
+                        .lineLimit(4...10)
+                        .padding(16)
+                        .background(WECanvas.cream.bg, in: RoundedRectangle(cornerRadius: 12))
+                        .accessibilityIdentifier("field.item.action.shareDraft")
+                    ShareLink(item: shareText) {
+                        Label("Choose where to share", systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(FieldWorkspacePrimaryStyle())
+                    .disabled(shareText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("field.item.action.share")
+                } else if let act = contactAct {
+                    Button(isResolving ? "Finding the destination…" : FieldItemPurpose.actionLabel(item)) {
+                        isResolving = true
+                        Task {
+                            await store.begin(act, for: item.id)
+                            isResolving = false
+                        }
+                    }
+                    .buttonStyle(FieldWorkspacePrimaryStyle())
+                    .disabled(isResolving)
+                    .accessibilityIdentifier("field.item.action.begin")
+                }
+
+                DisclosureGroup(item.sourceURL != nil ? "Thoughts to share" : purpose == .reference ? "Add a note" : "Write the next step") {
+                    VStack(alignment: .leading, spacing: 14) {
+                        TextField(item.sourceURL != nil ? "What caught your eye? What would you like to talk about?" : "What would help you move this forward?", text: $note, axis: .vertical)
+                            .font(FieldType.body)
+                            .lineLimit(3...8)
+                            .padding(14)
+                            .background(WECanvas.cream.bg, in: RoundedRectangle(cornerRadius: 12))
+                            .accessibilityIdentifier("field.item.action.note")
+                        Text(sharing).font(.system(.footnote)).foregroundStyle(.fieldInk(.reasoning))
+                        Button("Save note") {
+                            if store.saveNextStep(on: item.id, note: note) {
+                                note = ""
+                                savedMessage = "Note saved."
+                            }
+                        }
+                        .buttonStyle(FieldWorkspacePrimaryStyle())
+                        .disabled(note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || note.count > 1000)
+                        .accessibilityIdentifier("field.item.action.saveNote")
+                    }
+                    .padding(.top, 12)
+                }
+                .font(.system(.body, weight: .medium))
+            }
+        }
+        .foregroundStyle(.fieldInk(.headline))
+        .padding(.bottom, 28)
+    }
+}
+
+private struct FieldWorkspacePrimaryStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(.body, weight: .medium))
+            .foregroundStyle(WECanvas.cream.bgElevated)
+            .frame(maxWidth: .infinity, minHeight: 52)
+            .padding(.horizontal, 16)
+            .background(WECanvas.cream.ink.opacity(isEnabled ? 1 : 0.35), in: RoundedRectangle(cornerRadius: 14))
+            .opacity(configuration.isPressed ? 0.8 : 1)
+    }
 }

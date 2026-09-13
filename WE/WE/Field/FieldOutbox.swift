@@ -463,6 +463,16 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
         return try await base.shareSoloHistory()
     }
 
+    func sendChat(_ message: FieldChatMessage) async throws { try await enqueue(.sendChat(message)) }
+    func chatPage(before: String?, decisionsOnly: Bool) async throws -> [FieldChatMessage] { try await base.chatPage(before: before, decisionsOnly: decisionsOnly) }
+    func setChatPreference(notices: Bool, readAt: Date?, notifications: Bool?) async throws { try await base.setChatPreference(notices: notices, readAt: readAt, notifications: notifications) }
+    func confirmChatDecision(_ id: String) async throws { try await base.confirmChatDecision(id) }
+
+    func approveGoal(id: String, revision: String, approved: Bool) async throws {
+        try await flush()
+        try await base.approveGoal(id: id, revision: revision, approved: approved)
+    }
+
     // MARK: Writing
 
     func append(_ capture: FieldCapture) async throws {
@@ -651,7 +661,7 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
     /// an item's status covers the whole life of the thing that was typed.
     private static func subjectID(of mutation: FieldMutation) -> String? {
         switch mutation.subject {
-        case .item(let id), .capture(let id): id
+        case .item(let id), .capture(let id), .chat(let id): id
         default: nil
         }
     }
@@ -759,11 +769,30 @@ final class FieldOutbox: FieldBackend, @unchecked Sendable {
             lastIndex[entry.mutation.subject] = index
         }
 
-        return entries.enumerated().compactMap { index, entry in
+        var result = entries.enumerated().compactMap { index, entry -> FieldOutboxEntry? in
             guard entry.mutation.supersedesEarlierWritesToTheSameSubject else {
                 return entry
             }
             return lastIndex[entry.mutation.subject] == index ? entry : nil
         }
+        // Editing a newly queued goal or Life item can compact its creation
+        // away. Its newest value still has to reach the server before the
+        // earliest message referencing it, including across several sends.
+        for index in result.indices {
+            guard case .sendChat(let message) = result[index].mutation,
+                  let context = message.context else { continue }
+            let dependency = result.firstIndex { entry in
+                switch entry.mutation {
+                case .upsertHorizon(let goal): return context.kind == "goal" && context.id == goal.id
+                case .upsertItem(let item): return context.kind == "life" && context.id == item.id
+                default: return false
+                }
+            }
+            if let dependency, dependency > index {
+                let entry = result.remove(at: dependency)
+                result.insert(entry, at: index)
+            }
+        }
+        return result
     }
 }

@@ -34,13 +34,13 @@ struct FieldGateScaffold<Content: View>: View {
 
     var body: some View {
         ZStack {
-            FieldPalette.bg.ignoresSafeArea()
+            WECanvas.cream.bg.ignoresSafeArea()
 
             // The gates are entry surfaces — §2 calls entry "a poster" — so
             // they take the warm top-anchored statement rather than a zone's.
             // There is nowhere to get lost here and no zone to be oriented
             // toward yet.
-            FieldGlow(identity: .seed, statement: .warmTop)
+
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -64,7 +64,8 @@ struct FieldGateScaffold<Content: View>: View {
             .scrollBounceBehavior(.basedOnSize)
             .scrollDismissesKeyboard(.interactively)
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
+        .environment(\.weCanvas, .cream)
     }
 }
 
@@ -102,6 +103,7 @@ struct FieldGateHeadline: View {
 // UIKit's grey capsule and the only place it appeared in the app was here.
 
 struct FieldTextField: View {
+    @Environment(\.weCanvas) private var canvas
     let label: String
     @Binding var text: String
     /// `nil` for a plain field; otherwise a `SecureField`.
@@ -148,7 +150,7 @@ struct FieldTextField: View {
                 .fill(
                     isFocused
                         ? FieldIdentity.seed.personA.color.opacity(0.7)
-                        : FieldRule.row.color(on: .ground)
+                        : FieldRule.row.color(on: canvas)
                 )
                 .frame(height: 1)
         }

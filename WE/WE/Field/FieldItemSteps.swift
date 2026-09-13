@@ -231,3 +231,49 @@ enum FieldLookupQuery {
         )
     }
 }
+
+// MARK: - The next useful step
+
+enum FieldItemPurpose: Equatable {
+    case decision, task, reference
+
+    static func resolve(_ item: LifeItem) -> Self {
+        // A domain such as choose.com is a reference, not the verb “choose”.
+        let first = item.title.lowercased().split(whereSeparator: \.isWhitespace).first
+            .map { String($0).trimmingCharacters(in: .punctuationCharacters) }
+        if ["decide", "choose", "pick"].contains(first ?? "") {
+            return .decision
+        }
+        if item.explicitTask == true { return .task }
+        if item.dueOn == nil,
+           (item.sourceURL != nil && FieldTodaySelector.primaryAct(for: item) == .none
+            || [.watchlist, .notes, .trips, .talk].contains(item.category)) {
+            return .reference
+        }
+        return .task
+    }
+
+    static func actionLabel(_ item: LifeItem) -> String {
+        switch resolve(item) {
+        case .decision: return "Make a decision"
+        case .reference: return "Explore this"
+        case .task:
+            if item.title.lowercased().hasPrefix("send ") { return "Prepare to share" }
+            switch FieldTodaySelector.primaryAct(for: item) {
+            case .call: return "Find the contact"
+            case .message, .email: return "Prepare a message"
+            case .book: return "Arrange booking"
+            case .schedule: return "Set a date"
+            case .pay: return "Find payment information"
+            case .order: return "Find options"
+            case .none: return "Open plan"
+            }
+        }
+    }
+
+    static func decisionTitle(_ item: LifeItem, choice: String) -> String {
+        let subject = item.title.split(separator: " ").dropFirst().joined(separator: " ")
+        let heading = subject.isEmpty ? "Plan" : subject.prefix(1).uppercased() + subject.dropFirst()
+        return "\(heading) — \(choice)"
+    }
+}

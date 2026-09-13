@@ -14,11 +14,12 @@ struct FieldItemHelp: View {
     @Environment(FieldStore.self) private var store
 
     let item: LifeItem
+    var sourceOnly = false
 
     @State private var request: FieldLookupRequest?
 
     private var choices: [FieldLookupChoice] {
-        FieldLookupPolicy.choices(for: item)
+        FieldLookupPolicy.choices(for: item).filter { ($0.destination == .source) == sourceOnly }
     }
 
     /// Nothing on screen when there is nothing to offer — no header, no rule
@@ -30,32 +31,43 @@ struct FieldItemHelp: View {
             VStack(alignment: .leading, spacing: 0) {
                 FieldRuleLine()
 
-                FieldLabel(
-                    "Where to look",
-                    ink: .labelQuiet
-                )
-                .padding(.top, 18)
-                .padding(.bottom, 13)
+                Text(sourceOnly ? "Original link" : "Helpful next steps")
+                    .font(.system(.title3, design: .serif))
+                    .foregroundStyle(.fieldInk(.headline))
+                    .padding(.top, 20)
 
-                FieldFlowLayout(spacing: 8, lineSpacing: 8) {
+                VStack(spacing: 0) {
                     ForEach(choices) { choice in
-                        FieldChip(choice.label) {
+                        Button {
                             request = FieldLookupRequest(
                                 choice: choice,
                                 title: item.title,
                                 sourceURL: item.sourceURL
                             )
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(actionName(choice)).font(.system(.body, weight: .medium))
+                                    Text(choice.destination == .source ? (item.sourceURL?.host ?? "Original link") : choice.destination == .maps ? "Search Apple Maps" : choice.destination == .shops ? "Choose a store to search" : "Search DuckDuckGo")
+                                        .font(.system(.caption)).foregroundStyle(.fieldInk(.reasoning))
+                                }
+                                Spacer()
+                                Image(systemName: "arrow.up.right").font(.system(size: 15))
+                            }
+                            .foregroundStyle(.fieldInk(.headline))
+                            .padding(.vertical, 17)
+                            .contentShape(Rectangle())
                         }
-                        .accessibilityIdentifier(
-                            "field.item.lookup.\(choice.id)"
-                        )
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("field.item.lookup.\(choice.id)")
+                        FieldRuleLine(color: FieldRule.watching)
                     }
                 }
 
                 // "Searched" was true when every chip built a query. One of
                 // them now opens a link instead, and the promise has to cover
                 // both without overstating either.
-                Text("Nothing opens until you review exactly what it sends.")
+                Text("See the destination before opening it.")
                     .font(FieldType.reasoning)
                     .foregroundStyle(.fieldInk(.reasoning))
                     .fixedSize(horizontal: false, vertical: true)
@@ -66,11 +78,30 @@ struct FieldItemHelp: View {
             .sheet(item: $request) { request in
                 FieldLookupReview(
                     request: request,
-                    accent: store.identity.color(for: item.owner)
+                    accent: store.identity.color(for: item.owner, on: .cream)
                 )
             }
         }
     }
+    private func actionName(_ choice: FieldLookupChoice) -> String {
+        switch choice.id {
+        case "food.cook": "Find a recipe"
+        case "food.shop": "Find ingredients"
+        case "food.order": "Explore takeout"
+        case "food.go": "Find a place to eat"
+        case "watch.watch": "Find where to watch"
+        case "watch.read": "Find where to read"
+        case "watch.listen": "Find where to listen"
+        case "money.pay": "Find the payment provider"
+        case "money.contact": "Find provider contact details"
+        case "care.appointment": "Find appointment information"
+        case "trips.stay": "Search places to stay"
+        case "trips.getThere": "Find on Maps"
+        case "home.diy": "Search how-to guides"
+        default: choice.label.capitalized
+        }
+    }
+
 }
 
 private struct FieldLookupReview: View {
@@ -161,7 +192,7 @@ private struct FieldLookupReview: View {
 
     private var introduction: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(request.choice.label.capitalized)
+            Text(request.choice.destination == .source ? "Open saved link" : request.choice.destination == .maps ? "Search Apple Maps" : "Search the web")
                 .font(FieldType.cardTitle)
                 .foregroundStyle(.fieldInk(.headline))
 

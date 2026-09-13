@@ -223,16 +223,10 @@ struct WECanvasTests {
 
     // MARK: Which zone stands where
 
-    /// Every zone stands on the same ground, and the glow is what differs.
-    ///
-    /// This used to assert that Life took the paper. V2 §3 cut the light
-    /// treatment "so that geometry alone carries differentiation" — so the
-    /// test that once proved the grounds were distinct now has to prove they
-    /// are not, and that the orientation moved somewhere else rather than
-    /// being dropped.
-    @Test func practicalLifeUsesCreamAndOtherZonesStayDark() {
+    /// Practical reading and Today share paper; Us keeps its darker room.
+    @Test func lifeAndTodayUsePaperWhileUsStaysDark() {
         for zone in FieldZone.allCases {
-            #expect(zone.canvas == (zone == .life ? .cream : .ground))
+            #expect(zone.canvas == .cream)
         }
     }
 

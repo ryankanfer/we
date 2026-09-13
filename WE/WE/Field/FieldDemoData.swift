@@ -439,8 +439,11 @@ enum FieldDemoData {
 
     static let horizons: [FieldHorizon] = [
         FieldHorizon(
+            goalPlan: FieldGoalPlan(kind: .trip, target: 8000, saved: 2400,
+                milestones: [.init(title: "Choose our season"), .init(title: "Renew the passport"), .init(title: "Make room in the budget", done: true)],
+                notes: "A slower trip, with time for Tokyo and Kyoto.", approvedOwners: [.a, .b]),
             id: "japan",
-            title: "Japan,",
+            title: "Japan in spring",
             window: "spring 2027",
             owner: .shared,
             isPrimary: true,
@@ -461,6 +464,8 @@ enum FieldDemoData {
             )
         ),
         FieldHorizon(
+            goalPlan: FieldGoalPlan(kind: .readiness,
+                milestones: [.init(title: "Talk about what home should feel like"), .init(title: "Agree on a monthly budget")]),
             id: "address",
             title: "One address",
             window: nil,

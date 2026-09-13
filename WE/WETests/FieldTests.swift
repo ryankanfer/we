@@ -1805,20 +1805,20 @@ struct FieldVerbTests {
     func theWordingDecidesTheVerbBeforeTheCategoryDoes() {
         #expect(
             FieldTodaySelector.primaryVerb(for: item("Call your mother", .care))
-                == "Make the call"
+                == "Find the contact"
         )
         #expect(
             FieldTodaySelector.primaryVerb(for: item("Book the vet", .care))
-                == "Book it"
+                == "Arrange booking"
         )
         #expect(
             FieldTodaySelector.primaryVerb(for: item("Rent", .money))
-                == "Pay it"
+                == "Find payment information"
         )
         #expect(
             FieldTodaySelector.primaryVerb(
                 for: item("Renew the registration", LifeCategory(rawValue: "car"))
-            ) == "Renew it"
+            ) == "Open plan"
         )
     }
 
@@ -1830,16 +1830,16 @@ struct FieldVerbTests {
         #expect(FieldTodaySelector.verbFromWording("Recital") == nil)
         #expect(
             FieldTodaySelector.primaryVerb(for: item("Batteries", .buys))
-                == "Mark it done"
+                == "Open plan"
         )
         #expect(
             FieldTodaySelector.primaryVerb(for: item("Groceries", .food))
-                == "Mark it done"
+                == "Open plan"
         )
         #expect(
             FieldTodaySelector.primaryVerb(
                 for: item("Recital", LifeCategory(rawValue: "notes"))
-            ) == "Mark it done"
+            ) == "Explore this"
         )
     }
 
@@ -1863,7 +1863,7 @@ struct FieldVerbTests {
                 "\(category.rawValue) invented an act from nothing"
             )
             #expect(
-                FieldTodaySelector.primaryVerb(for: quiet) == "Mark it done",
+                FieldTodaySelector.primaryVerb(for: quiet) == FieldItemPurpose.actionLabel(quiet),
                 "\(category.rawValue) put a verb on a button that does nothing"
             )
         }
@@ -2273,13 +2273,14 @@ struct FieldOutreachStoreTests {
 
     /// Nothing outward to do, so the button does exactly what it always did.
     @Test
-    func anActWithNoOutwardMeaningJustCompletes() async {
+    func anActWithNoOutwardMeaningDoesNotComplete() async {
         let store = store(finding: [], title: "Pack for the hamptons")
 
         await store.begin(.none, for: "vet")
 
         #expect(store.pendingOutreach == nil)
-        #expect(store.state.lifeItems[0].isDone)
+        #expect(!store.state.lifeItems[0].isDone)
+        #expect(store.itemSaveError != nil)
     }
 
     /// Previews, the gallery, and every screenshot run must never reach out

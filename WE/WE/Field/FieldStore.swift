@@ -39,6 +39,11 @@ protocol FieldBackend: Sendable {
     func delete(itemID: String) async throws
     /// Answering a promotion question is the only way a horizon is ever
     /// created, so this is the only route by which Us gains anything.
+    func sendChat(_ message: FieldChatMessage) async throws
+    func chatPage(before: String?, decisionsOnly: Bool) async throws -> [FieldChatMessage]
+    func setChatPreference(notices: Bool, readAt: Date?, notifications: Bool?) async throws
+    func confirmChatDecision(_ id: String) async throws
+    func approveGoal(id: String, revision: String, approved: Bool) async throws
     func upsert(_ horizon: FieldHorizon) async throws
     /// The record that a horizon became real, and every ordinary week that
     /// moved it.
@@ -157,6 +162,8 @@ extension FieldBackend {
 /// Everything the app persists. One value, so a load is atomic and a
 /// realtime change can be diffed in one place.
 struct FieldState: Codable, Hashable, Sendable {
+    var conversation: [FieldChatMessage]? = nil
+    var chatPreferences: [FieldChatPreference]? = nil
     var identity: FieldIdentity
     var partners: [FieldPartner]
     var lifeItems: [LifeItem]
@@ -1358,6 +1365,263 @@ final class FieldStore {
         deliverStagedItem(item)
     }
 
+    @discardableResult func keepChatGoal(_ suggestion: FieldGoalSuggestion, title: String) -> Bool {
+        guard FieldConversationPolicy.noticesAllowed(state.chatPreferences ?? []), !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, title.count <= 120 else { return false }
+        let ids = Set(suggestion.items.map(\.id))
+        let evidence = chatMessages.filter { ids.contains($0.id) }
+        guard evidence.count == ids.count else { return false }
+        let items = FieldConversationPolicy.evidence(evidence).filter { item in !state.lifeItems.contains { $0.id == item.id } }
+        var goal = state.horizons.first { $0.id == suggestion.existingGoalID } ?? FieldHorizon(
+            goalPlan: .init(kind: suggestion.kind), id: UUID().uuidString, title: title, window: nil,
+            owner: .shared, isPrimary: false, thesis: nil, targetDate: nil, linkedLifeItemIDs: [], openQuestion: nil)
+        goal.linkedLifeItemIDs = Array(Set(goal.linkedLifeItemIDs).union(ids)).sorted()
+        let mutations = items.map(FieldMutation.upsertItem) + [.upsertHorizon(goal)]
+        guard stageItemChange(mutations) else { return false }
+        mutations.forEach { $0.apply(to: &state) }
+        if outbox != nil { Task { await flushPending() } }
+        else if let backend { Task { for mutation in mutations { try? await mutation.send(to: backend) } } }
+        return true
+    }
+
+    var conversationOpen = false
+    var conversationContext: FieldChatContext?
+    var conversationDraft = ""
+    var conversationError: String?
+    var chatMessages: [FieldChatMessage] { (state.conversation ?? []).sorted { $0.createdAt == $1.createdAt ? $0.id < $1.id : $0.createdAt < $1.createdAt } }
+    var chatUnread: Bool {
+        let read = state.chatPreferences?.first { $0.owner == speaker }?.readAt ?? .distantPast
+        return chatMessages.contains { $0.sender != speaker && $0.createdAt > read }
+    }
+    func openConversation(context: FieldChatContext? = nil) {
+        conversationContext = context; conversationOpen = true
+    }
+    @discardableResult func sendConversation(_ body: String, context: FieldChatContext?, decision: Bool = false, sourceID: String? = nil) -> Bool {
+        let message = FieldChatMessage(body: body.trimmingCharacters(in: .whitespacesAndNewlines), sender: speaker, context: context, decision: decision, sourceID: sourceID)
+        guard message.valid, context == nil || chatContextTitle(context!) != nil else { return false }
+        // Stage the message, every new link and its goal connection in one
+        // durable write. A failed local save must leave the draft intact.
+        var mutations: [FieldMutation] = []
+        var savedIDs: [String] = []
+        if !decision {
+            for (index, url) in message.urls.enumerated() {
+                if let existing = savedConversationLink(url) {
+                    savedIDs.append(existing.id)
+                    continue
+                }
+                let item = LifeItem(explicitTask: false, id: index == 0 ? message.id : UUID().uuidString,
+                    title: FieldConversationLinks.title(url), category: .notes, owner: .shared,
+                    dueOn: nil, closesAt: nil, clusterID: nil, source: .captured,
+                    detail: "From your conversation:\n" + message.body, isTimeCritical: false, isDone: false,
+                    sourceURL: url, visibility: .shared)
+                savedIDs.append(item.id)
+                mutations.append(.upsertItem(item))
+            }
+        }
+        if let context, context.kind == "goal", !savedIDs.isEmpty,
+           var goal = state.horizons.first(where: { $0.id == context.id }) {
+            for id in savedIDs where !goal.linkedLifeItemIDs.contains(id) { goal.linkedLifeItemIDs.append(id) }
+            mutations.append(.upsertHorizon(goal))
+        }
+        // A new goal may still be queued. Compaction replaces its earlier
+        // write, so keep the updated goal before the message that references it.
+        mutations.append(.sendChat(message))
+        guard stageItemChange(mutations) else { conversationError = itemSaveError; return false }
+        mutations.forEach { $0.apply(to: &state) }
+        refreshDeliveryStates()
+        conversationError = nil
+        if outbox != nil { Task { await flushPending() } }
+        else if let backend {
+            Task {
+                do { for mutation in mutations { try await mutation.send(to: backend) } }
+                catch { conversationError = "Your message or saved links could not sync. Please try again." }
+            }
+        }
+        return true
+    }
+    @discardableResult
+    func keepConversationLink(_ url: URL, from message: FieldChatMessage) -> Bool {
+        guard message.urls.contains(where: { FieldConversationLinks.key($0) == FieldConversationLinks.key(url) }) else { return false }
+        if savedConversationLink(url) != nil { return true }
+        let item = LifeItem(explicitTask: false, id: UUID().uuidString,
+            title: FieldConversationLinks.title(url), category: .notes, owner: .shared,
+            dueOn: nil, closesAt: nil, clusterID: nil, source: .captured,
+            detail: "From your conversation:\n" + message.body, isTimeCritical: false, isDone: false,
+            sourceURL: url, visibility: .shared)
+        var mutations: [FieldMutation] = [.upsertItem(item)]
+        if let context = message.context, context.kind == "goal",
+           var goal = state.horizons.first(where: { $0.id == context.id }) {
+            goal.linkedLifeItemIDs.append(item.id)
+            mutations.append(.upsertHorizon(goal))
+        }
+        guard stageItemChange(mutations) else { return false }
+        mutations.forEach { $0.apply(to: &state) }
+        refreshDeliveryStates()
+        if outbox != nil { Task { await flushPending() } }
+        else if let backend {
+            Task {
+                do { for mutation in mutations { try await mutation.send(to: backend) } }
+                catch { conversationError = "This link could not sync. Please try again." }
+            }
+        }
+        return true
+    }
+
+    func savedConversationLink(_ url: URL) -> LifeItem? {
+        let key = FieldConversationLinks.key(url)
+        return state.lifeItems.first { $0.isSharedPresence && !$0.isDone && $0.sourceURL.map(FieldConversationLinks.key) == key }
+    }
+
+    /// Relationships are read from the original messages and shared URLs, so
+    /// re-sharing a link keeps the discussion attached without rewriting notes.
+    func conversationMessage(_ message: FieldChatMessage, relatesTo context: FieldChatContext) -> Bool {
+        if message.context == context { return true }
+        let ids: Set<String>
+        if context.kind == "goal" {
+            ids = Set(state.horizons.first(where: { $0.id == context.id })?.linkedLifeItemIDs ?? [])
+        } else { ids = [context.id] }
+        if ids.contains(message.id) || (message.context?.kind == "life" && ids.contains(message.context?.id ?? "")) { return true }
+        let keys = Set(state.lifeItems.filter { ids.contains($0.id) && $0.isSharedPresence }.compactMap { $0.sourceURL.map(FieldConversationLinks.key) })
+        return message.urls.contains { keys.contains(FieldConversationLinks.key($0)) }
+    }
+
+    func chatContextTitle(_ context: FieldChatContext) -> String? {
+        if context.kind == "goal" { return state.horizons.first { $0.id == context.id }?.title }
+        return state.lifeItems.first { $0.id == context.id && $0.isSharedPresence }?.title
+    }
+    func earlierChat(before: String?, decisionsOnly: Bool = false) async -> [FieldChatMessage] {
+        do { return try await backend?.chatPage(before: before, decisionsOnly: decisionsOnly) ?? chatMessages.filter { !decisionsOnly || ($0.decision && $0.confirmed) } }
+        catch { conversationError = "Couldn’t load this conversation. Try again."; return [] }
+    }
+    func updateChatPreference(notices: Bool, readAt: Date? = nil, notifications: Bool? = nil) async {
+        do {
+            if let backend { try await backend.setChatPreference(notices: notices, readAt: readAt, notifications: notifications); await retryLoad() }
+            else {
+                var prefs = state.chatPreferences ?? []
+                let old = prefs.first { $0.owner == speaker }
+                prefs.removeAll { $0.owner == speaker }
+                prefs.append(.init(owner: speaker, notices: notices, readAt: readAt ?? old?.readAt, notifications: notifications ?? old?.notifications))
+                state.chatPreferences = prefs
+            }
+            conversationError = nil
+        } catch { conversationError = "That setting wasn’t saved. Connect and try again." }
+    }
+    func confirmConversationDecision(_ message: FieldChatMessage) async {
+        let id = message.id
+        guard message.decision, message.sender != speaker else { return }
+        do {
+            if let backend {
+                try await backend.confirmChatDecision(id); await retryLoad()
+                var confirmed = message; confirmed.confirmed = true
+                FieldMutation.sendChat(confirmed).apply(to: &state)
+            }
+            else if let index = state.conversation?.firstIndex(where: { $0.id == id }) { state.conversation?[index].confirmed = true }
+        } catch { conversationError = "Your confirmation wasn’t saved. Please try again." }
+    }
+    @discardableResult func keepConversation(_ message: FieldChatMessage, title: String, asTask: Bool, dueOn: Date?) -> Bool {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, title.count <= 240 else { return false }
+        // Stable id makes retrying or keeping the same message on both phones idempotent.
+        let item = LifeItem(explicitTask: asTask, id: message.id, title: title, category: asTask ? .home : .notes,
+            owner: .shared, dueOn: dueOn, closesAt: nil, clusterID: nil, source: .captured,
+            detail: "From your conversation:\n" + message.body, isTimeCritical: false, isDone: false,
+            sourceURL: message.firstURL, visibility: .shared)
+        guard stageItemChange([.upsertItem(item)]) else { return false }
+        FieldMutation.upsertItem(item).apply(to: &state)
+        if let context = message.context, context.kind == "goal", var goal = state.horizons.first(where: { $0.id == context.id }) {
+            if !goal.linkedLifeItemIDs.contains(item.id) { goal.linkedLifeItemIDs.append(item.id); _ = saveGoal(goal) }
+        }
+        if outbox != nil { Task { await flushPending() } }
+        else if let backend { Task { try? await backend.upsert(item) } }
+        return true
+    }
+
+    @discardableResult
+    func saveGoal(_ goal: FieldHorizon) -> Bool {
+        guard !goal.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              goal.title.count <= 120, goal.goalPlan?.valid ?? true else { return false }
+        guard stageItemChange([.upsertHorizon(goal)]) else { return false }
+        state.horizons.removeAll { $0.id == goal.id }
+        state.horizons.append(goal)
+        if outbox != nil { Task { await flushPending() } }
+        else { Task { [backend] in
+            do { try await backend?.upsert(goal) }
+            catch { self.itemSaveError = "Your goal could not sync. Please try again." }
+        } }
+        return true
+    }
+
+    func approveGoal(_ id: String, approved: Bool = true) async {
+        itemSaveError = nil
+        guard let index = state.horizons.firstIndex(where: { $0.id == id }),
+              let plan = state.horizons[index].goalPlan else { return }
+        do {
+            if let backend {
+                try await backend.approveGoal(id: id, revision: plan.revision, approved: approved)
+                await retryLoad()
+            } else {
+                state.horizons[index].goalPlan!.approvedOwners.removeAll { $0 == speaker }
+                if approved {
+                    state.horizons[index].goalPlan!.approvedOwners.append(speaker)
+                }
+            }
+        } catch { itemSaveError = "Your choice wasn’t saved. Connect and try again." }
+    }
+
+    @discardableResult
+    func addGoalTask(goalID: String, title: String) -> Bool {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, title.count <= 240,
+              var goal = state.horizons.first(where: { $0.id == goalID }) else { return false }
+        let item = LifeItem(explicitTask: true, id: UUID().uuidString, title: title, category: goal.goalPlan?.kind == .trip ? .trips : goal.goalPlan?.kind == .savings ? .money : .home, owner: .shared,
+            dueOn: nil, closesAt: nil, clusterID: nil, source: .captured, detail: "For: " + goal.title,
+            isTimeCritical: false, isDone: false)
+        goal.linkedLifeItemIDs.append(item.id)
+        guard stageItemChange([.upsertItem(item), .upsertHorizon(goal)]) else { return false }
+        state.lifeItems.append(item)
+        state.horizons.removeAll { $0.id == goal.id }; state.horizons.append(goal)
+        if outbox != nil { Task { await flushPending() } }
+        else { Task { [backend] in
+            do { try await backend?.upsert(item); try await backend?.upsert(goal) }
+            catch { self.itemSaveError = "The next step could not sync. Please try again." }
+        } }
+        return true
+    }
+
+    /// A decision becomes a concrete plan on the same item. Its date,
+    /// ownership, visibility and provenance remain attached to that plan.
+    @discardableResult
+    func saveDecision(on itemID: String, choice: String) -> Bool {
+        let choice = choice.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !choice.isEmpty, choice.count <= 240,
+              !isLegacyExternalRow(itemID),
+              let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
+              !state.lifeItems[index].isDone,
+              FieldItemPurpose.resolve(state.lifeItems[index]) == .decision else { return false }
+        var item = state.lifeItems[index]
+        let original = item.title
+        item.title = FieldItemPurpose.decisionTitle(item, choice: choice)
+        let record = "\(identity.name(for: speaker)) chose: \(choice). From: \(original)."
+        item.detail = [item.detail, record].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n\n")
+        guard stageItemChange([.upsertItem(item)]) else { return false }
+        state.lifeItems[index] = item
+        deliverStagedItem(item)
+        return true
+    }
+
+    @discardableResult
+    func saveNextStep(on itemID: String, note: String) -> Bool {
+        let note = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !note.isEmpty, note.count <= 1000, !isLegacyExternalRow(itemID),
+              let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
+              !state.lifeItems[index].isDone else { return false }
+        var item = state.lifeItems[index]
+        item.detail = [item.detail, note].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n\n")
+        guard stageItemChange([.upsertItem(item)]) else { return false }
+        state.lifeItems[index] = item
+        deliverStagedItem(item)
+        return true
+    }
+
     private func deliverStagedItem(_ item: LifeItem) {
         if outbox != nil {
             refreshDeliveryStates()
@@ -2059,7 +2323,7 @@ final class FieldStore {
             identity: state.identity
         )
         guard act != .none, let extraction else {
-            complete(itemID)
+            itemSaveError = "There isn’t a contact or destination to open yet. Add the details or use a lookup below."
             return
         }
 
@@ -2373,7 +2637,7 @@ final class FieldStore {
         // deliberately outside the do/catch below, because whether the zones
         // loaded and whether the couple is open to each other are two
         // unrelated questions and neither should suppress the other.
-        await refreshReadiness()
+        // Readiness ritual retired; conversation is explicit.
 
         do {
             state = try await backend.load()
@@ -2531,7 +2795,7 @@ final class FieldStore {
         // turns "I marked" into "we both did" when the partner got there
         // first, and it is the same call the realtime tick makes — one path to
         // the bloom, not two.
-        await refreshReadiness()
+        // Readiness ritual retired; conversation is explicit.
     }
 
     /// Re-read the circle. Called on every load and every realtime tick, so
@@ -2611,6 +2875,15 @@ final class FieldMemoryBackend: FieldBackend, @unchecked Sendable {
 
     private func apply(_ mutation: FieldMutation) {
         lock.withLock { mutation.apply(to: &state) }
+    }
+
+    func sendChat(_ message: FieldChatMessage) async throws { apply(.sendChat(message)) }
+    func chatPage(before: String?, decisionsOnly: Bool) async throws -> [FieldChatMessage] {
+        lock.withLock {
+            let messages = (state.conversation ?? []).sorted { $0.createdAt < $1.createdAt }
+            let cutoff = messages.first { $0.id == before }?.createdAt ?? .distantFuture
+            return Array(messages.filter { $0.createdAt < cutoff && (!decisionsOnly || ($0.decision && $0.confirmed)) }.suffix(100))
+        }
     }
 
     func append(_ capture: FieldCapture) async throws {
@@ -2716,4 +2989,18 @@ final class FieldMemoryBackend: FieldBackend, @unchecked Sendable {
     func changes() -> AsyncStream<Void> {
         AsyncStream { $0.finish() }
     }
+}
+
+// Backends must opt into authenticated goal agreement; never simulate it in live mode.
+extension FieldBackend {
+    func approveGoal(id: String, revision: String, approved: Bool) async throws {
+        throw NSError(domain: "WE.Goals", code: 1, userInfo: [NSLocalizedDescriptionKey: "Goal agreement is unavailable."])
+    }
+}
+
+extension FieldBackend {
+    func sendChat(_ message: FieldChatMessage) async throws { throw NSError(domain: "ChatUnavailable", code: 1) }
+    func chatPage(before: String?, decisionsOnly: Bool) async throws -> [FieldChatMessage] { [] }
+    func setChatPreference(notices: Bool, readAt: Date?, notifications: Bool?) async throws { throw NSError(domain: "ChatUnavailable", code: 1) }
+    func confirmChatDecision(_ id: String) async throws { throw NSError(domain: "ChatUnavailable", code: 1) }
 }

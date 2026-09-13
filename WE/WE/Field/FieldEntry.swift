@@ -374,7 +374,7 @@ struct FieldGallery: View {
         case .deferral:
             FieldDeferralView()
         case .season:
-            FieldSeasonClosedView()
+            FieldSeasonClosedView(season: FieldSampleData.closedSeason)
         case .onboarding:
             FieldOnboardingView()
         case .stillness:
@@ -410,7 +410,7 @@ struct FieldGallery: View {
 }
 
 #Preview("A season, closed") {
-    FieldSeasonClosedView().environment(FieldStore())
+    FieldSeasonClosedView(season: FieldSampleData.closedSeason).environment(FieldStore())
 }
 
 #Preview("Onboarding") {

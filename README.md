@@ -17,7 +17,7 @@ The iPhone app has three primary destinations:
 
 **Yours** is a labelled private writing entrance on Today. **Account** is visibly reachable from each main screen.
 
-First use follows a skippable fictional practice story: capture, review visibility and date, correct, save, and retrieve. It never writes to a real account. Registration, invitation entry and sign-in follow; the joint Promise remains at partner arrival. An optional account-scoped first-save guide teaches the same loop with a real item.
+First use follows “One little plan”: a table-for-two introduction, a fictional thought, real date and visibility review, an optional correction, and a saved plan that can be reopened. A tappable Life / WE / Us overview explains the rest of the app, including private writing in Yours. The walkthrough supports Back, Skip, Reduce Motion, and large text; it never writes to a real account. Registration, invitation entry and sign-in follow; the joint Promise remains at partner arrival. An optional account-scoped first-save guide teaches the same loop with a real item.
 
 The walkthrough can be replayed from Account and preserves pending invitation context. The current beta does not introduce a fourth main destination.
 
