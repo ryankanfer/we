@@ -27,3 +27,9 @@ Executed on iPhone 17 Pro simulator (iOS 26.3, deployment target 26.2):
 
 Artifacts: /tmp/we-polish.xcresult (initial), /tmp/we-polish-final.xcresult (navigation/Chat), /tmp/we-polish-forms.xcresult (forms/model checks). Final Us long-concept bounds verification is in /tmp/we-polish-type.xcresult.
 - Final Us bounds regression passed at accessibility5: every concept remains within screen width; final screenshot inspected.
+
+## Walkthrough follow-up
+
+Updated the existing five-step practice journey to match Today/Life/Us, optional Yours reflection, persistent Chat access, and explicit shared-example review. Import-enabled builds additionally offer a short disclosure explaining Only Me, reviewed sharing, website permission, evidence, editable understanding, and Needs attention; disabled releases do not advertise importing. The walkthrough still runs in memory and does not replay automatically for existing users.
+
+Verification: full standard-text completion passed (/tmp/we-walkthrough-update.xcresult). Final overview at largest accessibility text passed hit-region, element-description, and clipped-text audits (/tmp/we-walkthrough-verified.xcresult). Earlier accessibility attempts overscrolled the overview tabs; controlled scrolling fixed the test. git diff --check passed.

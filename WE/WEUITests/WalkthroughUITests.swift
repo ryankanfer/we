@@ -144,8 +144,7 @@ final class WalkthroughUITests: XCTestCase {
         )
     }
 
-    /// Us is the densest screen — two examples, a question, and two answers —
-    /// and therefore the one most likely to clip at AX5.
+    /// The final overview must stay readable and escapable at AX5.
     @MainActor
     func testUsPassesTheAuditAtAccessibilityTextSize() throws {
         let app = launchIntoWalkthrough(accessibilityTextSize: true)
@@ -153,6 +152,23 @@ final class WalkthroughUITests: XCTestCase {
         XCTAssertTrue(next.waitForExistence(timeout: 5))
         next.tap()
         XCTAssertTrue(app.textViews["field.capture.input"].waitForExistence(timeout: 5))
+        app.buttons["field.capture.submit"].tap()
+        let save = app.buttons["field.receipt.send"]
+        for _ in 0..<8 where !save.isHittable { app.swipeUp() }
+        XCTAssertTrue(save.isHittable)
+        save.tap()
+        next.tap()
+        let us = app.buttons["walkthrough.space.2"]
+        for _ in 0..<24 where !us.isHittable {
+            let scroll = app.scrollViews.firstMatch
+            scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.65))
+                .press(forDuration: 0.1, thenDragTo: scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+        }
+        keepScreenshot(of: app, named: "walkthrough.overview-before-selection")
+        XCTAssertTrue(us.isHittable)
+        us.tap()
+        keepScreenshot(of: app, named: "walkthrough.updated-overview.accessibility5")
+        XCTAssertTrue(next.isHittable)
         try app.performAccessibilityAudit(
             for: [.hitRegion, .sufficientElementDescription, .textClipped]
         )

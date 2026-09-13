@@ -24,7 +24,7 @@ struct WalkthroughView: View {
     private var details: [String] {
         ["A dinner you keep meaning to plan. A detail you don’t want to forget. A little less to carry between you.",
          "An ordinary sentence is enough. Try this one, or make it your own.",
-         "Check the date before saving. Life is shared with both of you; private writing belongs in Yours.",
+         "Check the date and the version you’re sharing. This practice plan is a shared example; nothing here is sent to anyone.",
          "Your dinner idea is in Life, with the date you chose. Open it to check or change the details.",
          "A place for the practical things, the personal things, and what you choose together."]
     }
@@ -217,21 +217,34 @@ struct WalkthroughView: View {
                 Text(["Keep the details close.", "A place to begin, every day.", "Choose what comes next, together."][selectedSpace])
                     .font(FieldType.pageHeadline)
                 Text([
-                    "Practical information and plans, with Search and Calendar to find them again.",
-                    "Today offers a useful next step and a writing entrance for whatever is on your mind.",
-                    "Shared questions and directions. For mutual questions, answers appear only after you both submit."
+                    "Plans and things you save. Search helps you find them; Calendar shows their accepted dates.",
+                    "What matters now: a useful next step, upcoming plans, and a place to capture a thought.",
+                    WEFeatureFlags.sharedJourneysEnabled
+                        ? "So Us and New to Us reflect what you’ve shared and built together. Tap a concept to see why it appears. Your goals remain under Our goals."
+                        : "Shared questions and directions. For mutual questions, answers appear only after you both submit."
                 ][selectedSpace])
                 .font(FieldType.body).foregroundStyle(.fieldInk(.sectionSubtitle))
                 .lineSpacing(4)
                 if selectedSpace == 1 {
                     Divider().overlay(canvas.ink.opacity(0.15))
-                    Label("Yours · private writing, opened from Today", systemImage: "lock")
+                    Label("Yours · an optional space for private reflection", systemImage: "lock")
                         .font(FieldType.body)
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
             .id(selectedSpace)
             .transition(.opacity)
+            Text("Chat stays in the header across Today, Life, Us, Search, and Calendar. Use Discuss this together inside a shared plan or goal.")
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.reasoning))
+            if WEFeatureFlags.shareInboxEnabled {
+                DisclosureGroup("Save something from elsewhere") {
+                    Text("Bring in a thought, link, or image from Life or the Share Sheet. Only Me means private wherever it appears. Review a separate version before sharing; your original stays private.")
+                    Text("You choose when WE may open a website. Edit suggested details and dates, or ask Why this? to see the evidence. Needs attention in Account keeps unresolved work reachable.")
+                }
+                .font(FieldType.body)
+                .accessibilityIdentifier("walkthrough.imports")
+            }
             Text("Joining WE never gives blanket permission to share your private writing.")
                 .font(FieldType.body)
                 .foregroundStyle(.fieldInk(.reasoning))
