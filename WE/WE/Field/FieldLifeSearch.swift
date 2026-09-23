@@ -157,6 +157,7 @@ struct FieldLifeSearch: View {
             HStack(alignment: .top, spacing: 11) {
                 FieldDot(
                     owner: item.owner,
+                    isPrivate: item.visibility == .private,
                     identity: store.identity,
                     size: FieldDotSize.list,
                     baselineNudge: 6,

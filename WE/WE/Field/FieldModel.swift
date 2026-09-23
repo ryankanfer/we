@@ -300,10 +300,11 @@ enum FieldItemSource: String, Codable, Sendable {
 
 /// Whether a row has crossed to the partner yet.
 ///
-/// This is not a per-item toggle the user operates. `private` means solo-era
-/// history — written before there was a partner to write it to — and it stays
-/// private until its owner crosses it deliberately through
-/// `field_share_solo_history()`. See `20260803180000_field_solo_visibility.sql`.
+/// Two ways to be `private`: solo-era history, written before there was a
+/// partner (`20260803180000_field_solo_visibility.sql`), and "Only me", chosen
+/// on the receipt (`20260923120000_private_by_choice.sql`). Either way it
+/// crosses only when its author says so, and it never comes back: the
+/// database allows `private → shared` by the author and nothing else.
 ///
 /// The client needs it for one reason: a derivation whose output is *shared*
 /// presence must not read rows only one person can see, or the two people end
@@ -714,6 +715,10 @@ struct FieldCorrection: Identifiable, Codable, Hashable, Sendable {
     var original: LifeCategory
     var corrected: LifeCategory
     var correctedAt: Date
+    /// A correction made on an "Only me" receipt carries the words that were
+    /// typed, so it is exactly as private as the item. It still teaches this
+    /// person's own classifier; the partner can never read it.
+    var visibility: FieldVisibility? = nil
 }
 
 /// The derived record the correction receipt renders. Every statistic on that
@@ -783,6 +788,9 @@ struct FieldReceipt: Identifiable, Codable, Hashable, Sendable {
     var accent: FieldOwner
     var acknowledged: Bool
     var wasCorrected: Bool
+    /// "Only me". Off unless the person turns it on, so the default stays
+    /// what it has always been: filed things are shared.
+    var isPrivate: Bool = false
 
     /// Shown under the destination when tidying actually changed something.
     /// Silent when the title is the input, so the receipt does not narrate a
@@ -798,6 +806,9 @@ struct FieldCapture: Identifiable, Codable, Hashable, Sendable {
     var text: String
     var owner: FieldOwner
     var capturedAt: Date
+    /// Travels with the item it was filed as, which shares its id. Optional
+    /// so a cached capture written before this existed still decodes.
+    var visibility: FieldVisibility? = nil
 }
 
 // MARK: - What Today may surface

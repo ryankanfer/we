@@ -1102,6 +1102,10 @@ enum FieldDotSize {
 struct FieldDot: View {
     @Environment(\.weCanvas) private var canvas
     var owner: FieldOwner
+    /// "Only me". The dot becomes a small lock in the owner's colour, so a
+    /// private thing is marked in exactly the place every row already says
+    /// whose it is — no second badge, and nothing new to learn.
+    var isPrivate: Bool = false
     var identity: FieldIdentity
     var size: CGFloat = FieldDotSize.list
     /// Nudge down to sit on the text baseline rather than the line box top.
@@ -1109,17 +1113,29 @@ struct FieldDot: View {
     var opacity: Double = 1
 
     var body: some View {
-        Group {
-            if owner == .shared {
-                Circle().fill(identity.blend(on: canvas))
-            } else {
-                Circle().fill(identity.color(for: owner, on: canvas))
+        if isPrivate {
+            Image(systemName: "lock.fill")
+                .font(.system(size: size + 3, weight: .semibold))
+                .foregroundStyle(identity.color(for: owner, on: canvas))
+                .frame(width: size + 3, height: size + 3)
+                .opacity(opacity)
+                .padding(.top, baselineNudge - 2)
+                // Read as part of the row, where the row combines its
+                // children; the words matter more than the glyph.
+                .accessibilityLabel("Only you can see this")
+        } else {
+            Group {
+                if owner == .shared {
+                    Circle().fill(identity.blend(on: canvas))
+                } else {
+                    Circle().fill(identity.color(for: owner, on: canvas))
+                }
             }
+            .frame(width: size, height: size)
+            .opacity(opacity)
+            .padding(.top, baselineNudge)
+            .accessibilityHidden(true)
         }
-        .frame(width: size, height: size)
-        .opacity(opacity)
-        .padding(.top, baselineNudge)
-        .accessibilityHidden(true)
     }
 }
 

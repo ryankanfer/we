@@ -207,6 +207,8 @@ private struct CaptureRow: Codable {
     let text: String
     let spoken_by: UUID?
     let captured_at: Date
+    /// Optional for the reason `LifeItemRow.visibility` is.
+    let visibility: String?
 }
 
 private struct CorrectionRow: Codable {
@@ -217,6 +219,7 @@ private struct CorrectionRow: Codable {
     let original_destination: String
     let corrected_destination: String
     let corrected_at: Date
+    let visibility: String?
 }
 
 private struct DailyMomentRow: Codable {
@@ -657,7 +660,8 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             id: row.id.uuidString,
             text: row.text,
             owner: owner(for: row.spoken_by),
-            capturedAt: row.captured_at
+            capturedAt: row.captured_at,
+            visibility: row.visibility.flatMap(FieldVisibility.init(rawValue:))
         )
     }
 
@@ -667,7 +671,8 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             input: row.input,
             original: destination(row.original_destination),
             corrected: destination(row.corrected_destination),
-            correctedAt: row.corrected_at
+            correctedAt: row.corrected_at,
+            visibility: row.visibility.flatMap(FieldVisibility.init(rawValue:))
         )
     }
 
@@ -700,6 +705,10 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         if let id = UUID(uuidString: capture.id) {
             payload["id"] = .string(id.uuidString)
         }
+        // Sent only when known, for the reason given in `upsert(_ item:)`.
+        if let visibility = capture.visibility {
+            payload["visibility"] = .string(visibility.rawValue)
+        }
         // Upsert rather than insert, so the outbox can send this again after
         // a write that committed and then timed out. The receipt's UUID is
         // already the durable identity here — the same one the materialised
@@ -718,16 +727,20 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
     /// doubles the weight of one person's single opinion about what a word
     /// means, in the one genuinely adaptive path in the app.
     func record(_ correction: FieldCorrection) async throws {
+        var payload: [String: AnyJSON] = [
+            "couple_id": AnyJSON.string(coupleID.uuidString),
+            "client_id": .string(correction.id),
+            "input": .string(correction.input),
+            "original_destination": .string(correction.original.label),
+            "corrected_destination": .string(correction.corrected.label),
+            "corrected_by": .string(viewerID.uuidString),
+        ]
+        if let visibility = correction.visibility {
+            payload["visibility"] = .string(visibility.rawValue)
+        }
         _ = try await client
             .from("field_corrections")
-            .upsert([
-                "couple_id": AnyJSON.string(coupleID.uuidString),
-                "client_id": .string(correction.id),
-                "input": .string(correction.input),
-                "original_destination": .string(correction.original.label),
-                "corrected_destination": .string(correction.corrected.label),
-                "corrected_by": .string(viewerID.uuidString),
-            ], onConflict: "couple_id,client_id")
+            .upsert(payload, onConflict: "couple_id,client_id")
             .execute()
     }
 
@@ -775,6 +788,14 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         payload["reached_out_at"] = item.reachedOutAt.map {
             .string(ISO8601DateFormatter.we.string(from: $0))
         } ?? .null
+        // Only when this device actually knows it. The database honours a
+        // requested `private` on insert, lets the author move `private` to
+        // `shared`, and ignores everything else — so sending the known value
+        // is how "Only me" and "Share with …" travel, and omitting an unknown
+        // one (a row cached before visibility existed) can never widen it.
+        if let visibility = item.visibility {
+            payload["visibility"] = .string(visibility.rawValue)
+        }
 
         if let timing = item.timing {
             payload["timing"] = try JSONDecoder().decode(AnyJSON.self, from: JSONEncoder.share.encode(timing))
