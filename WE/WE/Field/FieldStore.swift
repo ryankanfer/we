@@ -586,6 +586,12 @@ final class FieldStore {
         backend?.viewerOwner ?? .a
     }
 
+    /// The other person's name, for copy that has to say who will or will not
+    /// see something. WE never says "your partner" about somebody it can name.
+    var partnerName: String {
+        identity.name(for: speaker == .b ? .a : .b)
+    }
+
     /// The two questions the app can ask that are not about a single item.
     ///
     /// `todaySelection` already returns whichever of them won, shaped into a
@@ -1152,11 +1158,13 @@ final class FieldStore {
         // The chip carries the tidied thought, not the sentence. What was
         // literally typed still travels with the correction, which is the only
         // place it is load-bearing.
+        let visibility: FieldVisibility? = receipt.isPrivate ? .private : nil
         let capture = FieldCapture(
             id: receipt.id,
             text: receipt.title,
             owner: speaker,
-            capturedAt: now
+            capturedAt: now,
+            visibility: visibility
         )
         state.captures.insert(capture, at: 0)
         // Cleared before, so that what is on screen afterwards is about *this*
@@ -1167,7 +1175,14 @@ final class FieldStore {
 
         // Corrections are training signal about the classifier, and they are
         // held back with everything else until the moment of crossing.
-        let corrections = pendingCorrections
+        // Stamped here, at the crossing, rather than when each correction was
+        // made: "Only me" can be turned on after a correction, and the typed
+        // words in it are exactly as private as the item.
+        let corrections = pendingCorrections.map {
+            var correction = $0
+            correction.visibility = visibility
+            return correction
+        }
         pendingCorrections = []
         lastReceipt = nil
         correctingReceipt = nil
@@ -1195,7 +1210,10 @@ final class FieldStore {
         // past lives" are recognised as the same thing — which is the
         // coincidence the note exists to name, and the highest-value
         // inference the app makes.
-        let match = state.lifeItems.first {
+        // Never for an "Only me" receipt. Marking a private thing as "both
+        // added it" would tell this person something about their partner's
+        // list by way of their own, and would make a private item shared-owned.
+        let match = receipt.isPrivate ? nil : state.lifeItems.first {
             $0.title.localizedCaseInsensitiveCompare(receipt.title)
                 == .orderedSame && $0.owner != speaker && !$0.isDone
         }
@@ -1215,7 +1233,8 @@ final class FieldStore {
                 source: .captured,
                 detail: match == nil ? nil : "Both added it, independently",
                 isTimeCritical: false,
-                isDone: false
+                isDone: false,
+                visibility: receipt.isPrivate ? .private : nil
             ),
             at: 0
         )
@@ -1247,6 +1266,26 @@ final class FieldStore {
 
         receipt.dueOn = alreadyToday ? nil : today
         lastReceipt = receipt
+    }
+
+    /// "Only me", on the receipt. Nothing has left the phone yet, so this
+    /// only changes what `send()` will do.
+    func togglePrivate() {
+        lastReceipt?.isPrivate.toggle()
+    }
+
+    /// Lets a partner see something that was "Only me". One way: the
+    /// database refuses the reverse, and nothing here offers it.
+    func share(_ itemID: String) {
+        guard let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
+              state.lifeItems[index].visibility == .private
+        else { return }
+        state.lifeItems[index].visibility = .shared
+        if let captureIndex = state.captures.firstIndex(where: { $0.id == itemID }) {
+            state.captures[captureIndex].visibility = .shared
+        }
+        let item = state.lifeItems[index]
+        Task { [backend] in try? await backend?.upsert(item) }
     }
 
     func beginCorrection() {
