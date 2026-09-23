@@ -1,3 +1,8 @@
+> **Retired 2026-09-23.** Yours is no longer a destination. Privacy is now a
+> property of any item ("Only me", `supabase/migrations/20260923120000_private_by_choice.sql`),
+> and existing Yours writing was moved into private Life notes
+> (`20260923130000_retire_yours.sql`). Kept for the reasoning, not as a spec.
+
 # ○ — the personal space
 
 **Working code name: `circle`. In the product it is a mark, not a word.**

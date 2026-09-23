@@ -35,8 +35,9 @@
 -- When a life item crosses, the capture it was filed from (same id) crosses
 -- with it, so the chip under the partner's capture field and the item agree.
 --
--- The crossing flag `we.crossing_solo_history` keeps working unchanged for
--- `field_share_solo_history()`.
+-- And the solo-era crossing (`field_share_solo_history()`) is narrowed to the
+-- solo era by time, because visibility alone no longer means "written before
+-- the partner arrived". See the section at the bottom.
 
 begin;
 
@@ -128,15 +129,19 @@ language plpgsql
 security definer
 set search_path = ''
 as $$
-declare
-  v_previous text := current_setting('we.crossing_solo_history', true);
 begin
+  -- Inside `field_share_solo_history()` the bulk crossing moves captures
+  -- itself, and counts them. Moving them here first would make what crossed
+  -- disagree with what the disclosure named.
+  if nullif(
+    current_setting('we.crossing_solo_history', true), ''
+  ) = 'on' then
+    return null;
+  end if;
+
   if old.visibility = 'private' and new.visibility = 'shared' then
     -- Announced, so the capture's own visibility trigger lets it through.
-    -- Transaction-local, and restored afterwards rather than cleared: this
-    -- also fires inside `field_share_solo_history()`'s own bulk update, where
-    -- the flag is already on and clearing it would freeze every row after
-    -- the first.
+    -- Transaction-local, and turned back off before returning.
     perform set_config('we.crossing_solo_history', 'on', true);
 
     update public.field_captures c
@@ -146,9 +151,7 @@ begin
       and c.spoken_by is not distinct from new.created_by
       and c.visibility = 'private';
 
-    perform set_config(
-      'we.crossing_solo_history', coalesce(v_previous, ''), true
-    );
+    perform set_config('we.crossing_solo_history', 'off', true);
   end if;
   return null;
 end;
@@ -163,5 +166,147 @@ drop trigger if exists field_life_item_share_capture
 create trigger field_life_item_share_capture
   after update of visibility on public.field_life_items
   for each row execute function private.field_share_capture_with_item();
+
+-- MARK: Solo history means the solo era, and only that -------------------------
+--
+-- Until now every private row *was* solo history, so the crossing could
+-- select on visibility alone. It no longer is: "Only me" rows are private
+-- because somebody chose it after pairing, and the crossing must never
+-- publish them. That matters in practice, not in theory — the crossing
+-- decision is remembered per device (`FieldCrossingDecision`), so a
+-- reinstall asks again, and "Bring it across" would otherwise move every
+-- private thing this person had ever chosen to keep.
+--
+-- The era ends when the partner joined. `<=` rather than `<` only so a
+-- single-transaction test, where `now()` is constant, still sees rows written
+-- before the join as solo; in production no row shares that microsecond.
+--
+-- Count and crossing stay table-for-table identical, as
+-- `20260803210000_solo_history_count_matches_crossing.sql` requires.
+
+create or replace function private.field_solo_era_ends(p_couple uuid, p_user uuid)
+returns timestamptz
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select coalesce(
+    (
+      select min(cm.joined_at)
+      from public.couple_members cm
+      where cm.couple_id = p_couple and cm.profile_id <> p_user
+    ),
+    'infinity'::timestamptz
+  );
+$$;
+
+revoke all on function private.field_solo_era_ends(uuid, uuid)
+  from public, anon, authenticated;
+
+create or replace function public.field_solo_history_count()
+returns integer
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  with era as (
+    select private.field_solo_era_ends(
+      public.my_couple_id(), (select auth.uid())
+    ) as ends
+  )
+  select coalesce(
+    (select count(*) from public.field_life_items, era
+      where couple_id = public.my_couple_id()
+        and created_by = (select auth.uid()) and visibility = 'private'
+        and created_at <= era.ends)
+    + (select count(*) from public.field_captures, era
+        where couple_id = public.my_couple_id()
+          and spoken_by = (select auth.uid()) and visibility = 'private'
+          and captured_at <= era.ends)
+    + (select count(*) from public.field_corrections, era
+        where couple_id = public.my_couple_id()
+          and corrected_by = (select auth.uid()) and visibility = 'private'
+          and corrected_at <= era.ends)
+    + (select count(*) from public.field_standing_rules, era
+        where couple_id = public.my_couple_id()
+          and set_by = (select auth.uid()) and visibility = 'private'
+          and set_at <= era.ends)
+    + (select count(*) from public.field_held_topics, era
+        where couple_id = public.my_couple_id()
+          and created_by = (select auth.uid()) and visibility = 'private'
+          and created_at <= era.ends),
+    0
+  )::integer;
+$$;
+
+revoke all on function public.field_solo_history_count() from public, anon;
+grant execute on function public.field_solo_history_count() to authenticated;
+
+create or replace function public.field_share_solo_history()
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user uuid := (select auth.uid());
+  v_couple uuid := public.my_couple_id();
+  v_ends timestamptz;
+  v_shared integer := 0;
+  v_count integer;
+begin
+  if v_user is null or v_couple is null then
+    raise exception 'a signed-in member is required to share solo history'
+      using errcode = '42501';
+  end if;
+
+  v_ends := private.field_solo_era_ends(v_couple, v_user);
+
+  perform set_config('we.crossing_solo_history', 'on', true);
+
+  update public.field_life_items
+  set visibility = 'shared'
+  where couple_id = v_couple and created_by = v_user
+    and visibility = 'private' and created_at <= v_ends;
+  get diagnostics v_count = row_count;
+  v_shared := v_shared + v_count;
+
+  update public.field_captures
+  set visibility = 'shared'
+  where couple_id = v_couple and spoken_by = v_user
+    and visibility = 'private' and captured_at <= v_ends;
+  get diagnostics v_count = row_count;
+  v_shared := v_shared + v_count;
+
+  update public.field_corrections
+  set visibility = 'shared'
+  where couple_id = v_couple and corrected_by = v_user
+    and visibility = 'private' and corrected_at <= v_ends;
+  get diagnostics v_count = row_count;
+  v_shared := v_shared + v_count;
+
+  update public.field_standing_rules
+  set visibility = 'shared'
+  where couple_id = v_couple and set_by = v_user
+    and visibility = 'private' and set_at <= v_ends;
+  get diagnostics v_count = row_count;
+  v_shared := v_shared + v_count;
+
+  update public.field_held_topics
+  set visibility = 'shared'
+  where couple_id = v_couple and created_by = v_user
+    and visibility = 'private' and created_at <= v_ends;
+  get diagnostics v_count = row_count;
+  v_shared := v_shared + v_count;
+
+  perform set_config('we.crossing_solo_history', 'off', true);
+  return v_shared;
+end;
+$$;
+
+revoke all on function public.field_share_solo_history() from public, anon;
+grant execute on function public.field_share_solo_history() to authenticated;
 
 commit;

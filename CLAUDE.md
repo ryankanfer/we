@@ -2,7 +2,9 @@
 
 Private relationship product for two people. The native SwiftUI iPhone app in `WE/` is the
 active product; the Next.js implementation is frozen reference material with no parity
-obligation. See `README.md` for the trust model and `CIRCLE.md` for product principles.
+obligation. See `README.md` for the trust model and
+`docs/PRIVATE_TO_SHARED_CONTRACT.md` for what may cross from private to shared.
+`docs/archive/CIRCLE.md` is the retired personal-space design, kept for its reasoning.
 
 ## Skill routing
 
