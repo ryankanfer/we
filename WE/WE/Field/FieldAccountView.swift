@@ -517,14 +517,12 @@ struct FieldDeleteAccountView: View {
             // Not "there is no recovery". Same backup domain, same unproven
             // claim, and this screen was saying the stronger version of it.
             //
-            // `YoursCopy.deletionAssurance` carries the reasoning: Supabase
-            // keeps its root key outside the database so a restore can bring
-            // data back, which is excellent disaster recovery and the exact
-            // opposite of what deletion here needs. Until deletion routes
-            // through a key WE destroys and can prove it destroyed, this is
-            // the strongest true sentence available, and the two surfaces
-            // must not disagree about it.
-            Text(YoursCopy.deletionAssurance)
+            // Supabase keeps its root key outside the database so a restore
+            // can bring data back, which is excellent disaster recovery and
+            // the exact opposite of what deletion here needs. Until deletion
+            // routes through a key WE destroys and can prove it destroyed,
+            // this is the strongest true sentence available.
+            Text("Unrecoverable within 24 hours.")
         }
         .onChange(of: session.state) { _, state in
             if state == .signedOut { dismiss() }

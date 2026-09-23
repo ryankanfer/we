@@ -38,6 +38,7 @@ struct FieldItemSheet: View {
 
     @State private var asksToRemove = false
     @State private var isPickingDay = false
+    @State private var asksToShare = false
 
     /// Read live from the store rather than captured at presentation. Every
     /// control here mutates the item, and a copy taken when the sheet opened
@@ -54,6 +55,9 @@ struct FieldItemSheet: View {
                 if let item {
                     VStack(alignment: .leading, spacing: 0) {
                         header(item)
+                            .padding(.bottom, FieldMetrics.sectionGap)
+
+                        whoSees(item)
                             .padding(.bottom, FieldMetrics.sectionGap)
 
                         whereItLives(item)
@@ -96,8 +100,27 @@ struct FieldItemSheet: View {
             Button("Keep it", role: .cancel) {}
         } message: {
             Text(
-                "It goes for both of you, from every screen, and there is no "
-                    + "undo."
+                item?.visibility == .private
+                    ? "It goes from every screen, and there is no undo."
+                    : "It goes for both of you, from every screen, and there "
+                        + "is no undo."
+            )
+        }
+        // Asked once, because this is the one change here that cannot be
+        // taken back: the database lets a private thing become shared and
+        // nothing the other way.
+        .confirmationDialog(
+            "Share with \(store.partnerName)?",
+            isPresented: $asksToShare,
+            titleVisibility: .visible
+        ) {
+            Button("Share it") { store.share(itemID) }
+                .accessibilityIdentifier("field.item.share.confirm")
+            Button("Keep it to myself", role: .cancel) {}
+        } message: {
+            Text(
+                "\(store.partnerName) will be able to see it from now on. "
+                    + "It can't be made private again."
             )
         }
         .accessibilityIdentifier("field.item")
@@ -128,6 +151,7 @@ struct FieldItemSheet: View {
             HStack(alignment: .top, spacing: 11) {
                 FieldDot(
                     owner: item.owner,
+                    isPrivate: item.visibility == .private,
                     identity: store.identity,
                     size: FieldDotSize.prominentList,
                     baselineNudge: 8
@@ -153,6 +177,42 @@ struct FieldItemSheet: View {
         let owner = store.identity.name(for: item.owner).uppercased()
         guard let dueOn = item.dueOn else { return owner }
         return "\(owner) · \(DateFormatter.fieldDayMonth.string(from: dueOn).uppercased())"
+    }
+
+    // MARK: Who sees it
+
+    /// Always said, never implied. A shared thing names who else can see it;
+    /// a private one says so plainly and offers the one way it can change.
+    private func whoSees(_ item: LifeItem) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            FieldRuleLine()
+
+            if item.visibility == .private {
+                HStack(spacing: 8) {
+                    Image(systemName: "lock.fill")
+                        .font(FieldType.subLabel)
+                        .accessibilityHidden(true)
+                    Text("Only you can see this.")
+                        .font(FieldType.body)
+                }
+                .foregroundStyle(.fieldInk(.headline))
+                .padding(.top, 18)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("field.item.private")
+
+                Button("Share with \(store.partnerName)") {
+                    asksToShare = true
+                }
+                .buttonStyle(FieldQuietButtonStyle())
+                .accessibilityIdentifier("field.item.share")
+            } else {
+                Text("\(store.partnerName) can see this.")
+                    .font(FieldType.body)
+                    .foregroundStyle(.fieldInk(.metadataProse))
+                    .padding(.top, 18)
+                    .accessibilityIdentifier("field.item.shared")
+            }
+        }
     }
 
     // MARK: Where it lives

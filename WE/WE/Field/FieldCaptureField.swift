@@ -339,9 +339,12 @@ struct FieldCaptureField: View {
                     .accessibilityIdentifier("field.receipt.revival")
                 }
 
+                privacyToggle(receipt)
+
                 // Send is the affirmative and carries the filled style,
-                // because it is the moment the thing actually crosses into
-                // the shared space. The other two cost nothing and change
+                // because it is the moment the thing actually leaves the
+                // phone — into the shared space, or into this person's own
+                // corner of it when "Only me" is on. The other two cost nothing and change
                 // nothing yet, which is why they are the quiet ones.
                 HStack(spacing: 11) {
                     Button("Send") { store.send() }
@@ -368,6 +371,48 @@ struct FieldCaptureField: View {
         .accessibilityLabel(
             "Filed to \(receipt.category.label). \(receipt.reasoning)"
         )
+    }
+
+    /// "Only me". A property of this one thing, chosen before it leaves the
+    /// phone — not a place to go and not a mode to be in.
+    ///
+    /// Off by default, so filing stays what it has always been: shared. When
+    /// it is on, the line says who will not see it, by name, because "private"
+    /// on its own leaves somebody guessing from whom.
+    private func privacyToggle(_ receipt: FieldReceipt) -> some View {
+        Button {
+            store.togglePrivate()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: receipt.isPrivate ? "lock.fill" : "lock.open")
+                    .font(FieldType.subLabel)
+                    .accessibilityHidden(true)
+                Text(
+                    receipt.isPrivate
+                        ? "Only me. \(store.partnerName) won't see this."
+                        : "Only me"
+                )
+                .font(FieldType.receiptReasoning)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(
+                receipt.isPrivate
+                    ? .fieldInk(.headline)
+                    : .fieldInk(.labelQuiet)
+            )
+            .frame(minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Only me")
+        .accessibilityValue(receipt.isPrivate ? "On" : "Off")
+        .accessibilityHint(
+            receipt.isPrivate
+                ? "\(store.partnerName) won't see this"
+                : "Keeps this from \(store.partnerName)"
+        )
+        .accessibilityAddTraits(receipt.isPrivate ? .isSelected : [])
+        .accessibilityIdentifier("field.receipt.private")
     }
 
     /// "Today", "Tomorrow", or the weekday. A date beside a one-line title
@@ -554,6 +599,7 @@ struct FieldCaptureField: View {
         HStack(spacing: 6) {
             FieldDot(
                 owner: capture.owner,
+                isPrivate: capture.visibility == .private,
                 identity: store.identity,
                 size: FieldDotSize.chip,
                 baselineNudge: 0

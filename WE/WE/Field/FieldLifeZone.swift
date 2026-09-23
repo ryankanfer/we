@@ -150,6 +150,7 @@ struct FieldLifeZone: View {
                     HStack(alignment: .top, spacing: 14) {
                         FieldDot(
                             owner: item.owner,
+                            isPrivate: item.visibility == .private,
                             identity: store.identity,
                             size: FieldDotSize.prominentList,
                             baselineNudge: 13
@@ -250,6 +251,7 @@ struct FieldLifeZone: View {
                     HStack(alignment: .top, spacing: 11) {
                         FieldDot(
                             owner: item.owner,
+                            isPrivate: item.visibility == .private,
                             identity: store.identity,
                             size: FieldDotSize.list,
                             baselineNudge: prominent ? 7 : 6
