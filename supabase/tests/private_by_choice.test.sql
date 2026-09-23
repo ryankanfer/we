@@ -225,11 +225,17 @@ select is(
   'editing a private item keeps it private'
 );
 
--- MARK: The bulk crossing still works ----------------------------------------
+-- MARK: The solo-era crossing never publishes "Only me" --------------------
 --
--- `field_share_solo_history()` updates many rows under one flag, and the
--- capture-follows-item trigger fires inside it. That trigger must restore the
--- flag, not clear it, or every row after the first would stay frozen.
+-- The crossing decision is remembered per device, so a reinstall can ask it
+-- again. "Bring it across" must still move only what was written before the
+-- partner joined. B's join is moved an hour back so that A's rows above,
+-- written at this transaction's `now()`, are unambiguously after it.
+
+reset role;
+update public.couple_members
+set joined_at = now() - interval '1 hour'
+where profile_id = '92000000-0000-0000-0000-000000000002';
 
 set local role authenticated;
 select set_config(
@@ -238,29 +244,23 @@ select set_config(
   true
 );
 
-insert into public.field_life_items (
-  id, couple_id, title, category, source, visibility
-)
-values
-  (
-    '92000000-0000-0000-0000-00000000a003', public.my_couple_id(),
-    'First private thing', 'notes', 'captured', 'private'
-  ),
-  (
-    '92000000-0000-0000-0000-00000000a004', public.my_couple_id(),
-    'Second private thing', 'notes', 'captured', 'private'
-  );
-
-select public.field_share_solo_history();
+select is(
+  public.field_solo_history_count(), 0,
+  'nothing chosen as "Only me" is offered as solo history'
+);
+select is(
+  public.field_share_solo_history(), 0,
+  'and the crossing moves none of it'
+);
 
 reset role;
 select is(
   (
-    select count(*) from public.field_life_items
-    where couple_id = (select couple_id from ctx) and visibility = 'private'
+    select visibility from public.field_life_items
+    where id = '92000000-0000-0000-0000-00000000a002'
   ),
-  0::bigint,
-  'the bulk crossing moves every private row, not only the first'
+  'private',
+  'the private note is still private after the crossing ran'
 );
 
 select * from finish();
