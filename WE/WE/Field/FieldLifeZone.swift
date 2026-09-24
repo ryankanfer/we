@@ -3,7 +3,8 @@ import SwiftUI
 struct FieldLifeZone: View {
     @Environment(FieldStore.self) private var store
     @EnvironmentObject private var session: AppSession
-    @State private var filter = LifeFilter.plans
+    /// The icon bar's choice. Nil is All: what's coming up.
+    @State private var group: LifeCategory?
     /// Goals, which used to live in Us. Life is everything now.
     @State private var goalsAreOpen = false
     @State private var openGoal: FieldItemReference?
@@ -13,16 +14,17 @@ struct FieldLifeZone: View {
     @State private var recoveryIsOpen = false
     @State private var intelligence = WEIntelligenceStore.shared
 
-    private enum LifeFilter: String, CaseIterable {
-        case plans = "Plans", saved = "Saved"
-    }
-
     private var items: [LifeItem] { store.lifeStrata.all }
     private var decisions: [LifeItem] {
         items.filter { FieldItemPurpose.resolve($0) == .decision && !$0.isAwaitingSomeoneElse }
     }
-    private var saved: [LifeItem] {
-        items.filter { (FieldItemPurpose.resolve($0) == .reference || $0.sourceURL != nil) && !$0.isAwaitingSomeoneElse }
+    /// The groups there is anything in, in Life's own order, custom ones
+    /// after the built-in ones.
+    private var groups: [LifeCategory] {
+        let present = Set(items.filter { !$0.isDone }.map(\.category))
+        let builtIn = LifeCategory.builtIn.filter(present.contains)
+        let rest = present.subtracting(builtIn).sorted { $0.word < $1.word }
+        return builtIn + rest
     }
     private var tasks: [LifeItem] {
         items.filter { FieldItemPurpose.resolve($0) == .task && !$0.isAwaitingSomeoneElse }
@@ -50,7 +52,7 @@ struct FieldLifeZone: View {
                             .accessibilityIdentifier("intelligence.recovery")
                     }
                 }
-                filters
+                iconBar
                 if items.isEmpty {
                     Text("A place for the plans, choices and ideas you want to keep.")
                         .font(FieldType.pageHeadline)
@@ -244,48 +246,65 @@ struct FieldLifeZone: View {
         .font(.system(size: 20, weight: .regular))
     }
 
-    private var filters: some View {
+    // MARK: The icon bar
+
+    /// Every group as an icon, All first. Tapping one shows just that group;
+    /// tapping it again, or All, goes back to what's coming up.
+    private var iconBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 24) {
-                ForEach(LifeFilter.allCases, id: \.self) { value in
-                    Button { filter = value } label: {
-                        Text(value.rawValue)
-                            .font(.system(.subheadline, weight: filter == value ? .semibold : .regular))
-                            .foregroundStyle(filter == value ? .fieldInk(.headline) : .fieldInk(.reasoning))
-                            .padding(.bottom, 12)
-                            .frame(minHeight: 44)
-                            .overlay(alignment: .bottom) {
-                                if filter == value {
-                                    Rectangle().fill(WECanvas.cream.ink).frame(height: 2)
-                                }
-                            }
-                    }
-                    .accessibilityAddTraits(filter == value ? .isSelected : [])
-                    .accessibilityIdentifier("field.life.filter.\(value)")
-                }
+            HStack(alignment: .top, spacing: 14) {
+                groupIcon(nil)
+                ForEach(groups) { groupIcon($0) }
             }
+            .padding(.vertical, 4)
         }
-        .overlay(alignment: .bottom) { FieldRuleLine(color: FieldRule.row) }
+        .scrollClipDisabled()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Groups")
+    }
+
+    private func groupIcon(_ category: LifeCategory?) -> some View {
+        let selected = group == category
+        let count = category.map { c in items.filter { $0.category == c && !$0.isDone }.count }
+        return Button {
+            withAnimation(.snappy(duration: 0.25)) {
+                group = (selected && category != nil) ? nil : category
+            }
+        } label: {
+            VStack(spacing: 7) {
+                Image(systemName: category?.symbol ?? "sparkles")
+                    .font(.system(size: 19, weight: .regular))
+                    .frame(width: 54, height: 54)
+                    .background(selected ? WECanvas.cream.ink : WECanvas.cream.bgElevated, in: Circle())
+                    .foregroundStyle(selected ? WECanvas.cream.bgElevated : WECanvas.cream.ink)
+                    .overlay { Circle().strokeBorder(WECanvas.cream.ink.opacity(selected ? 0 : 0.14), lineWidth: 1) }
+                Text(category?.word ?? "All")
+                    .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? .fieldInk(.headline) : .fieldInk(.reasoning))
+                    .lineLimit(1)
+            }
+            .frame(minWidth: 60)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel(category.map { "\($0.word), \(count ?? 0)" } ?? "All, coming up")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier("field.life.group.\(category?.rawValue ?? "all")")
     }
 
     @ViewBuilder private var contents: some View {
-        switch filter {
-        case .plans:
-            Text("The things you’re deciding and doing.")
-                .font(FieldType.body).foregroundStyle(.fieldInk(.reasoning))
+        if let group {
+            let inGroup = items.filter { $0.category == group && !$0.isDone }
+                .sorted { ($0.dueOn ?? .distantFuture) < ($1.dueOn ?? .distantFuture) }
+            if inGroup.isEmpty { emptyFilter("Nothing in \(group.word) right now.") }
+            section(group.word, subtitle: nil, items: inGroup)
+        } else {
             if decisions.isEmpty && tasks.isEmpty && !items.contains(where: \.isAwaitingSomeoneElse) {
                 emptyFilter("Nothing needs a next step right now.")
             }
             section("Needs a decision", subtitle: "Turn an open question into a plan.", items: decisions)
-            section("Up next", subtitle: nil, items: upcoming)
+            section("Coming up", subtitle: nil, items: upcoming)
             section("Waiting", subtitle: "A reply or someone else’s next move.", items: items.filter(\.isAwaitingSomeoneElse))
             section("Later", subtitle: nil, items: later)
-        case .saved:
-            Text("Links you send each other, and ideas worth keeping.")
-                .font(FieldType.body).foregroundStyle(.fieldInk(.reasoning))
-            if saved.isEmpty { emptyFilter("Keep something you want to come back to together.") }
-            section("Links to revisit", subtitle: "Open the original. Keep your thoughts alongside it.", items: saved.filter { $0.sourceURL != nil })
-            section("Ideas to keep", subtitle: nil, items: saved.filter { $0.sourceURL == nil })
         }
     }
 
@@ -324,7 +343,7 @@ struct FieldLifeZone: View {
                         .fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 7) {
                         FieldDot(owner: item.owner, identity: store.identity, size: 6, baselineNudge: 0)
-                        Text(filter == .saved ? (item.sourceURL?.host ?? item.category.word) : (item.dueOn.map(dateLabel) ?? item.category.word))
+                        Text(item.dueOn.map(dateLabel) ?? (item.sourceURL?.host ?? item.category.word))
                         Text("·")
                         Text(FieldItemPurpose.resolve(item) == .decision ? "Choose a direction" : store.identity.name(for: item.owner))
                     }
@@ -332,7 +351,7 @@ struct FieldLifeZone: View {
                     .foregroundStyle(.fieldInk(.reasoning))
                 }
                 Spacer(minLength: 0)
-                Image(systemName: filter == .saved && item.sourceURL != nil ? "link" : "arrow.up.right")
+                Image(systemName: item.sourceURL != nil ? "link" : "arrow.up.right")
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(.fieldInk(.reasoning))
             }
@@ -349,6 +368,24 @@ struct FieldLifeZone: View {
         if calendar.isDate(date, inSameDayAs: store.now) { return "Today" }
         if let tomorrow = calendar.date(byAdding: .day, value: 1, to: store.now), calendar.isDate(date, inSameDayAs: tomorrow) { return "Tomorrow" }
         return DateFormatter.fieldDayMonth.string(from: date)
+    }
+}
+
+extension LifeCategory {
+    /// The icon on Life's icon bar.
+    var symbol: String {
+        switch self {
+        case .care: "heart"
+        case .food: "fork.knife"
+        case .trips: "airplane"
+        case .watchlist: "film"
+        case .buys: "bag"
+        case .money: "creditcard"
+        case .home: "house"
+        case .notes: "note.text"
+        case .talk: "bubble.left.and.bubble.right"
+        default: "square.grid.2x2"
+        }
     }
 }
 
