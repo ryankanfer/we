@@ -7,7 +7,7 @@ actor PreviewRepository: Repository {
     private var snapshot: RelationshipSnapshot
     private let scenario: PreviewScenario
     private let waitingSnapshot: RelationshipSnapshot
-    private let choosingHueSnapshot: RelationshipSnapshot
+    private let justPairedSnapshot: RelationshipSnapshot
     private let configuredSignUpResult: SignUpResult?
     private let acceptedDeletionPassword: String?
     private var privateProposals: [String: PrivateProposal] = [:]
@@ -23,7 +23,7 @@ actor PreviewRepository: Repository {
         configuredSignUpResult = signUpResult
         self.acceptedDeletionPassword = acceptedDeletionPassword
         waitingSnapshot = PreviewData.waitingSnapshot
-        choosingHueSnapshot = PreviewData.choosingHueSnapshot
+        justPairedSnapshot = PreviewData.justPairedSnapshot
         currentUser = if scenario == .signedOut {
             nil
         } else if let user {
@@ -38,7 +38,6 @@ actor PreviewRepository: Repository {
         case .empty: PreviewData.emptySnapshot
         case .waiting: PreviewData.waitingSnapshot
         case .archived, .signedOut: PreviewData.archivedSnapshot
-        case .choosingHue: PreviewData.choosingHueSnapshot
         case .journeyHeld: PreviewData.journeyHeldSnapshot
         case .journeyProposal: PreviewData.journeyProposalSnapshot
         case .journeyActive: PreviewData.journeyActiveSnapshot
@@ -115,7 +114,7 @@ actor PreviewRepository: Repository {
     }
 
     func joinCouple(code: String) async throws {
-        snapshot = choosingHueSnapshot
+        snapshot = justPairedSnapshot
     }
 
     /// A fresh window on the existing preview code. The preview fixture has
@@ -167,19 +166,6 @@ actor PreviewRepository: Repository {
 
     func updateProfile(name: String, userID: String) async throws {
         snapshot = replacing(profile: Profile(id: userID, name: name))
-    }
-
-    func updateHue(
-        _ hue: MemberHue,
-        membership: Membership
-    ) async throws {
-        let updated = Membership(
-            coupleID: membership.coupleID,
-            profileID: membership.profileID,
-            hue: hue,
-            hueChosenAt: ISO8601DateFormatter().string(from: Date())
-        )
-        snapshot = replacing(membership: updated)
     }
 
     func loadPrivateProposals(

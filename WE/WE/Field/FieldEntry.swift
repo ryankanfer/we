@@ -180,53 +180,6 @@ struct FieldDurableBackend {
     }
 }
 
-// MARK: - Onboarding (6f)
-//
-// The last screen before the zones, and the first drawn in their language.
-// It needs its own root because it runs while `AppSession` is still
-// `.choosingHue` — the couple exists, so there is a backend to write to, but
-// `FieldRoot` has not taken the screen yet.
-
-@MainActor
-struct FieldOnboardingRoot: View {
-    @EnvironmentObject private var session: AppSession
-    @State private var store: FieldStore?
-
-    /// Called with the swatch they chose, so the caller can keep the legacy
-    /// `couple_members.hue` column in step.
-    var onFinish: (FieldSwatch) -> Void
-
-    var body: some View {
-        Group {
-            if let store {
-                FieldOnboardingView(
-                    onFinish: {
-                        onFinish(
-                            store.speaker == .b
-                                ? store.identity.personB
-                                : store.identity.personA
-                        )
-                    }
-                )
-                .environment(store)
-            } else {
-                FieldPalette.bg.ignoresSafeArea()
-            }
-        }
-        .task(id: session.snapshot?.membership?.coupleID) {
-            guard store == nil else { return }
-            let durable = session.snapshot.flatMap(FieldDurableBackend.live)
-            let cached = durable?.outbox.cachedState()
-            store = FieldStore(
-                state: cached?.state ?? session.snapshot?.emptyFieldState,
-                backend: durable?.outbox,
-                clock: FieldLiveClock.app,
-                lastLoadedAt: cached?.savedAt
-            )
-        }
-    }
-}
-
 extension RelationshipSnapshot {
     /// A blank slate carrying only the two real names.
     ///
@@ -249,28 +202,6 @@ extension RelationshipSnapshot {
     }
 }
 
-extension FieldSwatch {
-    /// The nearest `MemberHue`.
-    ///
-    /// `FieldSwatch` replaced `MemberHue` in the UI, but `couple_members.hue`
-    /// is a database column with its own enum and cannot be dropped without a
-    /// migration — so onboarding writes both until something migrates it.
-    /// Two names overlap; the rest map by warmth, which is the only property
-    /// the two vocabularies actually share.
-    var memberHue: MemberHue {
-        switch self {
-        case .burgundy: .burgundy
-        case .rose: .blush
-        case .rust: .ember
-        case .amber: .ember
-        case .sage: .sage
-        case .moss: .celadon
-        case .teal: .tide
-        case .indigo: .plum
-        }
-    }
-}
-
 // MARK: - The gallery
 //
 // Eleven screens, exactly as designed. This is the review surface: it is not
@@ -288,7 +219,6 @@ struct FieldGallery: View {
         case moment = "08  One moment a day (6c)"
         case deferral = "09  Deferral, said out loud (6d)"
         case season = "10  A season, closed (6e)"
-        case onboarding = "11  Onboarding (6f)"
         case stillness = "The stillness"
 
         var id: String { rawValue }
@@ -375,8 +305,6 @@ struct FieldGallery: View {
             FieldDeferralView()
         case .season:
             FieldSeasonClosedView(season: FieldSampleData.closedSeason)
-        case .onboarding:
-            FieldOnboardingView()
         case .stillness:
             WEStillness(
                 line: "WE is still until Dylan arrives.",
@@ -411,8 +339,4 @@ struct FieldGallery: View {
 
 #Preview("A season, closed") {
     FieldSeasonClosedView(season: FieldSampleData.closedSeason).environment(FieldStore())
-}
-
-#Preview("Onboarding") {
-    FieldOnboardingView().environment(FieldStore())
 }

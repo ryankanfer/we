@@ -83,14 +83,6 @@ struct ProfileView: View {
                 }
 
                 Section("Shared space") {
-                    if session.snapshot?.membership != nil {
-                        NavigationLink("Appearance") {
-                            HueSettingsView(
-                                personalName: session.snapshot?.profile.name ?? "You",
-                                partnerName: partnerName
-                            )
-                        }
-                    }
                     // The same dismiss-then-present dance as the promise
                     // below: both are full-screen, and presenting one over a
                     // sheet that is still on its way out drops the

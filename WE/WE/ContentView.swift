@@ -33,8 +33,6 @@ struct ContentView: View {
                     PairingView()
                 case .waitingForPartner:
                     PartnerWaitingView()
-                case .choosingHue:
-                    hueOnboarding
                 case .ready:
                     // Unreachable: `WEApp` hands `.ready` to `FieldRoot`
                     // before ContentView is ever built. The zones are the
@@ -135,12 +133,6 @@ struct ContentView: View {
     /// somewhere. Redemption moves them out of `.needsCouple`, which is the
     /// same event seen from the other phone.
     ///
-    /// `.waitingForPartner -> .choosingHue` is the inviter's real route, not
-    /// `-> .ready`: `create_couple` leaves `hue_chosen_at` null, so the person
-    /// who opened the space still has a colour to choose when the second
-    /// person lands. The old hook watched the one transition the inviter
-    /// usually does not take.
-    ///
     /// This is an edge, and edges are exactly what the *ceremony* refuses to
     /// be driven by — see `WECeremonyHost`. The difference is what is at
     /// stake: a missed arrival costs three words, and a missed ceremony would
@@ -152,7 +144,7 @@ struct ContentView: View {
     ) -> Bool {
         let wasAlone = oldState == .needsCouple
             || oldState == .waitingForPartner
-        let isTogether = newState == .choosingHue || newState == .ready
+        let isTogether = newState == .ready
         // And there are actually two people. A partner who joins and deletes
         // their account while this phone is offline would otherwise arrive and
         // depart in one snapshot, and the app would announce somebody who is
@@ -164,10 +156,6 @@ struct ContentView: View {
 
     private var showsAuthenticatedProfileButton: Bool {
         switch session.state {
-        // `.choosingHue` is 6f, which is full-bleed and drawn in the zones'
-        // language. The old light chrome sat on top of it as a band across
-        // the header, and there is nothing behind this button that onboarding
-        // needs — the account lives on the WE mark once the zones open.
         case .needsCouple, .waitingForPartner:
             true
         default:
@@ -268,19 +256,6 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         .accessibilityElement()
         .accessibilityLabel("Loading your WE space")
-    }
-
-    /// 6f. The last screen before the zones, and the first one drawn in their
-    /// language — colour, three questions, and a calendar.
-    ///
-    /// `FieldSwatch` supersedes `MemberHue` in the UI, but `couple_members.hue`
-    /// is still a database column, so finishing writes both: the swatch through
-    /// `FieldStore`, and the nearest legacy hue through the session. See
-    /// CUTOVER.md — that column goes when something migrates it.
-    private var hueOnboarding: some View {
-        FieldOnboardingRoot { swatch in
-            Task { await session.updateHue(swatch.memberHue) }
-        }
     }
 
     private var partnerName: String {

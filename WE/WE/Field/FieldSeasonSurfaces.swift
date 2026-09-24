@@ -3,16 +3,10 @@
 //  WE
 //
 //  6e — A season, closed.
-//  6f — Onboarding.
 //
 //  6e is retention without a streak, and the one screen a couple would
 //  screenshot. What stops it reading as a Spotify Wrapped is the section that
 //  names the thing that didn't happen.
-//
-//  6f is the entire cold start: colour first, then three questions and a
-//  calendar. "Resist adding fields — low barrier to entry is an explicit
-//  product requirement, and the intelligence is supposed to earn its knowledge
-//  by observation."
 //
 
 import SwiftUI
@@ -182,131 +176,3 @@ struct FieldSeasonClosedView: View {
 
 // MARK: - 6f. Onboarding
 
-/// Choosing colours, and nothing else.
-///
-/// This screen used to be setup: a step counter reading "Setting up · 1 of 3",
-/// a preview card, an eyebrow reading "Then three questions", three numbered
-/// questions, and boxed yes and no buttons. All of it is gone.
-///
-/// The step counter first, because it is the clearest case. "The ceremony
-/// reveals its own length by ending" — a counter is the app telling somebody
-/// how much of its own process is left, which is a fact about the app.
-///
-/// The three questions are cut rather than restyled (3k). They sat after the
-/// blend, so the moment the couple's two colours became a third thing was
-/// immediately followed by a form, and they were the only screen in the
-/// sequence asking the couple to produce data rather than receive something.
-/// They come back days later as the first thing WE asks on its own, which
-/// suits a product meant to grow quieter with trust — an app that asks
-/// questions once it has been useful is different from one that asks before
-/// it has done anything.
-///
-/// What is left is the choice, the blend, and one word.
-struct FieldOnboardingView: View {
-    @Environment(FieldStore.self) private var store
-
-    var onFinish: () -> Void = {}
-
-    var body: some View {
-        ZStack {
-            WECanvas.ground.bg.ignoresSafeArea()
-
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 0) {
-                    WEDisplayText("Choose yours.", role: .hero)
-                        .padding(.bottom, 18)
-
-                    Text(
-                        "Anything of \(store.identity.nameA)'s will be one "
-                            + "colour, anything of \(store.identity.nameB)'s "
-                            + "the other, and anything you share is both."
-                    )
-                    .font(FieldType.body)
-                    .foregroundStyle(.fieldInk(.sectionSubtitle))
-                    .fieldLineHeight(1.6, size: 14.5)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.bottom, FieldMetrics.sectionGapLoose)
-
-                    swatchRow(for: .a)
-                        .padding(.bottom, FieldMetrics.sectionGapLoose)
-
-                    swatchRow(for: .b)
-                        .padding(.bottom, FieldMetrics.sectionGapLoose)
-
-                    blend
-                        .padding(.bottom, FieldMetrics.sectionGapLoose)
-
-                    // One word. Not "That's us", which answers on the
-                    // couple's behalf, and not "Continue", which is a step in
-                    // a process the counter used to be counting.
-                    WEEditorialAction("Begin") { finish() }
-                        .accessibilityIdentifier("field.onboarding.finish")
-                }
-                .padding(.top, FieldMetrics.screenTop)
-                .padding(.horizontal, FieldMetrics.usSide)
-                .padding(.bottom, 60)
-            }
-
-            WEColourField(
-                state: .shared,
-                identity: store.identity,
-                height: 168
-            )
-            .frame(maxHeight: .infinity, alignment: .bottom)
-            .ignoresSafeArea(edges: .bottom)
-        }
-        .environment(\.weCanvas, .ground)
-        .preferredColorScheme(.dark)
-        .accessibilityIdentifier("field.onboarding")
-    }
-
-    /// The emotional peak, and the reason difference is the mechanism rather
-    /// than a problem: two colours stay distinct and produce a third that
-    /// neither person made.
-    ///
-    /// Three words on the page, not a filled card containing one. The card
-    /// made the blend into a specimen being displayed; the colour field
-    /// underneath is where the blend actually lives everywhere else in the
-    /// app, so it is where it is shown being made.
-    private var blend: some View {
-        WEDisplayText(
-            "\(store.identity.nameA)'s. \(store.identity.nameB)'s. Ours.",
-            role: .majorQuestion
-        )
-        .accessibilityLabel(
-            "\(store.identity.personA.name) and "
-                + "\(store.identity.personB.name)"
-        )
-    }
-
-    private func swatchRow(for owner: FieldOwner) -> some View {
-        FieldSwatchRow(owner: owner, identity: store.identity) { swatch in
-            store.choose(swatch, for: owner)
-        }
-        .disabled(!store.canChooseSwatch(for: owner))
-    }
-
-    private func finish() {
-        // Nothing to commit. The three questions this used to gather are cut
-        // from onboarding entirely; `store.answerSavingFor` and its siblings
-        // are still the way they are answered, from wherever WE eventually
-        // asks them.
-
-        // Hand over first, then ask. Awaiting the permission sheet before
-        // calling `onFinish` leaves them staring at the setup screen behind a
-        // system dialog, and a decline would strand them there — the way in
-        // must not depend on an answer the app is willing to take "no" for.
-        onFinish()
-
-        // Asked for here and nowhere else. Not at launch: the app is supposed
-        // to earn this, and a permission sheet on first run is the opposite of
-        // earning it.
-        Task {
-            // If they say yes, the same yes covers the arrival. If they say
-            // no, `registerIfPermitted` returns and nothing anywhere changes:
-            // permission denial is a path, not an error.
-            await FieldMomentDelivery.requestAuthorization()
-            await WEArrivalNotifications.registerIfPermitted()
-        }
-    }
-}

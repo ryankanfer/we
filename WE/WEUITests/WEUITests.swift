@@ -50,18 +50,6 @@ final class WEUITests: XCTestCase {
             in: app,
             untilReaching: invitationScreen
         )
-
-        // Colour, and nothing else. The three questions that used to follow
-        // the blend are cut, and the step counter with them.
-        app.terminate()
-        app = launch(scenario: "choosinghue")
-        XCTAssertTrue(
-            app.staticTexts["Choose yours."].waitForExistence(timeout: 6)
-        )
-        app.buttons["field.onboarding.finish"].tap()
-        XCTAssertTrue(
-            app.buttons["field.nav.we"].waitForExistence(timeout: 8)
-        )
     }
 
 
