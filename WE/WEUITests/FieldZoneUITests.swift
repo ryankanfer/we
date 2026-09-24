@@ -735,41 +735,11 @@ final class FieldZoneUITests: XCTestCase {
         )
     }
 
-    /// The mark returns home from anywhere, and opens Yours only once it is
-    /// already home. Both halves, because a change that made it open the room
-    /// unconditionally would strand somebody on Life.
-    @MainActor
-    func testTheMarkReturnsHomeFirstAndOpensYoursSecond() throws {
-        let app = launchZones()
-        let we = app.descendants(matching: .any)["field.nav.we"]
-        XCTAssertTrue(we.waitForExistence(timeout: 8))
-
-        app.buttons["field.nav.life"].tap()
-        XCTAssertTrue(app.staticTexts["LIFE"].waitForExistence(timeout: 4))
-
-        // From Life the mark is the way home, and nothing else.
-        we.tap()
-        XCTAssertTrue(app.staticTexts["TODAY"].waitForExistence(timeout: 4))
-        XCTAssertFalse(
-            app.textViews["yours.compose"].exists,
-            "the mark opened the private space on the way home"
-        )
-
-        // From home it opens the room.
-        we.tap()
-        let begin = app.buttons["yours.teaching.begin"]
-        if begin.waitForExistence(timeout: 3) { begin.tap() }
-        XCTAssertTrue(
-            app.textViews["yours.compose"].waitForExistence(timeout: 5),
-            "a second tap on the mark should open the private space"
-        )
-    }
-
     /// With something over Life, the mark means *close this*. Otherwise
     /// dismissing the calendar would drop somebody into the private space,
     /// which is the one place an accidental arrival is least welcome.
     @MainActor
-    func testTheMarkClosesTheCalendarRatherThanOpeningYours() throws {
+    func testTheMarkClosesTheCalendarThenGoesHome() throws {
         let app = launchZones()
         let we = app.descendants(matching: .any)["field.nav.we"]
         XCTAssertTrue(we.waitForExistence(timeout: 8))
@@ -791,10 +761,6 @@ final class FieldZoneUITests: XCTestCase {
         we.tap()
 
         XCTAssertTrue(app.staticTexts["TODAY"].waitForExistence(timeout: 4))
-        XCTAssertFalse(
-            app.textViews["yours.compose"].exists,
-            "closing the calendar and pressing the mark opened the private space"
-        )
     }
 
     // MARK: Search
@@ -1322,33 +1288,7 @@ final class FieldZoneUITests: XCTestCase {
         return false
     }
 
-    // MARK: - ○ Yours
-    //
-    // The way in is a tap on the WE mark while Today is already showing, and
-    // there is no control for it. That is the point: §2 wants the room
-    // wordless, and a permanent button in the chrome is the loudest possible
-    // way to describe somewhere private. What the bar carries instead is a
-    // hint, once.
-    //
-    // It was an upward drag on the bar until it turned out that a gesture with
-    // no feedback and a 40pt threshold is indistinguishable, to the person
-    // attempting it, from a room that is not there.
-
-    /// The nav bar holds LIFE / WE / US and nothing else.
-    @MainActor
-    func testTheNavigationBarCarriesNoControlForYours() {
-        let app = launchZones()
-        let we = app.descendants(matching: .any)["field.nav.we"]
-        XCTAssertTrue(we.waitForExistence(timeout: 8))
-
-        XCTAssertFalse(
-            app.descendants(matching: .any)["field.nav.yours"].exists,
-            "the personal mark is back in the navigation bar"
-        )
-    }
-
-    /// §2: nothing in the chrome carries a badge or a count. "Yours, one
-    /// waiting" would be the forbidden count, read aloud.
+    /// Nothing in the chrome carries a badge or a count.
     @MainActor
     func testTheChromeCarriesNoCount() {
         let app = launchZones()
@@ -1360,131 +1300,6 @@ final class FieldZoneUITests: XCTestCase {
             XCTAssertTrue(
                 label.rangeOfCharacter(from: .decimalDigits) == nil,
                 "the chrome is carrying a count: \(label)"
-            )
-        }
-    }
-
-    /// §7: it opens onto somewhere to write, and on nothing at all when there
-    /// is nothing — not onto a feed, and not onto an empty inbox with a zero
-    /// in it.
-    @MainActor
-    func testTappingTheMarkFromTodayOpensOntoWritingAndAQuietEmptyState() {
-        let app = launchZones()
-        openYours(app)
-
-        let compose = app.textViews["yours.compose"]
-        XCTAssertTrue(
-            compose.waitForExistence(timeout: 5),
-            "the tap did not open the space"
-        )
-        XCTAssertTrue(app.staticTexts["Nothing is waiting for you."].exists)
-        let roomIsInteractive = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "hittable == true"),
-            object: app.descendants(matching: .any)["yours.close"]
-        )
-        XCTAssertEqual(
-            XCTWaiter.wait(for: [roomIsInteractive], timeout: 3),
-            .completed,
-            "the first-entry cover did not finish leaving"
-        )
-
-        let appearance = XCTAttachment(screenshot: app.screenshot())
-        appearance.name = "YOURS — personal field and reachable close"
-        appearance.lifetime = .keepAlways
-        add(appearance)
-    }
-
-    @MainActor
-    func testYoursWritesInTheRoomAndKeepsOnePrimaryAction() {
-        let app = launchZones()
-        openYours(app)
-
-        let compose = app.textViews["yours.compose"]
-        XCTAssertTrue(compose.waitForExistence(timeout: 5))
-        compose.tap()
-        compose.typeText("A thought I want to leave here")
-
-        XCTAssertTrue(app.buttons["yours.setDown"].exists)
-        XCTAssertEqual(
-            app.buttons["yours.setDown"].label.localizedLowercase,
-            "set it down"
-        )
-        let save = app.buttons["yours.setDown"]
-        for _ in 0..<4 where !save.isHittable { app.swipeUp() }
-        XCTAssertTrue(waitForHittable(save), "Saving must remain reachable with the keyboard open")
-        XCTAssertTrue(app.buttons["Keep indefinitely"].exists)
-        XCTAssertFalse(app.navigationBars.firstMatch.exists)
-        let appearance = XCTAttachment(screenshot: app.screenshot())
-        appearance.name = "Yours — writing with keyboard"
-        appearance.lifetime = .keepAlways
-        add(appearance)
-        save.tap()
-        XCTAssertTrue(app.staticTexts["yours.saved"].waitForExistence(timeout: 6))
-    }
-
-    /// The close control used to have the whole screen as its hit region — the
-    /// positioning frame sat outside the `Button` — so a tap anywhere
-    /// dismissed the room, including a tap meant for the writing field. Both
-    /// halves are asserted, because fixing one without the other is how it
-    /// broke in the first place.
-    @MainActor
-    func testTheCloseControlDismissesAndTheRestOfTheScreenDoesNot() {
-        let app = launchZones()
-        openYours(app)
-
-        let compose = app.textViews["yours.compose"]
-        XCTAssertTrue(compose.waitForExistence(timeout: 5))
-
-        // A raw coordinate in the lower middle of the screen — nowhere near
-        // the glyph, and deliberately not an element query. The regression was
-        // positional: the close button's layout frame was the whole window
-        // while it drew in the corner, so *empty space* was a dismiss target.
-        // Only a point tap can catch that coming back.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.62))
-            .tap()
-
-        XCTAssertTrue(
-            compose.waitForExistence(timeout: 2),
-            "tapping empty space inside the room dismissed it"
-        )
-
-        app.descendants(matching: .any)["yours.close"].tap()
-        XCTAssertTrue(
-            app.descendants(matching: .any)["field.nav.we"]
-                .waitForExistence(timeout: 5),
-            "the close control did not dismiss the room"
-        )
-    }
-
-    /// The way in: a tap on the WE mark while Today is already showing.
-    ///
-    /// It used to be an upward drag on the bar, which asked for 40pt of travel
-    /// in a direction nothing else moved and resolved only on release — so a
-    /// failed attempt and no attempt looked the same, and the test had to
-    /// simulate it by coordinate because `app.swipeUp()` dragged the zone's
-    /// scroll view instead.
-    ///
-    /// A cold launch lands on Today (`activeZone` defaults to `.we`), so one
-    /// tap is the whole gesture. Every caller here launches fresh; a caller
-    /// that had navigated away first would need two.
-    ///
-    /// Also clears the first-entry teaching sheet. It is `interactiveDismiss`
-    /// disabled and covers the room, so without this every assertion about
-    /// what the room does is really an assertion about a sheet sitting on top
-    /// of it — the element is found, and nothing on it can be touched.
-    @MainActor
-    private func openYours(_ app: XCUIApplication) {
-        let we = app.descendants(matching: .any)["field.nav.we"]
-        XCTAssertTrue(we.waitForExistence(timeout: 8))
-
-        we.tap()
-
-        let begin = app.buttons["yours.teaching.begin"]
-        if begin.waitForExistence(timeout: 3) {
-            begin.tap()
-            XCTAssertTrue(
-                begin.waitForNonExistence(timeout: 3),
-                "the first-entry teaching sheet did not close"
             )
         }
     }

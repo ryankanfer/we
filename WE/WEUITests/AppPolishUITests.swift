@@ -45,12 +45,10 @@ final class AppPolishUITests: XCTestCase {
         keepScreenshot(of: app, named: "polish.account")
         app.buttons["field.account.done"].tap()
         app.buttons["field.nav.we"].tap()
-        app.buttons["field.openYours"].tap()
-        let begin = app.buttons["yours.teaching.begin"]
-        if begin.waitForExistence(timeout: 2) { begin.tap() }
-        XCTAssertTrue(app.buttons["yours.close"].waitForExistence(timeout: 5))
-        keepScreenshot(of: app, named: "polish.yours")
-        app.buttons["yours.close"].tap()
+        XCTAssertFalse(
+            app.buttons["field.openYours"].exists,
+            "Yours is retired; privacy is Only me on each item"
+        )
     }
     @MainActor func testLargestTextNavigationAndAccountExit() {
         let app = launch(large: true)

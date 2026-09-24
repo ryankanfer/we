@@ -38,32 +38,10 @@ struct FieldZoneShell: View {
     @State private var showsPrivateCapture = false
     @State private var planNavigation = WEPlanNavigation.shared
     @State private var intentPlan: FieldItemReference?
-    @State private var showsYours = false
     @State private var showsCapture = false
     @State private var footerHeight: CGFloat = 240
     @State private var firstSave: FirstSaveGuide?
 
-    /// Whether the way into Yours has been shown once on this device.
-    ///
-    /// Deliberately `@AppStorage`, and deliberately *unlike* the two teaching
-    /// moments in `YoursOwnerState`, which are server-side because §2 rations
-    /// the word "Yours" across a person's lifetime and a second phone would
-    /// spend it again. This flag rations nothing and names nothing — it
-    /// records that a hand has been shown where to swipe, which is knowledge
-    /// about a device. A new phone is a new place to learn the gesture.
-    ///
-    /// It also has to be readable here, before `YoursStore` exists: the store
-    /// is built per presentation by `yoursStore()`, so anything it knows is
-    /// known only *after* somebody has already found the way in.
-    ///
-    /// Named for a gesture it no longer describes. Kept anyway: renaming the
-    /// key would show the hint a second time to everyone who has already
-    /// learned this, which is the one thing it exists not to do.
-    @AppStorage("yours.gesture.hinted") private var hasHintedGesture = false
-
-    /// Drives the hint's breath. Held here rather than in the hint so the
-    /// animation survives the bar's own re-layout on a zone change.
-    @State private var hintBreath: CGFloat = 1
 
     // Constructed in the body, not as a default argument. Default argument
     // expressions are evaluated in a nonisolated context, so `= FieldStore()`
@@ -119,12 +97,6 @@ struct FieldZoneShell: View {
         .preferredColorScheme(store.activeZone.canvas == .cream ? .light : .dark)
         .safeAreaInset(edge: .top, spacing: 0) {
             HStack {
-                if store.activeZone == .we && !store.calendarOpen && !store.searchOpen {
-                    Button(action: openYours) {
-                        Text("Yours").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
-                    }
-                        .accessibilityIdentifier("field.openYours")
-                }
                 Spacer()
                 Button { store.openConversation() } label: {
                     HStack(spacing: 5) { Text("Chat"); if store.chatUnread { Circle().frame(width: 5, height: 5) } }.frame(minHeight: 44)
@@ -302,36 +274,12 @@ struct FieldZoneShell: View {
                 await store.retryLoad()
                 if WEFeatureFlags.shareInboxEnabled { WEIntelligenceStore.shared.reload(); await WEIntelligenceStore.shared.synchronize() }
             }
-                // §5's ninety-day rule is about the product, not this room, so
-                // this fires on every foreground whether or not Yours is ever
-                // opened. Without it, somebody who used the shared side daily
-                // and never opened the space would have their private writing
-                // swept out from under them at ninety days.
-                if FieldEntry.Mode.current == .live {
-                    Task {
-                        try? await YoursSupabaseBackend(
-                            client: SupabaseClientProvider.shared.client
-                        )?.touch()
-                    }
-                }
             }
             Task { await store.refreshDailyMoment() }
         }
         .fullScreenCover(isPresented: $showsAccount) {
             FieldAccountView()
                 .environment(store)
-        }
-        // The room animates itself, in both directions. The cover's own slide
-        // is suppressed by the transaction that raises `showsYours` (see
-        // `openYours`) and by the one around `dismiss()` inside the room —
-        // not by a `.transaction` modifier here, which would apply to this
-        // whole view and silently kill the zone change, the calendar, and
-        // every other animation in the shell.
-        .fullScreenCover(isPresented: $showsYours) {
-            YoursSurface(
-                store: yoursStore(),
-                hue: store.identity.color(for: store.speaker)
-            )
         }
         .sheet(isPresented: Binding(get: { store.conversationOpen }, set: { store.conversationOpen = $0 })) {
             FieldConversationView().environment(store).environmentObject(session)
@@ -434,29 +382,6 @@ struct FieldZoneShell: View {
     /// gesture dismissed it. The button is what records it.
     private var lostWritingBinding: Binding<Bool> {
         Binding(get: { store.lostUnsentWriting }, set: { _ in })
-    }
-
-    /// Built per presentation rather than held, because the store owns
-    /// ephemeral state — the draft, the open drawer, the visit — and a visit
-    /// that outlived the screen would defeat the presentation gate: the whole
-    /// point of §5 is that the next entry waits until somebody comes back.
-    ///
-    /// The mode decides the backend, rather than whether a client happens to
-    /// exist. `SupabaseClientProvider.shared.client` is non-nil in seeded and
-    /// gallery runs too — the configuration comes from the bundle, not from
-    /// being signed in — so keying off it would send `WE_FIELD=seeded`, which
-    /// promises no network, straight at the network and leave every UI test
-    /// asserting on a failed load.
-    private func yoursStore() -> YoursStore {
-        let clock = FieldLiveClock.app
-        let backend: YoursBackend = switch FieldEntry.Mode.current {
-        case .live:
-            YoursSupabaseBackend(client: SupabaseClientProvider.shared.client)
-                ?? YoursMemoryBackend(clock: clock)
-        case .seeded, .demo, .sparse, .gallery:
-            YoursMemoryBackend(clock: clock)
-        }
-        return YoursStore(backend: backend, clock: clock)
     }
 
     private var crossingDecision: FieldCrossingDecision? {
@@ -620,103 +545,20 @@ struct FieldZoneShell: View {
         .accessibilityIdentifier("field.nav.we")
         .accessibilityAction { store.returnHome() }
         .accessibilityAction(named: "Account") { showsAccount = true }
-        // The only route into Yours for VoiceOver, and therefore not
-        // optional: the way in is an upward drag, and a drag does not exist
-        // for these users. It ships with the gesture, never after it.
-        //
-        // Named with the word itself — the one place the label is sanctioned
-        // permanently (`YoursCopy.accessibilityName`), so that sighted and
-        // unsighted users hold the same mental model of the same room.
-        .accessibilityAction(named: Text(YoursCopy.accessibilityName)) {
-            openYours()
-        }
     }
 
     /// Whether the mark has nothing left to do as a way home.
     ///
     /// Today, with nothing over it. The two overlays count as "not home"
-    /// deliberately: while one is up the mark has to mean *close this*, or
-    /// somebody dismissing the calendar would land in the private space
-    /// instead.
+    /// deliberately: while one is up the mark has to mean *close this*.
     private var isHome: Bool {
         store.activeZone == .we && !store.calendarOpen && !store.searchOpen
     }
 
     private func markTapped() {
-        if isHome {
-            openYours()
-        } else {
-            store.returnHome()
-        }
+        store.returnHome()
     }
 
-    /// Opening Yours, from wherever.
-    ///
-    /// Spends the hint on the way through. Any route counts — the mark, the
-    /// VoiceOver action, a deep link: once somebody is inside, the hint has
-    /// done its work and showing it again would be the app repeating itself to
-    /// someone who already knows.
-    private func openYours() {
-        hasHintedGesture = true
-
-        // Presented without the system's slide because the personal field and
-        // mark own the transition — see `YoursSurface`. Scoped to this one
-        // state change rather than
-        // applied to the view, so nothing else in the shell loses its motion.
-        var silent = Transaction()
-        silent.disablesAnimations = true
-        withTransaction(silent) { showsYours = true }
-    }
-
-    /// Shown once, then never.
-    ///
-    /// With the mark gone from the bar there is nothing on screen to find, and
-    /// a way in nobody knows about is a feature nobody has. So the circle makes
-    /// exactly one appearance — and that is also the moment CIRCLE.md §2 wants:
-    /// one circle is yours, the joined mark below is WE, and the grammar
-    /// teaches itself because the two are visible together, once.
-    ///
-    /// It used to drift upward, pointing along a swipe. There is no swipe now,
-    /// and a circle sliding toward the top of the screen would be aiming at
-    /// nothing. It breathes instead — the slowest motion in the app, saying
-    /// only *there is something here*, directly above the thing to press.
-    ///
-    /// Only on Today, because that is the only place the mark opens anything.
-    /// Elsewhere it is the way home, and a hint over a control that currently
-    /// does something else is a lie told quietly.
-    ///
-    /// Wordless. §2 rations the word to the Promise and to first entry, and
-    /// this is neither.
-    ///
-    /// A layout child of the bar rather than an overlay on it, so it stays
-    /// inside the bar's gradient. As an overlay it rode over the zone's own
-    /// content. The row it occupies collapses the first time somebody goes in
-    /// — a one-time reflow, underneath a full-screen cover that is already
-    /// presenting.
-    @ViewBuilder
-    private var gestureHint: some View {
-        if !hasHintedGesture, store.activeZone == .we {
-            YoursMark(
-                style: .compact,
-                presence: .living,
-                hue: store.identity.color(for: store.speaker)
-            )
-            .frame(width: 24, height: 24)
-            .opacity(0.45)
-            .scaleEffect(reduceMotion ? 1 : hintBreath)
-            .frame(height: 30)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(
-                    .easeInOut(duration: 2.4).repeatForever(autoreverses: true)
-                ) {
-                    hintBreath = 1.06
-                }
-            }
-        }
-    }
 
     /// A 48 × 1pt track containing a 16pt segment filled with the blend,
     /// translated 0 / 16 / 32pt for zone 0 / 1 / 2.

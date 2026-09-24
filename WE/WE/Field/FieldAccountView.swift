@@ -576,7 +576,7 @@ struct FieldDeleteAccountView: View {
             // through a key WE destroys and can prove it destroyed, this is
             // the strongest true sentence available, and the two surfaces
             // must not disagree about it.
-            Text(YoursCopy.deletionAssurance)
+            Text("Unrecoverable within 24 hours.")
         }
         .onChange(of: session.state) { _, state in
             if state == .signedOut { dismiss() }

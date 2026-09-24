@@ -227,7 +227,7 @@ struct WalkthroughView: View {
                 .lineSpacing(4)
                 if selectedSpace == 1 {
                     Divider().overlay(canvas.ink.opacity(0.15))
-                    Label("Yours · an optional space for private reflection", systemImage: "lock")
+                    Label("Only me · anything you add can be kept just for you", systemImage: "lock")
                         .font(FieldType.body)
                 }
             }
