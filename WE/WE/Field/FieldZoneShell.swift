@@ -35,15 +35,11 @@ struct FieldZoneShell: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var store: FieldStore
     @State private var showsAccount = false
-    @State private var showsPrivateCapture = false
     @State private var planNavigation = WEPlanNavigation.shared
     @State private var intentPlan: FieldItemReference?
-    @State private var showsCapture = false
-    /// The + : one line in the day's conversation. `showsCapture` remains
-    /// only for the first-save guide, which teaches the full review.
+    /// The + card.
     @State private var showsComposer = false
     @State private var footerHeight: CGFloat = 240
-    @State private var firstSave: FirstSaveGuide?
 
 
     // Constructed in the body, not as a default argument. Default argument
@@ -116,20 +112,6 @@ struct FieldZoneShell: View {
         .overlay(alignment: .bottom) {
             if !store.calendarOpen, !store.searchOpen {
                 VStack(spacing: 0) {
-                    if store.activeZone == .today {
-                        if let guide = firstSave, guide.progress.phase == .offered {
-                            HStack {
-                                Button("Try with your life") { guide.start(); showsCapture = true }
-                                Spacer()
-                                Button("Not now") { guide.skip() }
-                            }
-                            .font(FieldType.body)
-                            .buttonStyle(.plain)
-                            .frame(minHeight: 44)
-                            .padding(.horizontal, FieldMetrics.screenSide)
-                            .accessibilityIdentifier("field.firstSave.offer")
-                        }
-                    }
                     FieldLoadStateLine(store: store)
                     navigationBar
                 }
@@ -160,63 +142,10 @@ struct FieldZoneShell: View {
                 .environment(\.weCanvas, .cream)
                 .environment(store)
         }
-        .sheet(isPresented: $showsCapture) {
-            NavigationStack {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        if let guide = firstSave,
-                           guide.progress.phase == .started || guide.progress.phase == .saved {
-                            Text("Put down one thought. You’ll review where it goes and who can see it before saving.")
-                                .font(FieldType.body)
-                        }
-                        if WEFeatureFlags.shareInboxEnabled {
-                            Button("Save something · Only Me", systemImage: "lock") { showsPrivateCapture = true }
-                                .sheet(isPresented: $showsPrivateCapture) { WEPrivateCaptureView() }
-                        }
-                        FieldCaptureField(
-                            savedItemID: firstSave?.progress.itemID,
-                            compact: true,
-                            onSaved: { firstSave?.saved($0) },
-                            onRetrieved: { firstSave?.retrieved($0) },
-                            onLookedUp: {
-                                showsCapture = false
-                                store.go(to: .today)
-                            }
-                        )
-                    }
-                    .padding(FieldMetrics.screenSide)
-                }
-                .scrollDismissesKeyboard(.interactively)
-                .navigationTitle("")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { showsCapture = false }
-                            .accessibilityIdentifier("field.capture.done")
-                    }
-                }
-                .weCanvas(.cream)
-            }
-            .presentationDetents([.height(410), .large])
-            .presentationBackground(.ultraThinMaterial)
-            .presentationDragIndicator(.visible)
-            .presentationCornerRadius(32)
-            .preferredColorScheme(.light)
-            .environment(\.weCanvas, .cream)
-            .environment(store)
-        }
         .environment(store)
         .animation(.fieldZone(reduceMotion), value: store.activeZone)
         .animation(.fieldZone(reduceMotion), value: store.calendarOpen)
         .animation(.fieldZone(reduceMotion), value: store.searchOpen)
-        .task(id: guideScope) {
-            showsCapture = false
-            if let user = session.user?.id, let couple = session.snapshot?.membership?.coupleID {
-                firstSave = FirstSaveGuide(accountID: user, coupleID: couple)
-            } else {
-                firstSave = nil
-            }
-        }
         .task { await store.load() }
         .task {
             if WEFeatureFlags.shareInboxEnabled { WEIntelligenceStore.shared.reload(); await WEIntelligenceStore.shared.synchronize() }
@@ -325,10 +254,6 @@ struct FieldZoneShell: View {
             guard let decision = crossingDecision else { return }
             await store.considerCrossing(decision: decision)
         }
-    }
-
-    private var guideScope: String {
-        "\(session.user?.id ?? ""):\(session.snapshot?.membership?.coupleID ?? "")"
     }
 
     /// Open while both of them are open, closed once somebody closes it.

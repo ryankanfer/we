@@ -275,21 +275,4 @@ struct PrivateBetaWalkthroughTests {
         #expect(WalkthroughPractice.makeStore().state.lifeItems.isEmpty)
     }
 
-    @Test func firstSaveResumesOnlyForItsAccountAndRelationship() throws {
-        let suite = "firstSave-test-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let first = FirstSaveGuide(accountID: "a", coupleID: "one", defaults: defaults)
-        first.start()
-        first.saved("record")
-        let resumed = FirstSaveGuide(accountID: "a", coupleID: "one", defaults: defaults)
-        #expect(resumed.progress.phase == .saved)
-        #expect(resumed.progress.itemID == "record")
-        #expect(FirstSaveGuide(accountID: "b", coupleID: "one", defaults: defaults).progress.phase == .offered)
-        #expect(FirstSaveGuide(accountID: "a", coupleID: "two", defaults: defaults).progress.phase == .offered)
-        resumed.retrieved("other")
-        #expect(resumed.progress.phase == .saved)
-        resumed.retrieved("record")
-        #expect(resumed.progress.phase == .completed)
-    }
 }
