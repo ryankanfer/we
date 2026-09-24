@@ -3,7 +3,6 @@ import SwiftUI
 struct ContentView: View {
     @State private var privateCapture = false
     @State private var privateLibrary = false
-    @State private var privateField = FieldStore(state: .empty(nameA: "You", nameB: "Your partner", now: Date()))
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var pendingInvitation: PendingInvitation
     @EnvironmentObject private var externalSurfaces:
@@ -63,7 +62,16 @@ struct ContentView: View {
                 }
             }
             .sheet(isPresented: $privateCapture) { WEPrivateCaptureView() }
-            .sheet(isPresented: $privateLibrary) { WEArtifactsView().environment(privateField) }
+            .sheet(isPresented: $privateLibrary) {
+                // Built when the sheet opens, not as a `@State` default. A
+                // default is evaluated on every init of this view, so every
+                // re-render allocated and discarded a whole FieldStore — and
+                // a discarded store's isolated deinit is where the test host
+                // was crashing (malloc abort in TaskLocal teardown).
+                WEArtifactsView().environment(
+                    FieldStore(state: .empty(nameA: "You", nameB: "Your partner", now: Date()))
+                )
+            }
 
             if showsPartnerArrival {
                 PartnerArrivalCeremony {

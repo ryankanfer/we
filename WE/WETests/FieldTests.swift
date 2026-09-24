@@ -205,14 +205,16 @@ struct FieldPaletteTests {
 @MainActor
 struct FieldConstraintTests {
     @Test
-    func weIsIndexOneAndIsTheHome() {
-        #expect(FieldZone.we.rawValue == 1)
-        #expect(FieldStore().activeZone == .we)
+    func todayIsIndexZeroAndIsTheHome() {
+        #expect(FieldZone.today.rawValue == 0)
+        #expect(FieldStore().activeZone == .today)
     }
 
+    /// Two zones, and only two. Life is everything, Today is what matters,
+    /// and Us is not a place — a third zone is the taxonomy work this removed.
     @Test
     func zoneOrderIsFixed() {
-        #expect(FieldZone.allCases == [.life, .we, .us])
+        #expect(FieldZone.allCases == [.today, .life])
     }
 
     /// The domain has no place to put a score, and that is deliberate. If a
@@ -2372,12 +2374,12 @@ struct FieldStoreTests {
     @Test
     func theMarkAlwaysReturnsHome() {
         let store = FieldStore()
-        store.go(to: .us)
+        store.go(to: .life)
         store.openCalendar()
 
         store.returnHome()
 
-        #expect(store.activeZone == .we)
+        #expect(store.activeZone == .today)
         #expect(store.calendarOpen == false)
     }
 

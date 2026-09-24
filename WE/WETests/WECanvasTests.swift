@@ -239,9 +239,8 @@ struct WECanvasTests {
     @Test func eachZoneIsLitDifferently() {
         let statements = FieldZone.allCases.map(\.glow)
         #expect(Set(statements).count == FieldZone.allCases.count)
+        #expect(FieldZone.today.glow == .splitBottom)
         #expect(FieldZone.life.glow == .warmBottomLeft)
-        #expect(FieldZone.we.glow == .splitBottom)
-        #expect(FieldZone.us.glow == .coolBottomRight)
     }
 
     /// Today is the only zone lit from both sides.
@@ -251,6 +250,6 @@ struct WECanvasTests {
     /// you" everywhere else in the system. A second split would spend that.
     @Test func onlyTodayIsLitFromBothSides() {
         let split = FieldZone.allCases.filter { $0.glow == .splitBottom }
-        #expect(split == [.we])
+        #expect(split == [.today])
     }
 }

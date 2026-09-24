@@ -1201,11 +1201,22 @@ final class FieldStore {
             capturedAt: now,
             visibility: visibility
         )
+        // Stamped here, at the crossing, rather than when each correction was
+        // made: "Only me" can be turned on after a correction, and the typed
+        // words in it are exactly as private as the item. Stamped *before*
+        // staging, because the durable outbox is what actually reaches the
+        // server — an unstamped copy there would publish a private item's
+        // words as a shared correction.
+        let corrections = pendingCorrections.map {
+            var correction = $0
+            correction.visibility = visibility
+            return correction
+        }
         if let outbox {
             let item = makeCapturedItem(receipt)
             do {
                 try outbox.stage([.append(capture), .upsertItem(item)]
-                    + pendingCorrections.map { .record($0) })
+                    + corrections.map { .record($0) })
             } catch {
                 captureSaveError = "This has not been saved. Keep this screen open and try again."
                 return
@@ -1220,14 +1231,6 @@ final class FieldStore {
 
         // Corrections are training signal about the classifier, and they are
         // held back with everything else until the moment of crossing.
-        // Stamped here, at the crossing, rather than when each correction was
-        // made: "Only me" can be turned on after a correction, and the typed
-        // words in it are exactly as private as the item.
-        let corrections = pendingCorrections.map {
-            var correction = $0
-            correction.visibility = visibility
-            return correction
-        }
         pendingCorrections = []
         lastReceipt = nil
         correctingReceipt = nil
