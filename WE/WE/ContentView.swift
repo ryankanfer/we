@@ -108,8 +108,17 @@ struct ContentView: View {
                 .padding(.horizontal, FieldMetrics.screenSide)
             }
         }
-        .sheet(isPresented: $showsProfile) {
-            ProfileView(onReplayPromise: onReplayPromise)
+        // The same Account the app shows once you are paired, before pairing
+        // too. Its store holds only the two names; nothing is loaded or
+        // written through it here.
+        .fullScreenCover(isPresented: $showsProfile) {
+            FieldAccountView(onReplayPromise: onReplayPromise)
+                .environment(
+                    FieldStore(
+                        state: session.snapshot?.emptyFieldState
+                            ?? .empty(nameA: "You", nameB: "Your partner", now: Date())
+                    )
+                )
         }
         .onChange(of: session.state) { oldState, newState in
             if arrivalHappened(from: oldState, to: newState) {
