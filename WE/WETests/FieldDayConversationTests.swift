@@ -213,3 +213,36 @@ struct FieldLinkCaptureTests {
         #expect(FieldLinkReader.firstLink(in: "call mom sunday") == nil)
     }
 }
+
+// MARK: Decision notices
+
+@MainActor
+struct FieldDecisionNoticeTests {
+    /// Unset reads as on, because the server sends unless someone said no.
+    @Test
+    func noticesAreOnUntilTurnedOff() async {
+        var state = FieldState.seed
+        state.chatPreferences = nil
+        let store = FieldStore(state: state, now: FieldSampleData.today)
+        #expect(store.decisionNoticesOn)
+
+        await store.setDecisionNotices(false)
+        #expect(!store.decisionNoticesOn)
+    }
+
+    /// Today showing the partner's proposal marks it seen, so the notifier
+    /// does not count it as unread.
+    @Test
+    func aPartnersProposalIsSeenOnceTodayShowsIt() async throws {
+        var state = FieldState.seed
+        state.chatPreferences = nil
+        state.conversation = [
+            FieldChatMessage(body: "Tahoe", sender: .b, decision: true)
+        ]
+        let store = FieldStore(state: state, now: FieldSampleData.today)
+
+        await store.markDecisionsSeen()
+        let mine = try #require(store.state.chatPreferences?.first { $0.owner == store.speaker })
+        #expect(mine.readAt != nil)
+    }
+}

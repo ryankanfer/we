@@ -103,6 +103,11 @@ struct FieldTodayZone: View {
             FieldDeferralView()
                 .environment(store)
         }
+        // Proposals shown here are seen; see `FieldStore.markDecisionsSeen`.
+        .task(id: "\(store.activeZone == .today):\(store.chatMessages.count)") {
+            guard store.activeZone == .today else { return }
+            await store.markDecisionsSeen()
+        }
         .sheet(isPresented: $showsSharedQuestion) {
             SharedJourneyUsSurface()
                 .environment(store)

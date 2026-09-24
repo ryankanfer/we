@@ -49,6 +49,9 @@ struct FieldAccountView: View {
                     noticing
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
+                    decisionNotices
+                        .padding(.bottom, FieldMetrics.sectionGapLoose)
+
                     responseSettings
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
@@ -423,6 +426,38 @@ struct FieldAccountView: View {
             .fieldLineHeight(1.5, size: 14.5)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.top, 14)
+        }
+    }
+
+    // MARK: Decisions
+
+    /// The one notice besides the arrival: your partner suggested deciding
+    /// on something. It says only that something is waiting, never what.
+    private var decisionNotices: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldRuleLine()
+
+            FieldLabel("Decisions")
+                .padding(.top, 20)
+                .padding(.bottom, 10)
+
+            Toggle(
+                "Tell me when \(store.partnerName) suggests a decision",
+                isOn: Binding(
+                    get: { store.decisionNoticesOn },
+                    set: { on in Task { await store.setDecisionNotices(on) } }
+                )
+            )
+            .font(FieldType.body)
+            .frame(minHeight: 44)
+            .accessibilityIdentifier("field.account.decisionNotices")
+
+            Text("The notice says something is waiting for you both, and nothing else.")
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.metadataProse))
+                .fieldLineHeight(1.5, size: 14.5)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 10)
         }
     }
 

@@ -27,7 +27,7 @@ Deno.serve(async request => {
     const { data: tokens } = await client.from("device_tokens").select("token").eq("profile_id", row.profile_id);
     for (const token of tokens ?? []) {
       try {
-        const result = await send(apns, token.token, "A new message is waiting in WE.", "chat-" + row.couple_id);
+        const result = await send(apns, token.token, "Something is waiting for you both in WE.", "chat-" + row.couple_id);
         if (result.ok) sent++;
         else if (isDeadToken(result.status)) await client.from("device_tokens").delete().eq("profile_id", row.profile_id).eq("token", token.token);
       } catch { /* The message itself remains durable; push is a best-effort nudge. */ }

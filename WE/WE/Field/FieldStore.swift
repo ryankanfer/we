@@ -1565,6 +1565,31 @@ final class FieldStore {
         do { return try await backend?.chatPage(before: before, decisionsOnly: decisionsOnly) ?? chatMessages.filter { !decisionsOnly || ($0.decision && $0.confirmed) } }
         catch { conversationError = "Couldn’t load this conversation. Try again."; return [] }
     }
+    /// Whether this person's phone is told when the other suggests deciding
+    /// on something. The server sends unless someone has said no, so unset
+    /// reads as on — and Account says so.
+    var decisionNoticesOn: Bool {
+        state.chatPreferences?.first { $0.owner == speaker }?.notifications != false
+    }
+
+    func setDecisionNotices(_ on: Bool) async {
+        let current = state.chatPreferences?.first { $0.owner == speaker }
+        await updateChatPreference(notices: current?.notices ?? true, notifications: on)
+    }
+
+    /// Today has shown the partner's proposals, so they are seen. Without
+    /// this the notifier counts every proposal as unread: the screen that
+    /// used to mark them read was the retired chat.
+    func markDecisionsSeen() async {
+        let current = state.chatPreferences?.first { $0.owner == speaker }
+        guard let latest = chatMessages
+            .filter({ $0.decision && $0.sender != speaker })
+            .map(\.createdAt).max(),
+            latest > (current?.readAt ?? .distantPast)
+        else { return }
+        await updateChatPreference(notices: current?.notices ?? true, readAt: now)
+    }
+
     func updateChatPreference(notices: Bool, readAt: Date? = nil, notifications: Bool? = nil) async {
         do {
             if let backend { try await backend.setChatPreference(notices: notices, readAt: readAt, notifications: notifications); await retryLoad() }
