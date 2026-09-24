@@ -433,67 +433,6 @@ struct FieldZoneShell: View {
         }
     }
 
-    /// 40 × 40pt circle, 1px border at ink .5, fill ink .06, the wordmark in
-    /// 11pt DM Sans at +2.4. Present on every zone.
-    ///
-    /// Tap returns to Today; tap it *from* Today and it opens Yours;
-    /// long-press opens the account. The handoff allows no chrome for
-    /// settings, so the mark carries it — but a long-press does not exist for
-    /// VoiceOver, so the accessibility actions below are the only route for
-    /// those users and are not optional.
-    ///
-    /// The way into Yours used to be an upward drag on this bar. It asked for
-    /// 40pt of travel in a direction nothing else moved, resolved only on
-    /// release, and gave no sign while it was being attempted — so a failed
-    /// attempt and no attempt looked identical, and the failure mode of a
-    /// private space nobody can open is that it does not exist. The mark was
-    /// already the way home and therefore already inert on Today, which makes
-    /// it the one control that could take this without giving anything up.
-    private var weMark: some View {
-        // Not a `Button`: a Button consumes the long press, so tap and
-        // long-press have to be attached as peers to the same shape.
-        ZStack {
-            Circle()
-                .fill(store.activeZone.canvas.ink.opacity(isHome ? 0.10 : 0.03))
-                .overlay {
-                    Circle().strokeBorder(FieldRule.mark, lineWidth: 1)
-                }
-                .frame(width: 40, height: 40)
-
-            Text("WE")
-                .font(FieldType.mark)
-                .tracking(FieldTracking.mark)
-                .foregroundStyle(.fieldInk(.headline))
-        }
-        .frame(width: 48, height: 48)
-        .contentShape(Circle())
-        .onTapGesture { markTapped() }
-        .onLongPressGesture(minimumDuration: 0.5) { showsAccount = true }
-        .accessibilityElement(children: .ignore)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("WE")
-        .accessibilityHint(isHome ? "" : "Returns to Today")
-        .accessibilityIdentifier("field.nav.we")
-        .accessibilityAction { store.returnHome() }
-        .accessibilityAction(named: "Account") { showsAccount = true }
-    }
-
-    /// Whether the mark has nothing left to do as a way home.
-    ///
-    /// Today, with nothing over it. The two overlays count as "not home"
-    /// deliberately: while one is up the mark has to mean *close this*.
-    private var isHome: Bool {
-        store.activeZone == .today && !store.calendarOpen && !store.searchOpen
-    }
-
-    private func markTapped() {
-        store.returnHome()
-    }
-
-
-    /// A 48 × 1pt track containing a 16pt segment filled with the blend,
-    /// translated 0 / 16 / 32pt for zone 0 / 1 / 2.
-
 }
 
 // MARK: - Motion

@@ -2,7 +2,7 @@
 //  WalkthroughJourney.swift
 //  WE
 //
-//  The three spaces in the walkthrough, and the state each one is shown with.
+//  The three beats in the walkthrough, and the state each one is shown with.
 //
 //  The point of this file is the thing `FieldStore` already names: the
 //  walkthrough "shows the real rule rather than a picture of one". Nothing
@@ -35,19 +35,18 @@ enum WalkthroughJourney: String, CaseIterable, Identifiable, Sendable {
     case today
     /// The details both people have mentioned.
     case life
-    /// The possibilities that keep returning.
-    case us
+    /// The possibilities that keep returning, which become goals in Life.
+    case goals
 
     var id: String { rawValue }
 
-    /// The real surface label. Today names itself as home once because a new
-    /// person cannot yet know that the centre of the navigation is the place
-    /// they will return to.
+    /// The real surface label. Goals are not a place of their own: they are
+    /// the top of Life, and the label says so.
     var headerLabel: String {
         switch self {
-        case .today: "TODAY · HOME"
+        case .today: "TODAY"
         case .life: "LIFE"
-        case .us: "US"
+        case .goals: "LIFE · WHERE WE'RE HEADED"
         }
     }
 
@@ -58,8 +57,8 @@ enum WalkthroughJourney: String, CaseIterable, Identifiable, Sendable {
     var nextTitle: String {
         switch self {
         case .today: "Next: Life"
-        case .life: "Next: Us"
-        case .us: "Open WE"
+        case .life: "Next: Where we're headed"
+        case .goals: "Open WE"
         }
     }
 
@@ -293,7 +292,7 @@ enum WalkthroughOutcome {
             FieldOccasion
                 .proposal(WalkthroughSeed.occasionContext(now: now))
                 .map(WalkthroughOutcome.context)
-        case .us:
+        case .goals:
             FieldPromotion
                 .proposal(WalkthroughSeed.promotionContext(now: now))
                 .map(WalkthroughOutcome.memory)

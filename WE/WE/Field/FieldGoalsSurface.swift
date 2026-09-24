@@ -242,7 +242,6 @@ struct FieldGoalRoom: View {
     @State private var editing: FieldHorizon?
     @State private var openItem: FieldItemReference?
     @State private var showsLifePicker = false
-    @State private var showsGoalChat = false
     @State private var nextStep = ""
     @State private var milestone = ""
     @State private var note = ""
@@ -289,7 +288,6 @@ struct FieldGoalRoom: View {
                 } else {
                     Button("Shape this goal") { editing = goal }.buttonStyle(FieldGoalPrimaryStyle())
                 }
-                Button("Discuss this together") { store.conversationContext = .init(kind: "goal", id: goal.id); showsGoalChat = true }.buttonStyle(FieldGoalPrimaryStyle())
                 connections(goal)
             } else {
                 Text("This goal is no longer available.").font(FieldType.pageHeadline)
@@ -298,7 +296,6 @@ struct FieldGoalRoom: View {
         .onAppear { savedAmount = goal?.goalPlan?.saved ?? 0 }
         .sheet(item: $editing) { FieldGoalEditor(goal: $0).environment(store) }
         .sheet(item: $openItem) { FieldItemSheet(itemID: $0.id).environment(store) }
-        .sheet(isPresented: $showsGoalChat) { FieldConversationView(initialContext: .init(kind: "goal", id: goalID)).environment(store) }
         .sheet(isPresented: $showsLifePicker) { FieldGoalLifePicker(goalID: goalID).environment(store) }
     }
     private func budget(_ plan: FieldGoalPlan) -> some View {

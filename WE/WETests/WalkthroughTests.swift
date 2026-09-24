@@ -116,7 +116,7 @@ struct WalkthroughSeedTests {
     func japanIsTheSubjectSaidTwice() {
         for start in Self.starts {
             guard case .memory(let proposal)? = WalkthroughOutcome.resolve(
-                .us,
+                .goals,
                 now: start
             ) else {
                 Issue.record("no promotion on \(start)")
@@ -148,7 +148,7 @@ struct WalkthroughSeedTests {
     @Test
     func theUsQuestionOffersTwoAnswers() {
         guard case .memory(let proposal)? = WalkthroughOutcome.resolve(
-            .us,
+            .goals,
             now: FieldSampleData.today
         ) else {
             Issue.record("no Us question")
@@ -168,17 +168,17 @@ struct WalkthroughJourneyOrderTests {
     func theJourneysChainAndThenStop() {
         let ordered = WalkthroughJourney.ordered
 
-        #expect(ordered == [.today, .life, .us])
+        #expect(ordered == [.today, .life, .goals])
         #expect(ordered.map(\.progressIndex) == [0, 1, 2])
         #expect(WalkthroughJourney.today.next == .life)
-        #expect(WalkthroughJourney.life.next == .us)
-        #expect(WalkthroughJourney.us.next == nil)
-        #expect(WalkthroughJourney.today.headerLabel == "TODAY · HOME")
+        #expect(WalkthroughJourney.life.next == .goals)
+        #expect(WalkthroughJourney.goals.next == nil)
+        #expect(WalkthroughJourney.today.headerLabel == "TODAY")
         #expect(WalkthroughJourney.life.headerLabel == "LIFE")
-        #expect(WalkthroughJourney.us.headerLabel == "US")
+        #expect(WalkthroughJourney.goals.headerLabel == "LIFE · WHERE WE'RE HEADED")
         #expect(WalkthroughJourney.today.nextTitle == "Next: Life")
-        #expect(WalkthroughJourney.life.nextTitle == "Next: Us")
-        #expect(WalkthroughJourney.us.nextTitle == "Open WE")
+        #expect(WalkthroughJourney.life.nextTitle == "Next: Where we're headed")
+        #expect(WalkthroughJourney.goals.nextTitle == "Open WE")
     }
 }
 

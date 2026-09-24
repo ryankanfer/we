@@ -57,8 +57,8 @@ struct WalkthroughMovement: View {
     private var caption: some View {
         WalkthroughBeat(
             label: "Start in Today",
-            line: "Tell WE anything. It files it for you, and tells you why.",
-            detail: "Swipe or tap LIFE and US. Tap WE to come home."
+            line: "Tap + and say anything. WE files it in Life, and tells you where.",
+            detail: "Today is the day's conversation. Life is where everything lives."
         )
     }
 

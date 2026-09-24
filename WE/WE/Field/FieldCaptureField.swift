@@ -742,3 +742,17 @@ struct FieldFlowLayout: Layout {
         }
     }
 }
+
+/// Finishing a word from a title already saved in shared Life. Three
+/// letters first, and never a suffix that is not really there.
+struct FieldCaptureCompletion: Equatable {
+    let text: String
+    let reason: String
+    static func match(_ input: String, titles: [String]) -> Self? {
+        guard input.count >= 3, input == input.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+        let matches = Set(titles).filter { $0.count <= 240 && $0.count > input.count && $0.lowercased().hasPrefix(input.lowercased()) }
+            .sorted { $0.count == $1.count ? $0 < $1 : $0.count < $1.count }
+        guard let text = matches.first else { return nil }
+        return .init(text: input + text.dropFirst(input.count), reason: "From a title already saved in your shared Life.")
+    }
+}
