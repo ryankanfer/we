@@ -155,3 +155,61 @@ struct FieldDayConversationTests {
         #expect(store.chatMessages.isEmpty)
     }
 }
+
+// MARK: Links from the + card
+
+@MainActor
+struct FieldLinkCaptureTests {
+    @Test
+    func aPlainSiteDecidesWhereALinkGoes() {
+        #expect(FieldLinkReader.category(for: URL(string: "https://www.apple.com/airpods-pro/")!) == .buys)
+        #expect(FieldLinkReader.category(for: URL(string: "https://tv.apple.com/show/severance")!) == .watchlist)
+        #expect(FieldLinkReader.category(for: URL(string: "https://letterboxd.com/film/past-lives/")!) == .watchlist)
+        #expect(FieldLinkReader.category(for: URL(string: "https://cooking.nytimes.com/recipes/1-pasta")!) == .food)
+        #expect(FieldLinkReader.category(for: URL(string: "https://www.airbnb.com/rooms/1")!) == .trips)
+        // A lookalike is not the store.
+        #expect(FieldLinkReader.category(for: URL(string: "https://fakeamazon.com/x")!) == nil)
+        #expect(FieldLinkReader.category(for: URL(string: "https://someblog.net/thoughts")!) == nil)
+    }
+
+    @Test
+    func aSentLinkBecomesALifeItemThatKeepsTheLink() throws {
+        var state = FieldState.seed
+        state.conversation = []
+        let store = FieldStore(state: state, now: FieldSampleData.today)
+        let url = URL(string: "https://www.apple.com/airpods-pro/")!
+
+        store.captureDraft = "AirPods Pro 3"
+        store.submitCapture()
+        store.attachLink(url)
+        store.send()
+
+        let item = try #require(store.state.lifeItems.first { $0.sourceURL == url })
+        #expect(item.category == .buys)
+        #expect(item.title == "AirPods Pro 3")
+    }
+
+    @Test
+    func aPrivateLinkStaysPrivate() throws {
+        var state = FieldState.seed
+        state.conversation = []
+        let store = FieldStore(state: state, now: FieldSampleData.today)
+        let url = URL(string: "https://www.etsy.com/listing/1")!
+
+        store.captureDraft = "Ring for the anniversary"
+        store.submitCapture()
+        store.attachLink(url)
+        store.togglePrivate()
+        store.send()
+
+        let item = try #require(store.state.lifeItems.first { $0.sourceURL == url })
+        #expect(item.visibility == .private)
+        #expect(!item.isSharedPresence)
+    }
+
+    @Test
+    func aLinkInTheWordsIsFound() {
+        #expect(FieldLinkReader.firstLink(in: "look https://muji.us/duvet nice")?.host() == "muji.us")
+        #expect(FieldLinkReader.firstLink(in: "call mom sunday") == nil)
+    }
+}

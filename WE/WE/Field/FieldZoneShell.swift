@@ -154,12 +154,8 @@ struct FieldZoneShell: View {
                 }
             }
         }
-        .sheet(isPresented: $showsComposer) {
-            FieldChatComposer(onSent: { store.go(to: .today) })
-                .presentationDetents([.height(170)])
-                .presentationBackground(.ultraThinMaterial)
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(28)
+        .overlay {
+            FieldComposerOverlay(isPresented: $showsComposer) { store.go(to: .today) }
                 .preferredColorScheme(.light)
                 .environment(\.weCanvas, .cream)
                 .environment(store)

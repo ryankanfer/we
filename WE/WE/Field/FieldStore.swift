@@ -1294,8 +1294,29 @@ final class FieldStore {
             closesAt: nil, clusterID: nil, source: .captured,
             detail: match == nil ? nil : "Both added it, independently",
             isTimeCritical: false, isDone: false,
+            sourceURL: receipt.sourceURL,
             visibility: receipt.isPrivate ? .private : nil
         )
+    }
+
+    /// Where these words would be filed, without filing anything. For the +
+    /// card, which says where a thing is going before it goes.
+    func previewDestination(for text: String, link: URL? = nil) -> LifeCategory? {
+        if let link, let category = FieldLinkReader.category(for: link) { return category }
+        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty else { return nil }
+        return FieldClassifier.classify(words, context: classifierContext).category
+    }
+
+    /// Hands a link to the receipt about to be sent. A site whose kind is
+    /// plain decides the category, the same way the preview said it would.
+    func attachLink(_ url: URL?) {
+        guard let url, lastReceipt != nil else { return }
+        lastReceipt?.sourceURL = url
+        if let category = FieldLinkReader.category(for: url) {
+            lastReceipt?.category = category
+            if !category.carriesDates { lastReceipt?.dueOn = nil }
+        }
     }
 
     /// Puts a captured thing on today, or takes it back off.

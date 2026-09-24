@@ -776,6 +776,9 @@ struct FieldReceipt: Identifiable, Codable, Hashable, Sendable {
     /// "Only me". Off unless the person turns it on, so the default stays
     /// what it has always been: filed things are shared.
     var isPrivate: Bool = false
+    /// A link handed over with the words, from the + card. It travels onto
+    /// the filed item, where the link is what gets opened.
+    var sourceURL: URL? = nil
 
     /// Shown under the destination when tidying actually changed something.
     /// Silent when the title is the input, so the receipt does not narrate a
