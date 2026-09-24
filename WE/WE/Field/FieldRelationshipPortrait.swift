@@ -57,7 +57,7 @@ struct FieldRelationshipPortraitSurface: View {
         return FieldRelationshipPortrait.concepts(in: permitted, now: store.now)
     }
     var body: some View {
-        FieldZoneScaffold(zone: .us, showsZoneLabel: false) {
+        FieldZoneScaffold(zone: .life, showsZoneLabel: false) {
             VStack(spacing: 22) {
                 HStack {
                     Text("Us").font(FieldType.hero).accessibilityAddTraits(.isHeader)

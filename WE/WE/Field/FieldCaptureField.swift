@@ -40,15 +40,20 @@ struct FieldCaptureField: View {
     var compact = false
     var onSaved: (String) -> Void = { _ in }
     var onRetrieved: (String) -> Void = { _ in }
+    /// Called when what was typed was a question for WE rather than a thing
+    /// to add — the caller closes the sheet so the answer is seen in Today.
+    var onLookedUp: () -> Void = {}
 
     init(savedItemID: String? = nil, isWalkthrough: Bool = false, compact: Bool = false,
          onSaved: @escaping (String) -> Void = { _ in },
-         onRetrieved: @escaping (String) -> Void = { _ in }) {
+         onRetrieved: @escaping (String) -> Void = { _ in },
+         onLookedUp: @escaping () -> Void = {}) {
         self.isWalkthrough = isWalkthrough
         self.compact = compact
         _savedItemID = State(initialValue: savedItemID)
         self.onSaved = onSaved
         self.onRetrieved = onRetrieved
+        self.onLookedUp = onLookedUp
     }
 
     var body: some View {
@@ -182,6 +187,17 @@ struct FieldCaptureField: View {
     /// Classify, then step back. The receipt is the thing to read next, and it
     /// cannot be read from behind a keyboard.
     private func submit() {
+        let text = store.captureDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        // "What did we get for dad?" is asked of WE, privately, and answered
+        // with links in Today. Nothing is filed and nothing is shared. Never
+        // in the walkthrough, which must not touch a real account.
+        if !isWalkthrough, FieldLookupEngine.isLookup(text) {
+            store.lookUp(text)
+            store.captureDraft = ""
+            isFocused = false
+            onLookedUp()
+            return
+        }
         store.submitCapture()
         isFocused = false
     }

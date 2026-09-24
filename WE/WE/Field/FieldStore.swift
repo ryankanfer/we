@@ -365,7 +365,7 @@ final class FieldStore {
     // offset, calendarOpen, activeCluster, captureDraft, lastReceipt.
 
     /// WE is index 1 and is the home. Cold launch always lands on Today.
-    var activeZone: FieldZone = .we
+    var activeZone: FieldZone = .today
     // Per-zone scroll offset is listed in the handoff's ephemeral state, but
     // it is not stored here: the paging TabView keeps all three zones mounted,
     // so each ScrollView keeps its own position for free. Mirroring it would
@@ -1100,7 +1100,7 @@ final class FieldStore {
     func returnHome() {
         calendarOpen = false
         searchOpen = false
-        activeZone = .we
+        activeZone = .today
     }
 
     /// One overlay at a time over Life. Opening either closes the other rather
@@ -1425,6 +1425,9 @@ final class FieldStore {
     }
 
     var conversationOpen = false
+    /// This person's private look-ups for the day. In memory only: never
+    /// filed, never sent, never on the partner's screen. See `FieldLookup`.
+    var lookups: [FieldLookup] = []
     var conversationContext: FieldChatContext?
     var conversationDraft = ""
     var conversationError: String?

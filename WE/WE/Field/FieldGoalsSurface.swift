@@ -24,7 +24,7 @@ struct FieldGoalsSurface: View {
     private var exploring: [FieldHorizon] { store.state.horizons.filter { !isBuilding($0) } }
 
     var body: some View {
-        FieldZoneScaffold(zone: .us, showsZoneLabel: false) {
+        FieldZoneScaffold(zone: .life, showsZoneLabel: false) {
             VStack(alignment: .leading, spacing: 26) {
                 HStack {
                     Text("Us").font(FieldType.hero)

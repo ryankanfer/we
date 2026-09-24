@@ -98,10 +98,6 @@ struct FieldZoneShell: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             HStack {
                 Spacer()
-                Button { store.openConversation() } label: {
-                    HStack(spacing: 5) { Text("Chat"); if store.chatUnread { Circle().frame(width: 5, height: 5) } }.frame(minHeight: 44)
-                }.accessibilityLabel(store.chatUnread ? "Chat, new messages" : "Chat")
-                    .accessibilityIdentifier("field.openChat")
                 Button { showsAccount = true } label: {
                     Text("Account").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }
@@ -117,7 +113,7 @@ struct FieldZoneShell: View {
         .overlay(alignment: .bottom) {
             if !store.calendarOpen, !store.searchOpen {
                 VStack(spacing: 0) {
-                    if store.activeZone == .we {
+                    if store.activeZone == .today {
                         if let guide = firstSave, guide.progress.phase == .offered {
                             HStack {
                                 Button("Try with your life") { guide.start(); showsCapture = true }
@@ -130,21 +126,6 @@ struct FieldZoneShell: View {
                             .padding(.horizontal, FieldMetrics.screenSide)
                             .accessibilityIdentifier("field.firstSave.offer")
                         }
-                        Button { showsCapture = true } label: {
-                            HStack {
-                                Text("What is on your mind?")
-                                Spacer()
-                                Image(systemName: "square.and.pencil")
-                            }
-                            .font(FieldType.body)
-                            .padding(.horizontal, 20)
-                            .frame(minHeight: 56)
-                            .glassEffect(.regular.interactive(), in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, FieldMetrics.screenSide)
-                        .padding(.vertical, 12)
-                        .accessibilityIdentifier("field.capture.open")
                     }
                     FieldLoadStateLine(store: store)
                     navigationBar
@@ -187,7 +168,11 @@ struct FieldZoneShell: View {
                             savedItemID: firstSave?.progress.itemID,
                             compact: true,
                             onSaved: { firstSave?.saved($0) },
-                            onRetrieved: { firstSave?.retrieved($0) }
+                            onRetrieved: { firstSave?.retrieved($0) },
+                            onLookedUp: {
+                                showsCapture = false
+                                store.go(to: .today)
+                            }
                         )
                     }
                     .padding(FieldMetrics.screenSide)
@@ -280,9 +265,6 @@ struct FieldZoneShell: View {
         .fullScreenCover(isPresented: $showsAccount) {
             FieldAccountView()
                 .environment(store)
-        }
-        .sheet(isPresented: Binding(get: { store.conversationOpen }, set: { store.conversationOpen = $0 })) {
-            FieldConversationView().environment(store).environmentObject(session)
         }
         // 2a. Asked once, on the first arrival in the zones after a second
         // person joins — which is where both people land, whichever of them
@@ -398,15 +380,12 @@ struct FieldZoneShell: View {
 
     private var pager: some View {
         TabView(selection: zoneBinding) {
+            FieldTodayZone()
+                .tag(FieldZone.today)
+
             FieldLifeZone()
                 .environment(\.weCanvas, WECanvas.cream)
                 .tag(FieldZone.life)
-
-            FieldTodayZone()
-                .tag(FieldZone.we)
-
-            FieldUsZone()
-                .tag(FieldZone.us)
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
     }
@@ -426,11 +405,29 @@ struct FieldZoneShell: View {
     // transparent) so content scrolls softly beneath it. Bar padding
     // 16px 30px 30px; the bar occupies roughly 103pt."
 
+    /// Add something, from either zone. The one way in, always in the same
+    /// place — it replaced a composer that lived only on Today.
+    private var addButton: some View {
+        Button {
+            showsCapture = true
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 18, weight: .regular))
+                .foregroundStyle(.fieldInk(.headline))
+                .frame(width: 48, height: 48)
+                .glassEffect(.regular.interactive(), in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add something")
+        .accessibilityIdentifier("field.capture.open")
+    }
+
     private var navigationBar: some View {
         HStack(alignment: .center, spacing: 46) {
+            zoneLabel(.today)
+            addButton
             zoneLabel(.life)
-            weMark
-            zoneLabel(.us)
         }
         .padding(.horizontal, 26)
         .padding(.vertical, 8)
@@ -454,8 +451,8 @@ struct FieldZoneShell: View {
             // Life only. US has no room behind it, and inventing a general
             // `zone.deeperRoom` for a single case would make the bar look like
             // it holds three of these when it holds one.
-            if zone == .life, store.activeZone == .life {
-                store.openCalendar()
+            if zone == .today {
+                store.returnHome()
             } else {
                 store.go(to: zone)
             }
@@ -552,7 +549,7 @@ struct FieldZoneShell: View {
     /// Today, with nothing over it. The two overlays count as "not home"
     /// deliberately: while one is up the mark has to mean *close this*.
     private var isHome: Bool {
-        store.activeZone == .we && !store.calendarOpen && !store.searchOpen
+        store.activeZone == .today && !store.calendarOpen && !store.searchOpen
     }
 
     private func markTapped() {

@@ -2,7 +2,10 @@ import SwiftUI
 
 struct FieldLifeZone: View {
     @Environment(FieldStore.self) private var store
+    @EnvironmentObject private var session: AppSession
     @State private var filter = LifeFilter.plans
+    /// Goals, which used to live in Us. Life is everything now.
+    @State private var goalsAreOpen = false
     @State private var openItem: FieldItemReference?
     @State private var putAwayIsOpen = false
     @State private var shareInboxIsOpen = false
@@ -52,6 +55,8 @@ struct FieldLifeZone: View {
                 } else {
                     contents
                 }
+                whereWereHeaded
+
                 if !store.putAwayCategories.isEmpty {
                     Button("Put-away collections · \(store.putAwayCategories.count)") { putAwayIsOpen = true }
                         .font(FieldType.body)
@@ -65,7 +70,39 @@ struct FieldLifeZone: View {
         .sheet(item: $openItem) { FieldItemSheet(itemID: $0.id).environment(store) }
         .sheet(isPresented: $recoveryIsOpen) { WERecoveryCenter().environment(store) }
         .sheet(isPresented: $putAwayIsOpen) { FieldPutAwaySheet().environment(store) }
+        .sheet(isPresented: $goalsAreOpen) {
+            FieldGoalsSurface().environment(store).environmentObject(session)
+        }
         .fullScreenCover(isPresented: $shareInboxIsOpen) { WEArtifactsView().environment(store) }
+    }
+
+    /// Goals — the long view — as a door in Life rather than a zone of their
+    /// own. Us was a third place to decide where something belongs; a goal is
+    /// just another thing the couple is carrying, and it points at the plans
+    /// that serve it.
+    private var whereWereHeaded: some View {
+        Button { goalsAreOpen = true } label: {
+            HStack(spacing: 16) {
+                Image(systemName: "mountain.2").font(.system(size: 23, weight: .light))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Where we're headed").font(FieldType.weLifeSection)
+                    Text(
+                        store.state.horizons.isEmpty
+                            ? "Goals you both choose, and what points toward them."
+                            : store.state.horizons.prefix(2).map(\.title).joined(separator: " · ")
+                    )
+                    .font(.system(.subheadline)).foregroundStyle(.fieldInk(.reasoning))
+                    .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "arrow.right")
+            }
+            .padding(20)
+            .background(WECanvas.cream.bgElevated, in: RoundedRectangle(cornerRadius: 16))
+            .contentShape(Rectangle())
+        }
+        .accessibilityHint("Opens your goals")
+        .accessibilityIdentifier("field.life.goals")
     }
 
     private var fromElsewhere: some View {

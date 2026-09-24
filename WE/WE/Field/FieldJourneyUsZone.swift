@@ -1,17 +1,7 @@
 import SwiftUI
 
-/// Us is a shared decision room, not a report of Life. The old horizon report
-/// remains behind the rollout flag for a safe binary rollback.
-struct FieldUsZone: View {
-    var body: some View {
-        if WEFeatureFlags.sharedJourneysEnabled {
-            FieldRelationshipPortraitSurface()
-        } else {
-            LegacyFieldUsZone()
-        }
-    }
-}
-
+/// The shared question, opened from Today. Us is no longer a zone; this is
+/// the room a decision for the two of you opens into.
 struct SharedJourneyUsSurface: View {
     @EnvironmentObject private var session: AppSession
     @Environment(FieldStore.self) private var store
@@ -38,7 +28,7 @@ struct SharedJourneyUsSurface: View {
 
     var body: some View {
         FieldZoneScaffold(
-            zone: .us,
+            zone: .today,
             horizontalPadding: FieldMetrics.screenSide,
             showsZoneLabel: false
         ) {

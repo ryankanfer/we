@@ -35,50 +35,35 @@ import Foundation
 // receipt never names it, because nothing is ever sent there.
 
 enum FieldZone: Int, CaseIterable, Codable, Sendable, Identifiable {
-    case life = 0
-    /// Index 1, and the home. Cold launch always lands here.
-    case we = 1
-    case us = 2
+    /// Index 0, and the home. Cold launch always lands here. The day's
+    /// conversation: what matters now, and what either of you added today.
+    case today = 0
+    /// Everything the couple is carrying, goals included. The only zone that
+    /// holds anything; Us is no longer a place of its own.
+    case life = 1
 
     var id: Int { rawValue }
 
     var label: String {
         switch self {
+        case .today: "TODAY"
         case .life: "LIFE"
-        case .we: "TODAY"
-        case .us: "US"
         }
     }
 
-    /// The ground this zone stands on.
-    ///
-    /// All three zones stand on the same ground.
-    ///
-    /// Practical reading uses cream; Today and Us retain the dark ground.
+    /// Both zones read on the warm paper.
     var canvas: WECanvas { .cream }
 
-    /// Which way the light falls here.
-    ///
-    /// With the ground constant across all three zones, this is what does the
-    /// orientation work — V2 §3 assigns each zone one corner and Today gets
-    /// both, because Today is the one that belongs to the two of you at once.
+    /// Today is lit from both sides, because it belongs to the two of you at
+    /// once; Life pools warm from the left.
     var glow: FieldGlowStatement {
         switch self {
+        case .today: .splitBottom
         case .life: .warmBottomLeft
-        case .we: .splitBottom
-        case .us: .coolBottomRight
         }
     }
 
-    /// The nav renders WE as a mark, not a word, so its nav label differs
-    /// from its zone label.
-    var navLabel: String {
-        switch self {
-        case .life: "LIFE"
-        case .we: "WE"
-        case .us: "US"
-        }
-    }
+    var navLabel: String { label }
 }
 
 // MARK: - Partners

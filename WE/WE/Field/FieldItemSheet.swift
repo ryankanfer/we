@@ -47,7 +47,6 @@ struct FieldItemSheet: View {
         store.state.lifeItems.first { $0.id == itemID }
     }
 
-    @State private var showsChat = false
 
     var body: some View {
         ZStack {
@@ -91,9 +90,16 @@ struct FieldItemSheet: View {
                                 .accessibilityIdentifier("field.item.complete")
                         }
 
-                        if item.isSharedPresence {
-                            Button("Discuss this together") { store.conversationContext = .init(kind: "life", id: item.id); showsChat = true }
-                                .buttonStyle(FieldWorkspacePrimaryStyle()).padding(.bottom, 24)
+                        // A shared thing can be put to the two of you as a
+                        // decision; it appears in Today's conversation and the
+                        // other person agrees, or not.
+                        if item.isSharedPresence, !item.isDone,
+                           !store.hasProposedDecision(itemID: item.id) {
+                            Button("Decide on this together") {
+                                store.proposeDecision(itemID: item.id)
+                            }
+                            .buttonStyle(FieldWorkspacePrimaryStyle()).padding(.bottom, 24)
+                            .accessibilityIdentifier("field.item.propose")
                         }
                         standing(item)
 
@@ -119,7 +125,6 @@ struct FieldItemSheet: View {
         )) { request in
             FieldOutreachConfirmation(request: request).environment(store)
         }
-        .sheet(isPresented: $showsChat) { FieldConversationView(initialContext: .init(kind: "life", id: itemID)).environment(store) }
         .preferredColorScheme(.light)
         .environment(\.weCanvas, WECanvas.cream)
         .animation(.fieldZone(reduceMotion), value: item?.category)
