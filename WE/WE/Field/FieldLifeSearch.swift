@@ -79,7 +79,7 @@ struct FieldLifeSearch: View {
         // The keyboard, without anybody having to ask for it. Search is the one
         // surface in this app where arriving and wanting to type are the same
         // act — nobody pulls this down to look at it.
-        .onAppear { isTyping = true; if WEFeatureFlags.shareInboxEnabled { WEIntelligenceStore.shared.reload() } }
+        .onAppear { isTyping = true; if !store.searchSeed.isEmpty { query = store.searchSeed; store.searchSeed = "" }; if WEFeatureFlags.shareInboxEnabled { WEIntelligenceStore.shared.reload() } }
         .sheet(item: $privateSelection) { WEArtifactDetail(id: $0.id).environment(store) }
         // Stays a container.
         //
@@ -124,13 +124,24 @@ struct FieldLifeSearch: View {
             // already the invitation. Saying "start typing" under a focused
             // cursor is the app narrating what a person is already doing.
             EmptyView()
-        } else if matches.isEmpty && privateMatches.isEmpty {
+        } else if matches.isEmpty && privateMatches.isEmpty && decisionAnswer == nil {
             Text("No saved items match that search.")
                 .font(FieldType.body)
                 .foregroundStyle(.fieldInk(.label))
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    if let decisionAnswer {
+                        Text(decisionAnswer)
+                            .font(.system(size: 17, design: .serif))
+                            .foregroundStyle(.fieldInk(.headline))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(WECanvas.cream.ink.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
+                            .padding(.bottom, 12)
+                            .accessibilityIdentifier("field.search.decision")
+                    }
                     ForEach(privateMatches) { match in
                         VStack(alignment: .leading, spacing: 8) {
                             Button(match.document.title) { if let id = UUID(uuidString: match.id.id) { privateSelection = .init(id: id) } }
@@ -269,8 +280,40 @@ struct FieldLifeSearch: View {
         guard WEFeatureFlags.shareInboxEnabled else { return [] }
         return WESemanticSearch.matches(trimmedQuery, eligible: WEIntelligenceStore.shared.searchDocuments)
     }
+    /// What the semantic search found, then anything whose words plainly
+    /// contain what was typed — title, note, or the group it is in — so
+    /// "food" finds everything in Food and a half-remembered word still
+    /// lands. Semantic results keep their order at the top.
     private var matches: [LifeItem] {
-        semanticMatches.compactMap { result in store.intelligenceEligibleLifeItems.first { $0.id == result.id.id } }
+        let eligible = store.intelligenceEligibleLifeItems
+        let semantic = semanticMatches.compactMap { result in eligible.first { $0.id == result.id.id } }
+        // The plain match reads everything already on this person's screen.
+        // It is a string compare on the phone, the same as Life listing the
+        // items, so it does not wait on the consent semantic search needs.
+        let visible = store.state.lifeItems
+        let seen = Set(semantic.map(\.id))
+        let words = FieldLookupEngine.keywords(in: trimmedQuery)
+        guard !words.isEmpty else { return semantic }
+        let plain = FieldLookupEngine.rank(
+            visible.filter { !seen.contains($0.id) },
+            words: words,
+            text: { [$0.title, $0.detail ?? "", $0.category.word].joined(separator: " ") },
+            limit: 40
+        )
+        return semantic + plain
+    }
+
+    /// A decision you both confirmed that matches, said first and plainly.
+    /// Only ever a confirmed one: "decided" is not a word WE guesses.
+    private var decisionAnswer: String? {
+        let words = FieldLookupEngine.keywords(in: trimmedQuery)
+        guard !words.isEmpty else { return nil }
+        return FieldLookupEngine.rank(
+            store.chatMessages.filter { $0.decision && $0.confirmed },
+            words: words,
+            text: \.body,
+            limit: 1
+        ).first.map { FieldDayCopy.decided($0.body) }
     }
 
     private func close() {

@@ -40,6 +40,7 @@ struct FieldLifeZone: View {
         FieldZoneScaffold(zone: .life, showsZoneLabel: false) {
             VStack(alignment: .leading, spacing: 28) {
                 header
+                searchHero
                 whereWereHeaded
                 if WEFeatureFlags.shareInboxEnabled {
                     fromElsewhere
@@ -158,15 +159,82 @@ struct FieldLifeZone: View {
         .accessibilityIdentifier("field.life.fromElsewhere")
     }
 
+    // MARK: Search, in the middle
+
+    /// Life opens on a question. Most of the time somebody comes to Life to
+    /// find one thing — the wine for Dad, the passport date — so the box for
+    /// that sits in the middle of the first screen, and everything else is
+    /// one scroll down.
+    private var searchHero: some View {
+        VStack(spacing: 18) {
+            Spacer(minLength: 0)
+            Text("What are you looking for?")
+                .font(.system(size: 24, design: .serif))
+                .foregroundStyle(.fieldInk(.headline))
+                .multilineTextAlignment(.center)
+
+            Button { store.openSearch() } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 17))
+                    FieldSearchHint(examples: searchExamples)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 20)
+                .frame(minHeight: 56)
+                .background(WECanvas.cream.bgElevated, in: Capsule())
+                .overlay { Capsule().strokeBorder(WECanvas.cream.ink.opacity(0.28), lineWidth: 1) }
+                .contentShape(Capsule())
+            }
+            .accessibilityLabel("Search Life")
+            .accessibilityIdentifier("field.life.search")
+
+            if !searchSuggestions.isEmpty {
+                HStack(spacing: 8) {
+                    ForEach(searchSuggestions, id: \.self) { word in
+                        Button { store.openSearch(word) } label: {
+                            Text(word)
+                                .font(.system(size: 14))
+                                .padding(.horizontal, 14)
+                                .frame(minHeight: 36)
+                                .overlay { Capsule().strokeBorder(WECanvas.cream.ink.opacity(0.18), lineWidth: 1) }
+                                .contentShape(Capsule())
+                        }
+                        .accessibilityLabel("Search \(word)")
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+            if !items.isEmpty {
+                Label("Everything below", systemImage: "chevron.down")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.fieldInk(.legend))
+                    .accessibilityHidden(true)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .containerRelativeFrame(.vertical) { height, _ in height * 0.62 }
+    }
+
+    /// Real things from Life, cycled in the empty box, so it shows what it
+    /// can find rather than saying "Search".
+    private var searchExamples: [String] {
+        let titles = items.filter { !$0.isDone }.prefix(6).map { $0.title.lowercased() }
+        return titles.isEmpty ? ["the wine for dad"] : Array(titles)
+    }
+
+    /// The groups you actually have things in, most first.
+    private var searchSuggestions: [String] {
+        Dictionary(grouping: items.filter { !$0.isDone }, by: \.category)
+            .sorted { $0.value.count > $1.value.count }
+            .prefix(3)
+            .map { $0.key.word }
+    }
+
     private var header: some View {
         HStack(alignment: .center) {
             Text("Life").font(FieldType.hero)
             Spacer()
-            Button { store.openSearch() } label: {
-                Image(systemName: "magnifyingglass").frame(width: 44, height: 44)
-            }
-            .accessibilityLabel("Search Life")
-            .accessibilityIdentifier("field.life.search")
             Button { store.openCalendar() } label: {
                 Image(systemName: "calendar").frame(width: 44, height: 44)
             }
@@ -360,4 +428,28 @@ private struct FieldPutAwaySheet: View {
 
 #Preview {
     FieldZoneShell(store: FieldStore())
+}
+
+/// The placeholder in Life's search box: one real thing at a time, changing
+/// every few seconds. Still under Reduce Motion, which gets the first one.
+private struct FieldSearchHint: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let examples: [String]
+    @State private var index = 0
+
+    var body: some View {
+        Text("\(examples[index % max(examples.count, 1)])…")
+            .font(.system(size: 17, design: .serif))
+            .foregroundStyle(.fieldInk(.legend))
+            .lineLimit(1)
+            .id(index)
+            .transition(.opacity.combined(with: .offset(y: 6)))
+            .task(id: examples) {
+                guard !reduceMotion, examples.count > 1 else { return }
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(3))
+                    withAnimation(.easeInOut(duration: 0.4)) { index += 1 }
+                }
+            }
+    }
 }

@@ -1115,7 +1115,12 @@ final class FieldStore {
         calendarOpen = false
     }
 
-    func openSearch() {
+    /// Words to start a search with, from a suggestion on Life. Read once,
+    /// by the search surface as it opens.
+    var searchSeed = ""
+
+    func openSearch(_ seed: String = "") {
+        searchSeed = seed
         calendarOpen = false
         searchOpen = true
     }

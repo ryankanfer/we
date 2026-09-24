@@ -166,8 +166,8 @@ struct FieldChatComposer: View {
             guard let url = strings.lazy.compactMap(FieldLinkReader.firstLink(in:)).first else { return }
             Task { @MainActor in attach(url) }
         }
-        .labelStyle(.iconOnly)
-        .buttonBorderShape(.circle)
+        .labelStyle(.titleAndIcon)
+        .buttonBorderShape(.capsule)
         .tint(canvas.bgDeep)
         .foregroundStyle(.fieldInk(.headline))
         .accessibilityLabel("Paste a link")
