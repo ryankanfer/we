@@ -39,6 +39,8 @@ struct FieldItemSheet: View {
     @State private var asksToRemove = false
     @State private var isPickingDay = false
     @State private var asksToShare = false
+    /// Everything past the item's own work, folded until asked for.
+    @State private var showsMore = false
 
     /// Read live from the store rather than captured at presentation. Every
     /// control here mutates the item, and a copy taken when the sheet opened
@@ -61,8 +63,13 @@ struct FieldItemSheet: View {
                         delivery
                         if WEFeatureFlags.shareInboxEnabled { WEPlanAttachments(planID: itemID).environment(store) }
 
-                        whoSees(item)
-                            .padding(.bottom, FieldMetrics.sectionGap)
+                        // Only for private things. A shared thing already says
+                        // "Shared with …" in its header; saying it twice is
+                        // noise.
+                        if item.visibility == .private {
+                            whoSees(item)
+                                .padding(.bottom, FieldMetrics.sectionGap)
+                        }
 
                         if let error = store.itemSaveError {
                             Text(error).font(FieldType.body)
@@ -70,17 +77,15 @@ struct FieldItemSheet: View {
                                 .accessibilityIdentifier("field.item.saveError")
                         }
 
+                        // The thing itself first: the one piece of work this
+                        // item is, and finishing it. Everything else is
+                        // available and folded away — the page used to lay
+                        // out every tool at once, and a person who came to
+                        // send a list had to read past a calendar to do it.
                         if item.sourceURL != nil { FieldItemHelp(item: item, sourceOnly: true) }
 
                         FieldItemActionPanel(item: item)
                             .id(itemID)
-
-                        FieldItemHelp(item: item)
-
-                        if FieldItemPurpose.resolve(item) != .reference {
-                            when(item)
-                                .padding(.bottom, 24)
-                        }
 
                         if FieldItemPurpose.resolve(item) == .task {
                             Button("Mark complete") { store.complete(itemID) }
@@ -90,27 +95,46 @@ struct FieldItemSheet: View {
                                 .accessibilityIdentifier("field.item.complete")
                         }
 
-                        // A shared thing can be put to the two of you as a
-                        // decision; it appears in Today's conversation and the
-                        // other person agrees, or not.
-                        if item.isSharedPresence, !item.isDone,
-                           !store.hasProposedDecision(itemID: item.id) {
-                            Button("Decide on this together") {
-                                store.proposeDecision(itemID: item.id)
+                        DisclosureGroup(isExpanded: $showsMore) {
+                            VStack(alignment: .leading, spacing: 0) {
+                                FieldItemHelp(item: item)
+
+                                if FieldItemPurpose.resolve(item) != .reference {
+                                    when(item)
+                                        .padding(.bottom, 24)
+                                }
+
+                                // A shared thing can be put to the two of you
+                                // as a decision; it appears in Today's
+                                // conversation and the other person agrees.
+                                if item.isSharedPresence, !item.isDone,
+                                   !store.hasProposedDecision(itemID: item.id) {
+                                    Button("Decide on this together") {
+                                        store.proposeDecision(itemID: item.id)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .font(FieldType.body)
+                                    .underline()
+                                    .frame(minHeight: 44)
+                                    .padding(.bottom, 16)
+                                    .accessibilityIdentifier("field.item.propose")
+                                }
+
+                                standing(item)
+
+                                whereItLives(item)
+                                    .padding(.vertical, 16)
+
+                                removeIt
                             }
-                            .buttonStyle(FieldWorkspacePrimaryStyle()).padding(.bottom, 24)
-                            .accessibilityIdentifier("field.item.propose")
+                            .padding(.top, 16)
+                        } label: {
+                            Text("More")
+                                .font(.system(.body, weight: .medium))
+                                .frame(minHeight: 44)
                         }
-                        standing(item)
-
-                        DisclosureGroup("Organize this item") {
-                            whereItLives(item)
-                                .padding(.top, 16)
-                        }
-                        .font(.system(.body, weight: .medium))
+                        .accessibilityIdentifier("field.item.more")
                         .padding(.bottom, 28)
-
-                        removeIt
                     }
                     .padding(.top, 72)
                     .padding(.horizontal, FieldMetrics.screenSide)
@@ -396,7 +420,9 @@ struct FieldItemSheet: View {
                 .buttonStyle(FieldQuietButtonStyle())
                 .accessibilityIdentifier("field.item.share")
             } else {
-                Text("\(store.partnerName) can see this.")
+                // Both, not "{partner} can see this": the item may be the
+                // partner's own, and then naming them says nothing.
+                Text("You can both see this.")
                     .font(FieldType.body)
                     .foregroundStyle(.fieldInk(.metadataProse))
                     .padding(.top, 18)

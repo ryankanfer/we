@@ -6,6 +6,7 @@ struct FieldLifeZone: View {
     @State private var filter = LifeFilter.plans
     /// Goals, which used to live in Us. Life is everything now.
     @State private var goalsAreOpen = false
+    @State private var openGoal: FieldItemReference?
     @State private var openItem: FieldItemReference?
     @State private var putAwayIsOpen = false
     @State private var shareInboxIsOpen = false
@@ -39,6 +40,7 @@ struct FieldLifeZone: View {
         FieldZoneScaffold(zone: .life, showsZoneLabel: false) {
             VStack(alignment: .leading, spacing: 28) {
                 header
+                whereWereHeaded
                 if WEFeatureFlags.shareInboxEnabled {
                     fromElsewhere
                     if !intelligence.issues.isEmpty || store.deliveryStates.values.contains(.needsAttention) {
@@ -55,8 +57,6 @@ struct FieldLifeZone: View {
                 } else {
                     contents
                 }
-                whereWereHeaded
-
                 if !store.putAwayCategories.isEmpty {
                     Button("Put-away collections · \(store.putAwayCategories.count)") { putAwayIsOpen = true }
                         .font(FieldType.body)
@@ -73,36 +73,69 @@ struct FieldLifeZone: View {
         .sheet(isPresented: $goalsAreOpen) {
             FieldGoalsSurface().environment(store).environmentObject(session)
         }
+        .sheet(item: $openGoal) {
+            FieldGoalRoom(goalID: $0.id).environment(store).environmentObject(session)
+        }
         .fullScreenCover(isPresented: $shareInboxIsOpen) { WEArtifactsView().environment(store) }
     }
 
-    /// Goals — the long view — as a door in Life rather than a zone of their
-    /// own. Us was a third place to decide where something belongs; a goal is
-    /// just another thing the couple is carrying, and it points at the plans
-    /// that serve it.
+    /// Goals — the long view — at the top of Life, above this week's plans,
+    /// so everything below reads in its light. A line of goals rather than a
+    /// card at the bottom of a long list, where it was found last if at all.
+    /// Each goal opens itself; "See all" opens the full goals room, where a
+    /// new one can be made.
     private var whereWereHeaded: some View {
-        Button { goalsAreOpen = true } label: {
-            HStack(spacing: 16) {
-                Image(systemName: "mountain.2").font(.system(size: 23, weight: .light))
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Where we're headed").font(FieldType.weLifeSection)
-                    Text(
-                        store.state.horizons.isEmpty
-                            ? "Goals you both choose, and what points toward them."
-                            : store.state.horizons.prefix(2).map(\.title).joined(separator: " · ")
-                    )
-                    .font(.system(.subheadline)).foregroundStyle(.fieldInk(.reasoning))
-                    .lineLimit(2)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "arrow.right")
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Where we're headed")
+                    .font(.system(size: 15, design: .serif))
+                    .foregroundStyle(.fieldInk(.reasoning))
+                    .accessibilityAddTraits(.isHeader)
+                Spacer()
+                Button("See all") { goalsAreOpen = true }
+                    .font(.system(.subheadline))
+                    .foregroundStyle(.fieldInk(.headline))
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("field.life.goals")
             }
-            .padding(20)
-            .background(WECanvas.cream.bgElevated, in: RoundedRectangle(cornerRadius: 16))
-            .contentShape(Rectangle())
+
+            if store.state.horizons.isEmpty {
+                Text("Goals you both choose will live here.")
+                    .font(.system(size: 17, design: .serif))
+                    .foregroundStyle(.fieldInk(.legend))
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(goals) { goal in
+                            Button {
+                                openGoal = FieldItemReference(id: goal.id)
+                            } label: {
+                                Text(goal.title.trimmingCharacters(in: CharacterSet(charactersIn: ", ")))
+                                    .font(.system(size: 17, design: .serif))
+                                    .foregroundStyle(.fieldInk(.headline))
+                                    .lineLimit(1)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 10)
+                                    .background(WECanvas.cream.bgElevated, in: Capsule())
+                                    .overlay {
+                                        if goal.isPrimary {
+                                            Capsule().strokeBorder(WECanvas.cream.ink.opacity(0.35), lineWidth: 1)
+                                        }
+                                    }
+                            }
+                            .accessibilityHint("Opens this goal")
+                            .accessibilityIdentifier("field.life.goal")
+                        }
+                    }
+                }
+                .scrollClipDisabled()
+            }
         }
-        .accessibilityHint("Opens your goals")
-        .accessibilityIdentifier("field.life.goals")
+    }
+
+    /// The primary goal first, then the rest in the order they were made.
+    private var goals: [FieldHorizon] {
+        store.state.horizons.filter(\.isPrimary) + store.state.horizons.filter { !$0.isPrimary }
     }
 
     private var fromElsewhere: some View {

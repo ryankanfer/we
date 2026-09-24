@@ -39,6 +39,9 @@ struct FieldZoneShell: View {
     @State private var planNavigation = WEPlanNavigation.shared
     @State private var intentPlan: FieldItemReference?
     @State private var showsCapture = false
+    /// The + : one line in the day's conversation. `showsCapture` remains
+    /// only for the first-save guide, which teaches the full review.
+    @State private var showsComposer = false
     @State private var footerHeight: CGFloat = 240
     @State private var firstSave: FirstSaveGuide?
 
@@ -150,6 +153,16 @@ struct FieldZoneShell: View {
                         .allowsHitTesting(false)
                 }
             }
+        }
+        .sheet(isPresented: $showsComposer) {
+            FieldChatComposer(onSent: { store.go(to: .today) })
+                .presentationDetents([.height(170)])
+                .presentationBackground(.ultraThinMaterial)
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(28)
+                .preferredColorScheme(.light)
+                .environment(\.weCanvas, .cream)
+                .environment(store)
         }
         .sheet(isPresented: $showsCapture) {
             NavigationStack {
@@ -409,7 +422,7 @@ struct FieldZoneShell: View {
     /// place — it replaced a composer that lived only on Today.
     private var addButton: some View {
         Button {
-            showsCapture = true
+            showsComposer = true
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 18, weight: .regular))
