@@ -45,7 +45,7 @@ struct FieldLifeZone: View {
                 searchHero
                 whereWereHeaded
                 if WEFeatureFlags.shareInboxEnabled {
-                    fromElsewhere
+                    if elsewhereWaiting > 0 { fromElsewhere }
                     if !intelligence.issues.isEmpty || store.deliveryStates.values.contains(.needsAttention) {
                         Button("Needs attention", systemImage: "exclamationmark.circle") { recoveryIsOpen = true }
                             .font(.subheadline).frame(minHeight: 44)
@@ -80,6 +80,7 @@ struct FieldLifeZone: View {
             FieldGoalRoom(goalID: $0.id).environment(store).environmentObject(session)
         }
         .fullScreenCover(isPresented: $shareInboxIsOpen) { WEArtifactsView().environment(store) }
+        .onAppear { if WEFeatureFlags.shareInboxEnabled { intelligence.reload() } }
     }
 
     /// Goals — the long view — at the top of Life, above this week's plans,
@@ -141,23 +142,28 @@ struct FieldLifeZone: View {
         store.state.horizons.filter(\.isPrimary) + store.state.horizons.filter { !$0.isPrimary }
     }
 
+    /// Things shared into WE from other apps that are still Only me. The
+    /// row only appears while there is something there; saving from here is
+    /// the + card's job now.
+    private var elsewhereWaiting: Int {
+        intelligence.records.filter { $0.content.publishedItemID == nil }.count
+    }
+
     private var fromElsewhere: some View {
         Button { shareInboxIsOpen = true } label: {
-            HStack(spacing: 16) {
-                Image(systemName: "square.and.arrow.down").font(.system(size: 23, weight: .light))
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("From elsewhere").font(FieldType.weLifeSection)
-                    Text("Save a thought, image, or link. Only Me until you share.")
-                        .font(.system(.subheadline)).foregroundStyle(.fieldInk(.reasoning))
-                }
+            HStack(spacing: 12) {
+                Image(systemName: "square.and.arrow.down").font(.system(size: 17, weight: .regular))
+                Text(elsewhereWaiting == 1 ? "One thing from elsewhere" : "\(elsewhereWaiting.spelled.capitalized) things from elsewhere")
+                    .font(.system(size: 16, design: .serif))
+                Text("Only me").font(.system(size: 12)).foregroundStyle(.fieldInk(.reasoning))
                 Spacer(minLength: 0)
-                Image(systemName: "arrow.right")
+                Image(systemName: "chevron.right").font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.fieldInk(.reasoning))
             }
-            .padding(20)
-            .background(WECanvas.cream.bgElevated, in: RoundedRectangle(cornerRadius: 16))
+            .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
-        .accessibilityHint("Review links saved through the Share Sheet")
+        .accessibilityHint("Review what you saved from other apps")
         .accessibilityIdentifier("field.life.fromElsewhere")
     }
 
@@ -343,8 +349,7 @@ struct FieldLifeZone: View {
                         .fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 7) {
                         FieldDot(owner: item.owner, identity: store.identity, size: 6, baselineNudge: 0)
-                        Text(item.dueOn.map(dateLabel) ?? (item.sourceURL?.host ?? item.category.word))
-                        Text("·")
+                        if let place = rowPlace(item) { Text(place); Text("·") }
                         Text(FieldItemPurpose.resolve(item) == .decision ? "Choose a direction" : store.identity.name(for: item.owner))
                     }
                     .font(.system(.caption))
@@ -361,6 +366,14 @@ struct FieldLifeZone: View {
         .accessibilityLabel(item.title)
         .accessibilityHint(FieldItemPurpose.actionLabel(item))
         .accessibilityIdentifier("field.life.item")
+    }
+
+    /// The date, or the site, or the group — except the group when you are
+    /// already looking at it.
+    private func rowPlace(_ item: LifeItem) -> String? {
+        if let due = item.dueOn { return dateLabel(due) }
+        if let host = item.sourceURL?.host() { return host }
+        return group == nil ? item.category.word : nil
     }
 
     private func dateLabel(_ date: Date) -> String {
