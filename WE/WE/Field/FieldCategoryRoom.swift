@@ -296,7 +296,7 @@ struct FieldCategoryRoom: View {
             }
         } else if !digest.quiet.isEmpty {
             FieldLabel(
-                digest.pressing.isEmpty ? "In this room" : "Quiet below here",
+                digest.pressing.isEmpty ? "In \(category.word)" : "Quiet below here",
                 font: FieldType.subLabel,
                 tracking: FieldTracking.subLabel,
                 ink: .recessive

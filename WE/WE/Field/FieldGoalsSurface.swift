@@ -27,7 +27,7 @@ struct FieldGoalsSurface: View {
         FieldZoneScaffold(zone: .life, showsZoneLabel: false) {
             VStack(alignment: .leading, spacing: 26) {
                 HStack {
-                    Text("Us").font(FieldType.hero)
+                    Text("Where we're headed").font(FieldType.hero)
                     Spacer()
                     Button { editing = newGoal() } label: { Image(systemName: "plus").frame(width: 44, height: 44).glassEffect(.regular.interactive(), in: Circle()) }
                         .accessibilityLabel("Explore a goal").accessibilityIdentifier("field.us.goal.create")

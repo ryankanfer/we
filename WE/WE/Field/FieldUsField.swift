@@ -396,7 +396,7 @@ private struct FieldMentionSheet: View {
                         // it is on the screen because the couple named it, and
                         // saying so is better than an empty list implying the
                         // records were lost.
-                        Text("Nothing else in Life or Us points at this one "
+                        Text("Nothing else in Life points at this one "
                              + "yet. It is here because you named it.")
                             .font(FieldType.reasoning)
                             .foregroundStyle(.fieldInk(.reasoning))

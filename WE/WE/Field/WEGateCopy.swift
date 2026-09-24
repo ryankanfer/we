@@ -142,7 +142,7 @@ enum WEGateCopy {
 
     /// Was "How WE notices". The setting is about the one thing a person
     /// actually wants control of, which is being interrupted.
-    static let interruptions = "When WE interrupts you"
+    static let interruptions = "What WE may notice"
 
     // MARK: The rules' subject
 

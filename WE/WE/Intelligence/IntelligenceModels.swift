@@ -52,7 +52,7 @@ protocol WETimeProvider {
 
 extension LifeItem {
     var objectVisibility: WEObjectVisibility { visibility == .private ? .onlyMe : .shared }
-    var privacyLabel: String { objectVisibility == .onlyMe ? "Only Me" : "Shared with your partner" }
+    var privacyLabel: String { objectVisibility == .onlyMe ? "Only me" : "Shared with your partner" }
     var objectTiming: WEObjectTiming? {
         if let timing { return timing }
         if let closesAt { return WEObjectTiming(precision: .time, kind: .deadline, start: closesAt, timeZoneID: TimeZone.current.identifier) }
@@ -119,7 +119,7 @@ nonisolated struct WEArtifactContent: Codable, Hashable, Sendable {
     var linkCategory: WELinkCategory?
     var explicitLinkGrants: Set<String> = []
     var automaticFetchReason: String?
-    var visibilityLabel: String { publishedItemID == nil ? "Only Me" : "Original: Only Me · Reviewed version: Shared" }
+    var visibilityLabel: String { publishedItemID == nil ? "Only me" : "Original: Only me · Reviewed version: Shared" }
 }
 
 nonisolated struct WEArtifactWrite: Codable, Sendable {
@@ -209,10 +209,10 @@ struct WESharedEditConflict: Identifiable {
 @MainActor extension FieldStore {
     var intelligencePartnerName: String { speaker == .a ? identity.nameB : identity.nameA }
     func privacyLabel(for item: LifeItem) -> String {
-        item.objectVisibility == .onlyMe ? "Only Me" : "Shared with \(intelligencePartnerName)"
+        item.objectVisibility == .onlyMe ? "Only me" : "Shared with \(intelligencePartnerName)"
     }
     func privacyLabel(for content: WEArtifactContent) -> String {
-        content.publishedItemID == nil ? "Only Me" : "Original: Only Me · Reviewed version: Shared with \(intelligencePartnerName)"
+        content.publishedItemID == nil ? "Only me" : "Original: Only me · Reviewed version: Shared with \(intelligencePartnerName)"
     }
 }
 

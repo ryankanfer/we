@@ -6,7 +6,7 @@ import EventKitUI
 struct WEPrivacyLabel: View {
     let text: String
     var body: some View {
-        Label(text, systemImage: text == "Only Me" ? "lock" : "person.crop.circle.badge.checkmark")
+        Label(text, systemImage: text == "Only me" ? "lock" : "person.crop.circle.badge.checkmark")
             .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     }
 }
@@ -71,7 +71,7 @@ struct WEPrivateCaptureView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Only Me") {
+                Section("Only me") {
                     Picker("Save as", selection: $kind) {
                         ForEach(WEPrivateItemKind.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
                     }
@@ -168,7 +168,7 @@ struct WEArtifactDetail: View {
                             }
                         }
                     }
-                    Section("Original · Only Me") {
+                    Section("Original · Only me") {
                         if let manifest {
                             ForEach(manifest.representations) { source in
                                 if let text = source.text { Text(text).textSelection(.enabled) }
@@ -193,7 +193,7 @@ struct WEArtifactDetail: View {
                     }
                     Section {
                         Button("Review sharing") { sharing = true }.disabled(record.content.title.isEmpty)
-                        Text("The original stays Only Me. Choose exactly what your partner can see.").font(.footnote)
+                        Text("The original stays Only me. Choose exactly what your partner can see.").font(.footnote)
                         Button("Delete Everywhere", role: .destructive) { deleting = true }
                     }
                 }
@@ -240,7 +240,7 @@ struct WEArtifactDetail: View {
         }
     }
     private func understanding(_ record: WEArtifactRecord) -> some View {
-        Section("Understanding · Only Me") {
+        Section("Understanding · Only me") {
             Toggle("Allow on-device understanding", isOn: Binding(get: { record.content.processingConsent }, set: { enabled in
                 intelligence.edit(id) { $0.processingConsent = enabled; $0.authorizationID = UUID(); $0.job = nil }
             }))
@@ -274,7 +274,7 @@ struct WEArtifactDetail: View {
         }
     }
     private func connections(_ record: WEArtifactRecord) -> some View {
-        Section("Connect to a plan · Only Me until shared") {
+        Section("Connect to a plan · Only me until shared") {
             Picker("Plan", selection: Binding(get: { record.content.connectedPlanID ?? "" }, set: { destination in intelligence.edit(id) { $0.connectedPlanID = destination.isEmpty ? nil : destination } })) {
                 Text("Leave unattached").tag("")
                 ForEach(field.intelligenceEligibleLifeItems) { item in Text(item.title + " · " + field.privacyLabel(for: item)).tag(item.id) }
@@ -287,14 +287,14 @@ struct WEArtifactDetail: View {
                 Button("Connect to \(match.document.title)") { intelligence.edit(id) { $0.connectedPlanID = match.id.id } }
                 DisclosureGroup("Why this?") { Text(match.reason).font(.footnote) }
             }
-            Picker("Only Me plan", selection: Binding(get: { record.content.connectedPrivatePlanID?.uuidString ?? "" }, set: { destination in
+            Picker("Only me plan", selection: Binding(get: { record.content.connectedPrivatePlanID?.uuidString ?? "" }, set: { destination in
                 intelligence.edit(id) { $0.connectedPrivatePlanID = UUID(uuidString: destination); if !destination.isEmpty { $0.connectedPlanID = nil } }
             })) {
                 Text("None").tag("")
                 ForEach(intelligence.records.filter { $0.id != id && $0.content.kind == .plan }) { plan in Text(plan.content.title).tag(plan.id.uuidString) }
             }
             TextField("New plan name", text: $newPlanTitle)
-            Button("Create a plan · Only Me") {
+            Button("Create a plan · Only me") {
                 do {
                     let planID = try intelligence.capture([.text(newPlanTitle, label: "Plan")])
                     intelligence.edit(planID) { $0.kind = .plan; $0.title = newPlanTitle }
@@ -302,7 +302,7 @@ struct WEArtifactDetail: View {
                     newPlanTitle = ""
                 } catch { actionMessage = "The plan was not saved. Your item is still here; try again." }
             }.disabled(newPlanTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            Text("Connecting this item does not change the plan’s dates or share your original. An Only Me plan connection stays private.").font(.footnote)
+            Text("Connecting this item does not change the plan’s dates or share your original. An Only me plan connection stays private.").font(.footnote)
         }
     }
 }
@@ -460,7 +460,7 @@ struct WEPrivateTimeItems: View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(timed) { record in
                 Button(record.content.title) { selected = .init(id: record.id) }
-                WEPrivacyLabel(text: "Only Me")
+                WEPrivacyLabel(text: "Only me")
                 DisclosureGroup("Why this?") {
                     Text(WETimeRelevance.reason(for: record.content.timing, now: field.now) ?? record.content.timing?.explanation ?? "This plan has been open for at least a month. You can keep it, update it, or mark it complete.").font(.footnote)
                 }

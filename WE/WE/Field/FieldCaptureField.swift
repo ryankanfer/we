@@ -2,7 +2,7 @@
 //  FieldCaptureField.swift
 //  WE
 //
-//  "Tell WE anything" — the single input in the app. Option 5a.
+//  "Say something" — the single input in the app. Option 5a.
 //
 //  The user never has to know where anything goes. They type; the model
 //  classifies; the receipt says where it went and why; one tap corrects it.
@@ -226,7 +226,7 @@ struct FieldCaptureField: View {
                     .scrollContentBackground(.hidden)
                     .frame(minHeight: compact ? 110 : 150, maxHeight: 220)
                     .focused($isFocused)
-                    .accessibilityLabel("Tell WE anything")
+                    .accessibilityLabel("Say something")
                     .accessibilityIdentifier("field.capture.input")
                 if let completion {
                     (Text(store.captureDraft).foregroundColor(FieldInk.headline.color(on: .cream)) +

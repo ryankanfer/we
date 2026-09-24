@@ -35,7 +35,7 @@ final class WEUITests: XCTestCase {
         app.buttons["accountSubmitButton"].tap()
 
         XCTAssertTrue(
-            app.staticTexts["Your side is ready."]
+            app.staticTexts["Your account is ready."]
                 .waitForExistence(timeout: 3)
         )
         // "The invitation is at the threshold" was the register of the

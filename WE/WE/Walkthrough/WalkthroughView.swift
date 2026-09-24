@@ -236,7 +236,7 @@ struct WalkthroughView: View {
                 .foregroundStyle(.fieldInk(.reasoning))
             if WEFeatureFlags.shareInboxEnabled {
                 DisclosureGroup("Save something from elsewhere") {
-                    Text("Bring in a thought, link, or image from Life or the Share Sheet. Only Me means private wherever it appears. Review a separate version before sharing; your original stays private.")
+                    Text("Bring in a thought, link, or image from Life or the Share Sheet. Only me means private wherever it appears. Review a separate version before sharing; your original stays private.")
                     Text("You choose when WE may open a website. Edit suggested details and dates, or ask Why this? to see the evidence. Needs attention in Account keeps unresolved work reachable.")
                 }
                 .font(FieldType.body)

@@ -33,7 +33,7 @@ struct SharedJourneyUsSurface: View {
             showsZoneLabel: false
         ) {
             VStack(alignment: .leading, spacing: 24) {
-                Text("Us").font(FieldType.hero).foregroundStyle(.fieldInk(.headline))
+                Text("A question for you both").font(FieldType.hero).foregroundStyle(.fieldInk(.headline))
                     .accessibilityAddTraits(.isHeader)
                 Group {
                 switch presentation {

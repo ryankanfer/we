@@ -51,7 +51,7 @@ struct ContentView: View {
             .safeAreaInset(edge: .bottom) {
                 if session.user != nil && WEFeatureFlags.shareInboxEnabled {
                     HStack {
-                        Button("Save · Only Me") { privateCapture = true }
+                        Button("Save · Only me") { privateCapture = true }
                         Button("Your saved items") { privateLibrary = true }
                     }.padding().background(.regularMaterial)
                 }
@@ -250,7 +250,7 @@ private struct PairingView: View {
         FieldGateScaffold(centred: false) {
             VStack(alignment: .leading, spacing: FieldMetrics.sectionGap) {
                 FieldGateHeadline(
-                    title: "Your side is ready.",
+                    title: "Your account is ready.",
                     subtitle: "You can keep what you began here. Invite your "
                         + "partner only when a shared space would be useful."
                 )

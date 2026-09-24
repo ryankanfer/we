@@ -31,7 +31,7 @@ final class IntelligenceUITests: XCTestCase {
         let search = app.searchFields.firstMatch
         search.tap(); search.typeText(title)
         XCTAssertTrue(app.buttons[title].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Only Me"].firstMatch.exists)
+        XCTAssertTrue(app.staticTexts["Only me"].firstMatch.exists)
         XCTAssertTrue(app.buttons["Why this?"].firstMatch.exists)
         keepScreenshot(of: app, named: "intelligence.private-search")
     }
@@ -45,7 +45,7 @@ final class IntelligenceUITests: XCTestCase {
         for _ in 0..<6 where !open.isHittable { app.swipeUp() }
         XCTAssertTrue(open.isHittable); open.tap()
         XCTAssertTrue(app.navigationBars["Saved item"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Only Me"].firstMatch.exists)
+        XCTAssertTrue(app.staticTexts["Only me"].firstMatch.exists)
         keepScreenshot(of: app, named: "intelligence.recovery.accessibility5")
     }
 }

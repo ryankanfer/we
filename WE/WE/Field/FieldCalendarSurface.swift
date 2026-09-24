@@ -409,7 +409,7 @@ struct FieldCalendarSurface: View {
         let day = DateFormatter.fieldDayMonth.string(from: date)
         let privateCount = privateItems(on: date).count
         guard !items.isEmpty || privateCount > 0 else { return "\(day), nothing" }
-        return "\(day), \(items.count) shared or Life items, \(privateCount) Only Me. \(items.map(\.title).joined(separator: ", "))"
+        return "\(day), \(items.count) shared or Life items, \(privateCount) Only me. \(items.map(\.title).joined(separator: ", "))"
     }
 }
 

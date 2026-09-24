@@ -6,7 +6,7 @@
 //  were looking at.
 //
 //  It replaced a capture sheet with a receipt card, a correction picker and a
-//  second, separate "Only Me" link above the writing area, and then a sheet
+//  second, separate "Only me" link above the writing area, and then a sheet
 //  from the bottom. Here there is only what a message needs — the words, a
 //  link if there is one, who will see it, and send. Where the thing went,
 //  and changing it, is WE's reply in the conversation, not a form to fill in
@@ -221,7 +221,7 @@ struct FieldChatComposer: View {
                     }
                 }
                 .frame(width: 28, height: 18)
-                Text(justMe ? "Just me" : "Us")
+                Text(justMe ? "Only me" : "Both of us")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.fieldInk(.headline))
             }
@@ -236,7 +236,7 @@ struct FieldChatComposer: View {
         .opacity(isLookup ? 0.4 : 1)
         .animation(.easeInOut(duration: 0.2), value: justMe)
         .accessibilityLabel("Who can see this")
-        .accessibilityValue(justMe ? "Just me" : "Both of us")
+        .accessibilityValue(justMe ? "Only me" : "Both of us")
         .accessibilityHint("Switches between both of you and just you")
         .accessibilityIdentifier("field.composer.audience")
     }

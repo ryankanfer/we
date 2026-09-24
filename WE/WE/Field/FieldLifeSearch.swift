@@ -145,7 +145,7 @@ struct FieldLifeSearch: View {
                     ForEach(privateMatches) { match in
                         VStack(alignment: .leading, spacing: 8) {
                             Button(match.document.title) { if let id = UUID(uuidString: match.id.id) { privateSelection = .init(id: id) } }
-                            WEPrivacyLabel(text: "Only Me")
+                            WEPrivacyLabel(text: "Only me")
                             DisclosureGroup("Why this?") { Text(match.reason).font(.footnote) }
                         }.padding(.vertical, 12)
                     }
