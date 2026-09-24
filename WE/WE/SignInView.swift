@@ -14,7 +14,6 @@ struct SignInView: View {
     @State private var name = ""
     @State private var email = ""
     @State private var password = ""
-    @State private var confirmation = ""
     @State private var showsReset = false
     @State private var submitting = false
     @FocusState private var focus: WEAccountFocus?
@@ -24,14 +23,14 @@ struct SignInView: View {
     private var valid: Bool {
         mode == .signIn
             ? WEAccountInput.validSignIn(email: email, password: password)
-            : WEAccountInput.validCreation(name: name, email: email, password: password, confirmation: confirmation)
+            : WEAccountInput.validCreation(name: name, email: email, password: password)
     }
 
     var body: some View {
         WEAccountSurface(
             title: mode == .signIn ? "Welcome back." : "A little space for you two.",
-            subtitle: mode == .signIn ? "Your shared life, right where you left it." : "Start with your own account. You can invite your partner or join them next.",
-            closeLabel: "Close sign in", onClose: { dismiss() }
+            subtitle: mode == .signIn ? "Today and Life, right where you left them." : "Your own account first. Then invite your partner, or join them.",
+            closeLabel: "Close", onClose: { dismiss() }
         ) {
             VStack(alignment: .leading, spacing: 28) {
                 fields.disabled(busy)
@@ -87,18 +86,11 @@ struct SignInView: View {
             WEAccountTextField(label: "Password", placeholder: mode == .signIn ? "Your password" : "Choose a password", text: $password,
                 field: .password, focus: $focus, secure: true,
                 contentType: disablesCredentialPrompts ? nil : (mode == .signIn ? .password : .newPassword),
-                submitLabel: mode == .signIn ? .go : .next,
+                submitLabel: .go,
                 hint: mode == .create ? "At least 8 characters." : nil,
                 problem: mode == .create && !password.isEmpty && password.count < 8 ? "Use at least 8 characters." : nil,
-                onSubmit: { if mode == .signIn { submit() } else { focus = .confirmation } })
+                onSubmit: submit)
                 .id(mode)
-            if mode == .create {
-                WEAccountTextField(label: "Confirm password", placeholder: "Once more", text: $confirmation,
-                    field: .confirmation, focus: $focus, secure: true,
-                    contentType: disablesCredentialPrompts ? nil : .newPassword, submitLabel: .go,
-                    problem: password == confirmation ? nil : "These passwords don’t match yet.", onSubmit: submit)
-                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: 8)))
-            }
         }
     }
 
@@ -159,7 +151,7 @@ private struct PasswordResetView: View {
     var body: some View {
         WEAccountSurface(
             title: sentEmail == nil ? "We'll send a link." : "Check your email.",
-            subtitle: sentEmail == nil ? "A secure way back into your shared space." : "If there’s an account for this address, a reset link is on its way.",
+            subtitle: sentEmail == nil ? "A secure way back in." : "If there’s an account for this address, a reset link is on its way.",
             onClose: { dismiss() }
         ) {
             VStack(alignment: .leading, spacing: 28) {
@@ -185,7 +177,7 @@ private struct PasswordResetView: View {
                     WEAccountFeedback()
                     WEAccountPrimaryButton(title: "Send reset link", workingTitle: "Sending your link…", isWorking: busy,
                         enabled: WEAccountInput.validEmail(email), identifier: "sendResetLinkButton", action: send)
-                    Text("Your plans and conversations stay as they are.")
+                    Text("Everything in Today and Life stays as it is.")
                         .font(.system(.footnote)).foregroundStyle(.fieldInk(.reasoning))
                         .fixedSize(horizontal: false, vertical: true)
                 }

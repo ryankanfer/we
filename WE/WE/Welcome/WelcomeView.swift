@@ -42,7 +42,7 @@ struct WelcomeView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            FieldPalette.bg.ignoresSafeArea()
+            WECanvas.cream.bg.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -66,7 +66,11 @@ struct WelcomeView: View {
             }
             .scrollBounceBehavior(.basedOnSize)
         }
-        .preferredColorScheme(.dark)
+        // The same paper as the app behind it. This was the one dark screen
+        // left: a person met a black room, then every screen after it was
+        // cream, and the first thing WE said about itself was not true.
+        .environment(\.weCanvas, .cream)
+        .preferredColorScheme(.light)
         .task(id: pendingInvitation.code) {
             guard pendingInvitation.code != nil, !hasOfferedHeldInvitation
             else { return }
@@ -101,7 +105,7 @@ struct WelcomeView: View {
     /// pieces of furniture to say one thing, and none of them about the person
     /// the reader has in mind.
     private var introduction: some View {
-        FieldGateHeadline(title: WEGateCopy.welcome)
+        FieldGateHeadline(title: WEGateCopy.welcome, subtitle: WEGateCopy.welcomeLine)
     }
 
     private var start: some View {

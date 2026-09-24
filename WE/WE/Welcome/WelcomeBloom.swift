@@ -30,7 +30,14 @@ struct WelcomeBloom: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency)
     private var reduceTransparency
+    @Environment(\.colorScheme) private var colorScheme
     @State private var breathes = false
+
+    /// On paper, light cannot add to light: `.plusLighter` over cream is
+    /// invisible. So on a light ground the discs are the two of you — the
+    /// fixed role colours, burgundy and sage — and they multiply, so the
+    /// overlap darkens *itself* instead. Same argument, other direction.
+    private var onPaper: Bool { colorScheme == .light }
 
     /// Where each disc sits, in multiples of the lens's own centre offset.
     /// The first two are the mark itself; the rest are the cluster around it,
@@ -71,19 +78,23 @@ struct WelcomeBloom: View {
 
     private var bloom: some View {
         ZStack {
-            halo
+            if onPaper {
+                paperBloom
+            } else {
+                halo
 
-            ZStack {
-                ForEach(Array(Self.placements.enumerated()), id: \.offset) {
-                    _, placement in
-                    disc
-                        .offset(
-                            x: placement.x * offset * 1.75,
-                            y: placement.y * offset * 1.75
-                        )
+                ZStack {
+                    ForEach(Array(Self.placements.enumerated()), id: \.offset) {
+                        _, placement in
+                        disc
+                            .offset(
+                                x: placement.x * offset * 1.75,
+                                y: placement.y * offset * 1.75
+                            )
+                    }
                 }
+                .compositingGroup()
             }
-            .compositingGroup()
         }
         .scaleEffect(breathes ? 1.02 : 0.99)
         .opacity(breathes ? 1.0 : 0.86)
@@ -132,6 +143,36 @@ struct WelcomeBloom: View {
             )
             .frame(width: radius * 2, height: radius * 2)
             .blendMode(.plusLighter)
+    }
+
+    /// One of the two of you, as a soft disc on paper.
+    private func paperDisc(_ color: Color) -> some View {
+        Circle()
+            .fill(
+                RadialGradient(
+                    gradient: Gradient(stops: [
+                        .init(color: color.opacity(0.30), location: 0),
+                        .init(color: color.opacity(0.24), location: 0.5),
+                        .init(color: color.opacity(0.08), location: 0.85),
+                        .init(color: .clear, location: 1)
+                    ]),
+                    center: .center,
+                    startRadius: 0,
+                    endRadius: radius * 1.4
+                )
+            )
+            .frame(width: radius * 2.8, height: radius * 2.8)
+            .blendMode(.multiply)
+    }
+
+    private var paperBloom: some View {
+        ZStack {
+            paperDisc(FieldIdentity.seed.personA.color(on: .cream))
+                .offset(x: -offset * 1.6)
+            paperDisc(FieldIdentity.seed.personB.color(on: .cream))
+                .offset(x: offset * 1.6)
+        }
+        .compositingGroup()
     }
 
     /// A wide, very faint wash under the cluster so its edge dissolves into the

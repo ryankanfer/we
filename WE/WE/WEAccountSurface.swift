@@ -15,9 +15,8 @@ struct WEAccountSurface<Content: View>: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 WELens(diameter: 44, foreground: WECanvas.cream.ink)
-                    .scaleEffect(arrived || reduceMotion ? 1 : 0.92)
-                Text("WE").font(.system(.subheadline, weight: .medium)).tracking(2)
                     .accessibilityLabel("WE")
+                    .scaleEffect(arrived || reduceMotion ? 1 : 0.92)
                 Spacer()
                 if let onClose {
                     Button(action: onClose) {
@@ -235,9 +234,12 @@ enum WEAccountInput {
     static func validSignIn(email: String, password: String) -> Bool {
         validEmail(email) && !password.isEmpty
     }
-    static func validCreation(name: String, email: String, password: String, confirmation: String) -> Bool {
+    /// One password field, with the eye to check it. A second "confirm" field
+    /// was one more thing between a couple and their first day; showing the
+    /// password does the same job without asking twice.
+    static func validCreation(name: String, email: String, password: String) -> Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && validEmail(email) && validPassword(password, confirmation: confirmation)
+            && validEmail(email) && password.count >= 8
     }
     static func validPassword(_ password: String, confirmation: String) -> Bool {
         password.count >= 8 && password == confirmation
