@@ -105,20 +105,6 @@ struct WEApp: App {
                 \.dynamicTypeSize,
                 testConfiguration.dynamicTypeSize ?? dynamicTypeSize
             )
-            // Considered whenever the session settles, not once on appear: at
-            // launch the state is `.loading`, and "signed out" is a conclusion
-            // the session reaches a moment later. `consider` is idempotent, so
-            // a state that republishes cannot reopen what was dismissed.
-            .onChange(of: host.session.state, initial: true) { _, state in
-                guard !showsSplash else { return }
-                walkthrough.consider(isSignedOut: state == .signedOut)
-            }
-            .onChange(of: showsSplash) { _, shows in
-                guard !shows else { return }
-                walkthrough.consider(
-                    isSignedOut: host.session.state == .signedOut
-                )
-            }
             .animation(
                 .weSettle(duration: 0.40, reduceMotion: effectiveReduceMotion),
                 value: walkthrough.isPresented

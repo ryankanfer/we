@@ -185,69 +185,23 @@ struct WalkthroughJourneyOrderTests {
 // MARK: - When it plays
 
 struct WalkthroughGateTests {
-    /// Signed out and only signed out — and never twice.
-    @Test
-    func itOpensOnceForSomeoneSignedOut() {
-        #expect(
-            WalkthroughGate.shouldPresent(
-                hasSeen: false,
-                isSignedOut: true,
-                isSkipped: false
-            )
-        )
-        #expect(
-            !WalkthroughGate.shouldPresent(
-                hasSeen: true,
-                isSignedOut: true,
-                isSkipped: false
-            )
-        )
-        #expect(
-            !WalkthroughGate.shouldPresent(
-                hasSeen: false,
-                isSignedOut: false,
-                isSkipped: false
-            )
-        )
-        #expect(
-            !WalkthroughGate.shouldPresent(
-                hasSeen: false,
-                isSignedOut: true,
-                isSkipped: true
-            )
-        )
-    }
-
-    /// A replay always plays, and `consider` must not close it or reopen it
-    /// underneath the person reading it.
+    /// Offered, never imposed: closed until someone asks, and asking always
+    /// opens it.
     @MainActor
     @Test
-    func aReplayIsNotOverruledByTheAutomaticGate() {
+    func itOpensOnlyWhenAskedFor() {
         let defaults = UserDefaults(
             suiteName: "walkthrough.tests.\(UUID().uuidString)"
         )!
         let presenter = WalkthroughPresenter(defaults: defaults)
-
-        presenter.consider(isSignedOut: true)
-        #expect(presenter.isPresented)
-
-        presenter.finish()
         #expect(!presenter.isPresented)
 
-        // Seen, so the gate declines.
-        presenter.consider(isSignedOut: true)
-        #expect(!presenter.isPresented)
-
-        // Asked for anyway.
         presenter.replay()
         #expect(presenter.isPresented)
 
-        // A session republishing its state must not close it.
-        presenter.consider(isSignedOut: true)
-        #expect(presenter.isPresented)
-
         presenter.finish()
         #expect(!presenter.isPresented)
+        #expect(presenter.hasSeen)
     }
 }
 

@@ -9,7 +9,6 @@ struct ContentView: View {
         ExternalSurfaceController
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsProfile = false
-    @State private var showsPartnerArrival = false
     var onReplayPromise: () -> Void = {}
 
     var body: some View {
@@ -49,8 +48,6 @@ struct ContentView: View {
                     )
                 }
             }
-            .accessibilityHidden(showsPartnerArrival)
-            .allowsHitTesting(!showsPartnerArrival)
             .safeAreaInset(edge: .bottom) {
                 if session.user != nil && WEFeatureFlags.shareInboxEnabled {
                     HStack {
@@ -69,14 +66,6 @@ struct ContentView: View {
                 WEArtifactsView().environment(
                     FieldStore(state: .empty(nameA: "You", nameB: "Your partner", now: Date()))
                 )
-            }
-
-            if showsPartnerArrival {
-                PartnerArrivalCeremony {
-                    showsPartnerArrival = false
-                }
-                .transition(.opacity)
-                .zIndex(20)
             }
         }
         .animation(
@@ -120,47 +109,12 @@ struct ContentView: View {
                     )
                 )
         }
-        .onChange(of: session.state) { oldState, newState in
-            if arrivalHappened(from: oldState, to: newState) {
-                showsPartnerArrival = true
-            }
-        }
         .task(id: externalSurfaceSyncKey) {
             await syncExternalSurfaces()
         }
         .task(id: pendingInvitationKey) {
             await redeemPendingInvitationIfNeeded()
         }
-    }
-
-    /// Whether the space just became two people, from either side of it.
-    ///
-    /// Both people see the arrival, which the single `.waitingForPartner ->
-    /// .ready` edge never managed: that one fires only for the person who did
-    /// the inviting, so the person who redeemed the code walked into a colour
-    /// picker without the app ever acknowledging that they had arrived
-    /// somewhere. Redemption moves them out of `.needsCouple`, which is the
-    /// same event seen from the other phone.
-    ///
-    /// This is an edge, and edges are exactly what the *ceremony* refuses to
-    /// be driven by — see `WECeremonyHost`. The difference is what is at
-    /// stake: a missed arrival costs three words, and a missed ceremony would
-    /// leave a promise unperformed. The Joining is driven by persisted state
-    /// precisely so it survives everything this cannot.
-    private func arrivalHappened(
-        from oldState: AppSession.State,
-        to newState: AppSession.State
-    ) -> Bool {
-        let wasAlone = oldState == .needsCouple
-            || oldState == .waitingForPartner
-        let isTogether = newState == .ready
-        // And there are actually two people. A partner who joins and deletes
-        // their account while this phone is offline would otherwise arrive and
-        // depart in one snapshot, and the app would announce somebody who is
-        // already gone.
-        return wasAlone
-            && isTogether
-            && session.snapshot?.members.count == 2
     }
 
     private var showsAuthenticatedProfileButton: Bool {
@@ -282,78 +236,6 @@ struct ContentView: View {
             return .partnerDefault
         }
         return WEHue(partner.hue)
-    }
-}
-
-/// The other person, arriving.
-///
-/// Three words on both phones at the same instant, and the first surface in
-/// the product to carry both hues. What stood here was a paragraph — "A shared
-/// space opened. You and Dylan remain yourselves. What you both choose can now
-/// have a place between you." — which explains the arrival to somebody who is
-/// looking straight at it, and explaining a moment is how you lose it.
-///
-/// The sentence is always about the *other* person. Neither phone announces
-/// its owner to its owner, so both people read the same three words and
-/// neither reads their own name.
-///
-/// **No haptic here.** WE has exactly one, at the instant a ceremony beat
-/// lands on both phones, and it fires correctly already. A second one in
-/// onboarding would spend the only piece of physical vocabulary the product
-/// has on the smaller of two moments.
-private struct PartnerArrivalCeremony: View {
-    @EnvironmentObject private var session: AppSession
-    @Environment(\.dynamicTypeSize) private var typeSize
-    let onComplete: () -> Void
-
-    var body: some View {
-        ZStack {
-            WECanvas.ground.bg.ignoresSafeArea()
-
-            VStack(alignment: .leading, spacing: 0) {
-                Spacer(minLength: 0)
-
-                WEDisplayText(
-                    WEGateCopy.arrival(of: session.partnerName),
-                    role: .hero
-                )
-
-                Spacer(minLength: 0)
-
-                WEEditorialAction(WEGateCopy.begin, action: onComplete)
-                    .accessibilityIdentifier("arrival.begin")
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, FieldMetrics.usSide)
-            .padding(.bottom, FieldMetrics.screenBottom(at: typeSize))
-
-            // Shared, and for the first time truthfully so: until this instant
-            // there was one person in the space.
-            WEColourField(state: .shared, identity: identity, height: 168)
-                .frame(maxHeight: .infinity, alignment: .bottom)
-                .ignoresSafeArea(edges: .bottom)
-        }
-        .environment(\.weCanvas, .ground)
-        .preferredColorScheme(.dark)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("we.arrival")
-    }
-
-    /// Both people, in the Field vocabulary. The bridge from
-    /// `couple_members.hue` is the same one `HueSelectionView` uses; see
-    /// CUTOVER.md for why two vocabularies still exist.
-    private var identity: FieldIdentity {
-        let members = session.snapshot?.members ?? []
-        let mine = members.first { $0.id == session.user?.id }
-        let theirs = members.first { $0.id != session.user?.id }
-        return FieldIdentity(
-            personA: mine.map { FieldSwatch(nearest: WEHue($0.hue)) }
-                ?? FieldIdentity.seed.personA,
-            personB: theirs.map { FieldSwatch(nearest: WEHue($0.hue)) }
-                ?? FieldIdentity.seed.personB,
-            nameA: mine?.name ?? FieldIdentity.seed.nameA,
-            nameB: theirs?.name ?? session.partnerName
-        )
     }
 }
 

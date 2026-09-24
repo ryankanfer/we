@@ -28,6 +28,7 @@ struct WelcomeView: View {
     }
 
     @EnvironmentObject private var pendingInvitation: PendingInvitation
+    @EnvironmentObject private var walkthrough: WalkthroughPresenter
     @State private var destination: Destination?
 
     /// Whether the held code has already been offered on this launch.
@@ -163,6 +164,16 @@ struct WelcomeView: View {
             .foregroundStyle(.fieldInk(.label))
             .accessibilityLabel("Sign in")
             .accessibilityIdentifier("welcome.signIn")
+
+            // The explanation, offered rather than played at them. It used
+            // to open by itself in front of this screen.
+            Button("See how it works") { walkthrough.replay() }
+                .font(FieldType.body)
+                .buttonStyle(.plain)
+                .foregroundStyle(.fieldInk(.label))
+                .frame(minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+                .accessibilityIdentifier("welcome.walkthrough")
         }
     }
 
