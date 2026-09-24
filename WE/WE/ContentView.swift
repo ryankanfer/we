@@ -1,8 +1,6 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var privateCapture = false
-    @State private var privateLibrary = false
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var pendingInvitation: PendingInvitation
     @EnvironmentObject private var externalSurfaces:
@@ -48,25 +46,10 @@ struct ContentView: View {
                     )
                 }
             }
-            .safeAreaInset(edge: .bottom) {
-                if session.user != nil && WEFeatureFlags.shareInboxEnabled {
-                    HStack {
-                        Button("Save · Only me") { privateCapture = true }
-                        Button("Your saved items") { privateLibrary = true }
-                    }.padding().background(.regularMaterial)
-                }
-            }
-            .sheet(isPresented: $privateCapture) { WEPrivateCaptureView() }
-            .sheet(isPresented: $privateLibrary) {
-                // Built when the sheet opens, not as a `@State` default. A
-                // default is evaluated on every init of this view, so every
-                // re-render allocated and discarded a whole FieldStore — and
-                // a discarded store's isolated deinit is where the test host
-                // was crashing (malloc abort in TaskLocal teardown).
-                WEArtifactsView().environment(
-                    FieldStore(state: .empty(nameA: "You", nameB: "Your partner", now: Date()))
-                )
-            }
+            // No bar along the bottom before pairing. It offered "Save · Only
+            // me" and "Your saved items" in system chrome on every gate screen
+            // — a second way in, before there is a Life to save into. Things
+            // shared from elsewhere wait in Life once there is one.
         }
         .animation(
             .weSettle(duration: 0.35, reduceMotion: reduceMotion),
@@ -251,8 +234,8 @@ private struct PairingView: View {
             VStack(alignment: .leading, spacing: FieldMetrics.sectionGap) {
                 FieldGateHeadline(
                     title: "Your account is ready.",
-                    subtitle: "You can keep what you began here. Invite your "
-                        + "partner only when a shared space would be useful."
+                    subtitle: "Now the person you're making this with. "
+                        + "Invite them, or join them with the code they sent."
                 )
 
                 whatIsHeld
@@ -303,9 +286,9 @@ private struct PairingView: View {
                         .fixedSize(horizontal: false, vertical: true)
                     FieldReasoning(
                         text: session.privateProposals.count > 1
-                            ? "\(session.privateProposals.count) are kept on "
-                                + "your side. This screen does not load your "
-                                + "original notes."
+                            ? "\(session.privateProposals.count) of these, "
+                                + "only you can see them. This screen does not "
+                                + "load your original notes."
                             : "Protected by your account. This screen does not "
                                 + "load your original note.",
                         accent: FieldIdentity.seed.personA.color
@@ -322,7 +305,7 @@ private struct PairingView: View {
                 .padding(.top, 4)
 
             Text(
-                "Create your shared space, then choose how to send the invitation. Your private notes stay yours."
+                "WE makes a code for them. Send it however you like. Anything you mark Only me stays yours."
             )
             .font(FieldType.body)
             .foregroundStyle(.fieldInk(.sectionSubtitle))
@@ -335,12 +318,12 @@ private struct PairingView: View {
                 if session.isWorking {
                     ProgressView().tint(WECanvas.cream.bg)
                 } else {
-                    Text("Create our space")
+                    Text("Invite my partner")
                 }
             }
             .buttonStyle(FieldFilledButtonStyle())
             .disabled(session.isWorking)
-            .accessibilityLabel("Create our space")
+            .accessibilityLabel("Invite my partner")
             .accessibilityIdentifier("pairing.createInvitation")
         }
     }
@@ -348,7 +331,7 @@ private struct PairingView: View {
     private var joinCodeEntry: some View {
         VStack(alignment: .leading, spacing: 16) {
             FieldTextField(
-                label: "Have a join code?",
+                label: "The code they sent you",
                 text: $joinCode,
                 autocapitalization: .characters,
                 identifier: "pairing.joinCode"
@@ -514,7 +497,7 @@ private struct PartnerWaitingView: View {
                     .sensoryFeedback(.success, trigger: copied)
 
                 if isLive {
-                    Text("Your partner opens the link, creates their own account, and joins this space. Sharing or copying does not send anything automatically.")
+                    Text("Your partner opens the link, makes their own account, and joins you. Sharing or copying does not send anything by itself.")
                         .font(FieldType.body)
                         .foregroundStyle(.fieldInk(.reasoning))
                         .fixedSize(horizontal: false, vertical: true)

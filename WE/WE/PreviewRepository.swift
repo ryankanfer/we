@@ -12,6 +12,7 @@ actor PreviewRepository: Repository {
     private let acceptedDeletionPassword: String?
     private var privateProposals: [String: PrivateProposal] = [:]
     private var offeredProposalIDs: Set<String> = []
+    private var signedUpName: String?
 
     init(
         scenario: PreviewScenario = .ready,
@@ -61,6 +62,22 @@ actor PreviewRepository: Repository {
         }
         let user = AuthenticatedUser(id: "preview-user", email: email)
         currentUser = user
+        // A new account has nobody and no past: the name it was given, no
+        // couple, no archives. Loading the signed-out fixture here showed a
+        // brand-new person somebody else's "Past relationships".
+        signedUpName = name
+        snapshot = RelationshipSnapshot(
+            profile: Profile(id: user.id, name: name),
+            membership: nil,
+            couple: nil,
+            members: [],
+            insights: [],
+            reflections: [],
+            plans: [],
+            responsibilities: [],
+            archives: [],
+            syncedAt: Date()
+        )
         return .signedIn(user)
     }
 
@@ -113,8 +130,33 @@ actor PreviewRepository: Repository {
         try await createInvitation()
     }
 
+    /// Joining as whoever signed up: the fixture's inviter stays the other
+    /// person, and the joiner is the viewer — person B, in B's colour.
     func joinCouple(code: String) async throws {
-        snapshot = justPairedSnapshot
+        guard let name = signedUpName,
+              let inviter = justPairedSnapshot.members.first
+        else {
+            snapshot = justPairedSnapshot
+            return
+        }
+        let joinerID = "preview-user"
+        snapshot = RelationshipSnapshot(
+            profile: Profile(id: joinerID, name: name),
+            membership: Membership(
+                coupleID: justPairedSnapshot.couple?.id ?? "preview-couple",
+                profileID: joinerID,
+                hue: .sage,
+                hueChosenAt: nil
+            ),
+            couple: justPairedSnapshot.couple,
+            members: [inviter, Member(id: joinerID, name: name, hue: .sage)],
+            insights: [],
+            reflections: [],
+            plans: [],
+            responsibilities: [],
+            archives: [],
+            syncedAt: Date()
+        )
     }
 
     /// A fresh window on the existing preview code. The preview fixture has
