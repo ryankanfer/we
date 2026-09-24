@@ -820,7 +820,12 @@ enum FieldClassifier {
     /// would file a question as an errand, since a day word is exactly what
     /// disqualifies `.talk`. A trailing plural is allowed through, because
     /// "mondays" is a Monday.
+    ///
+    /// And a day word that `FieldPhrasing` read as a thing rather than a time
+    /// does not count: "what about a weekend away?" is a question, not an
+    /// errand due on Saturday.
     static func namesADay(_ lowered: String) -> Bool {
+        if FieldPhrasing.daysAreOnlyNamedAsThings(lowered) { return false }
         if FieldPhrasing.dayPhrases.contains(where: {
             $0.contains(" ") && lowered.contains($0)
         }) { return true }

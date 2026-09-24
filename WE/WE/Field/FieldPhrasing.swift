@@ -69,6 +69,19 @@ enum FieldPhrasing {
     /// into something to search for.
     static let dayPrepositions = ["on", "by", "for", "this", "next", "before"]
 
+    /// Words that make the day word that follows a thing rather than a time:
+    /// "a weekend away", "the sun", "our friday dinner", "last weekend",
+    /// "every sunday". Lifting the day out of those leaves "what about a
+    /// away?", and the date it files is one nobody named.
+    ///
+    /// "the" is the exception that proves it, and only after a word that
+    /// attaches a time: "fix the sink over the weekend" does name one.
+    private static let nounMarkers = [
+        "a", "an", "the", "that", "our", "my", "your", "their", "his", "her",
+        "its", "every", "each", "one", "last", "whole",
+    ]
+    private static let theAnchors = dayPrepositions + ["over"]
+
     static func tidy(
         _ input: String,
         now: Date,
@@ -96,33 +109,78 @@ enum FieldPhrasing {
 
     // MARK: The day
 
-    /// Removes the first day phrase it finds and returns the date it names,
-    /// along with any preposition that was only there to hold it.
+    /// Removes the first day phrase that names a time and returns the date
+    /// it names, along with any preposition that was only there to hold it.
     private static func extractDay(
         _ words: inout [String],
         now: Date,
         calendar: Calendar
     ) -> Date? {
+        guard let mention = firstTimeMention(in: words) else { return nil }
+        words.removeSubrange(mention.range)
+        return date(for: mention.phrase, now: now, calendar: calendar)
+    }
+
+    /// True when a day word was said, and every time it was said it was a
+    /// thing rather than a time — "what about a weekend away?".
+    ///
+    /// Deliberately the narrow question. `FieldClassifier` reads "is there a
+    /// day in this?" by substring, which also catches "sundays" and
+    /// "tomorrow's", and it should go on catching them; the only case it
+    /// should give up is the one this file has positively recognised as a
+    /// noun.
+    static func daysAreOnlyNamedAsThings(_ input: String) -> Bool {
+        let words = input.split(separator: " ").map(String.init)
+        let anyDay = dayPhrases.contains { phrase in
+            !occurrences(of: phrase.split(separator: " ").map(String.init), in: words)
+                .isEmpty
+        }
+        return anyDay && firstTimeMention(in: words) == nil
+    }
+
+    /// The first day phrase, longest first, that is being used as a time,
+    /// with the range of words that go with it.
+    private static func firstTimeMention(
+        in words: [String]
+    ) -> (phrase: String, range: Range<Int>)? {
         for phrase in dayPhrases {
             let parts = phrase.split(separator: " ").map(String.init)
-            guard let start = firstIndex(of: parts, in: words) else { continue }
-
-            let end = start + parts.count
-            var removeFrom = start
-
-            // "call mom on sunday" — the "on" goes with it. "on Sunday we
-            // leave" would too, but a capture is not a sentence with a
-            // subordinate clause, and this is only ever the word directly
-            // before the day.
-            if start > 0,
-               dayPrepositions.contains(cleaned(words[start - 1])) {
-                removeFrom = start - 1
+            // Every occurrence, not just the first: in "plan a weekend away
+            // this weekend" the first "weekend" is the thing and the second
+            // is the time.
+            for start in occurrences(of: parts, in: words) {
+                if let from = timeStart(ofDayAt: start, in: words) {
+                    return (phrase, from..<(start + parts.count))
+                }
             }
-
-            words.removeSubrange(removeFrom..<end)
-            return date(for: phrase, now: now, calendar: calendar)
         }
         return nil
+    }
+
+    /// Where the removal should begin for the day phrase at `start`, or nil
+    /// when the words around it say it is a thing and not a time.
+    private static func timeStart(ofDayAt start: Int, in words: [String]) -> Int? {
+        guard start > 0 else { return start }
+        let before = cleaned(words[start - 1])
+
+        // "call mom on sunday" — the "on" goes with it. "on Sunday we
+        // leave" would too, but a capture is not a sentence with a
+        // subordinate clause, and this is only ever the word directly
+        // before the day.
+        if dayPrepositions.contains(before) { return start - 1 }
+
+        if nounMarkers.contains(before) {
+            // "over the weekend" is a time; "the weekend" alone is the
+            // weekend itself — "plan the weekend" has no due date in it.
+            if before == "the", start > 1,
+               theAnchors.contains(cleaned(words[start - 2])) {
+                return start - 2
+            }
+            return nil
+        }
+
+        // Bare, and not held by anything: "call the vet friday about miso".
+        return start
     }
 
     private static func date(
@@ -224,12 +282,17 @@ enum FieldPhrasing {
         of parts: [String],
         in words: [String]
     ) -> Int? {
-        guard !parts.isEmpty, words.count >= parts.count else { return nil }
-        for start in 0...(words.count - parts.count) {
-            let slice = words[start..<(start + parts.count)].map(cleaned)
-            if slice == parts { return start }
+        occurrences(of: parts, in: words).first
+    }
+
+    private static func occurrences(
+        of parts: [String],
+        in words: [String]
+    ) -> [Int] {
+        guard !parts.isEmpty, words.count >= parts.count else { return [] }
+        return (0...(words.count - parts.count)).filter { start in
+            words[start..<(start + parts.count)].map(cleaned) == parts
         }
-        return nil
     }
 
     private static func cleaned(_ word: String) -> String {
