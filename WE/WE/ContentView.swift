@@ -227,36 +227,57 @@ private struct PairingView: View {
     @EnvironmentObject private var pendingInvitation: PendingInvitation
     @State private var joinCode = ""
     @State private var showsJoinCode = false
-    @State private var selectedArchive: RelationshipArchive?
+    @FocusState private var codeFocused: Bool
 
+    /// Two cards, one each way in. Past relationships and Sign out used to
+    /// sit under them; both live in Account (top right), where every other
+    /// setting is, so this screen asks one question.
     var body: some View {
-        FieldGateScaffold(centred: false) {
-            VStack(alignment: .leading, spacing: FieldMetrics.sectionGap) {
-                FieldGateHeadline(
-                    title: "Your account is ready.",
-                    subtitle: "Now the person you're making this with. "
-                        + "Invite them, or join them with the code they sent."
-                )
+        FirstRunScreen(
+            title: "Your account is ready.",
+            subtitle: "Now the person you're making this with.",
+            content: {
+                VStack(alignment: .leading, spacing: 14) {
+                    whatIsHeld
 
-                whatIsHeld
+                    FirstRunChoiceCard(
+                        symbol: "paperplane",
+                        title: "Invite them",
+                        detail: "WE makes a code. Send it any way you like.",
+                        isWorking: session.isWorking && !showsJoinCode
+                    ) {
+                        Task { await createSharedSpace() }
+                    }
+                    .disabled(session.isWorking)
+                    .accessibilityLabel("Invite my partner")
+                    .accessibilityIdentifier("pairing.createInvitation")
 
-                invitation
+                    FirstRunChoiceCard(
+                        symbol: "key",
+                        title: "I have their code",
+                        detail: "They invited you. Join them."
+                    ) {
+                        withAnimation(.easeInOut(duration: 0.25)) { showsJoinCode.toggle() }
+                        codeFocused = showsJoinCode
+                    }
+                    .accessibilityIdentifier("pairing.showJoinCode")
 
-                DisclosureGroup("Already invited? Join with a code", isExpanded: $showsJoinCode) {
-                    joinCodeEntry.padding(.top, 18)
+                    if showsJoinCode {
+                        joinCodeEntry
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+
+                    SessionMessageView()
                 }
-                .font(FieldType.body)
-                .foregroundStyle(.fieldInk(.headline))
-
-                SessionMessageView()
-
-                archives
-
-                Button("Sign out") { Task { await session.signOut() } }
-                    .buttonStyle(FieldQuietButtonStyle())
+            },
+            actions: {
+                Text("Anything you mark Only me stays yours, even after you pair.")
+                    .font(.footnote)
+                    .foregroundStyle(.fieldInk(.reasoning))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
             }
-        }
-        .sheet(item: $selectedArchive) { RelationshipArchiveView(archive: $0) }
+        )
         .onAppear {
             // Reaching this screen with a code still held means redemption
             // failed — a bad code, or offline. Put it back in the field rather
@@ -278,7 +299,7 @@ private struct PairingView: View {
     @ViewBuilder
     private var whatIsHeld: some View {
         if let saved = session.privateProposals.first {
-            FieldCard(accent: FieldIdentity.seed.personA.color) {
+            FirstRunCard {
                 VStack(alignment: .leading, spacing: 11) {
                     Text(saved.title)
                         .font(FieldType.listItemLarge)
@@ -298,84 +319,26 @@ private struct PairingView: View {
         }
     }
 
-    private var invitation: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            FieldRuleLine()
-
-                .padding(.top, 4)
-
-            Text(
-                "WE makes a code for them. Send it however you like. Anything you mark Only me stays yours."
-            )
-            .font(FieldType.body)
-            .foregroundStyle(.fieldInk(.sectionSubtitle))
-            .fieldLineHeight(1.6, size: 14.5)
-            .fixedSize(horizontal: false, vertical: true)
-
-            Button {
-                Task { await createSharedSpace() }
-            } label: {
-                if session.isWorking {
-                    ProgressView().tint(WECanvas.cream.bg)
-                } else {
-                    Text("Invite my partner")
-                }
-            }
-            .buttonStyle(FieldFilledButtonStyle())
-            .disabled(session.isWorking)
-            .accessibilityLabel("Invite my partner")
-            .accessibilityIdentifier("pairing.createInvitation")
-        }
-    }
-
     private var joinCodeEntry: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            FieldTextField(
-                label: "The code they sent you",
-                text: $joinCode,
-                autocapitalization: .characters,
-                identifier: "pairing.joinCode"
-            )
-            // Through `PendingInvitation.normalized` rather than inline. This
-            // was the second definition of a join code's shape that
-            // `InvitationTests.normalisingStripsCaseAndPunctuationAndCaps`
-            // exists to stop growing back — a typed code and a tapped link
-            // have to agree, and they cannot if two places decide separately.
-            .onChange(of: joinCode) { _, value in
-                joinCode = PendingInvitation.normalized(value) ?? ""
-            }
-
-            Button("Join") { Task { await joinSharedSpace() } }
-                .buttonStyle(FieldOutlinedButtonStyle())
-                .disabled(session.isWorking || joinCode.isEmpty)
-        }
-    }
-
-    @ViewBuilder
-    private var archives: some View {
-        if !session.archives.isEmpty {
-            VStack(alignment: .leading, spacing: 14) {
-                FieldRuleLine()
-
-                FieldLabel("Past relationships")
-                    .padding(.top, 4)
-
-                ForEach(session.archives) { archive in
-                    Button {
-                        selectedArchive = archive
-                    } label: {
-                        Text("View read-only archive")
-                            .font(FieldType.listItem)
-                            .foregroundStyle(.fieldInk(.quietListItem))
-                            .frame(
-                                maxWidth: .infinity,
-                                minHeight: 44,
-                                alignment: .leading
-                            )
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+        FirstRunCard {
+            VStack(alignment: .leading, spacing: 16) {
+                FieldTextField(
+                    label: "The code they sent you",
+                    text: $joinCode,
+                    autocapitalization: .characters,
+                    identifier: "pairing.joinCode"
+                )
+                .focused($codeFocused)
+                // Through `PendingInvitation.normalized` rather than inline:
+                // a typed code and a tapped link have to agree.
+                .onChange(of: joinCode) { _, value in
+                    joinCode = PendingInvitation.normalized(value) ?? ""
                 }
+
+                Button("Join") { Task { await joinSharedSpace() } }
+                    .buttonStyle(FirstRunPrimaryButtonStyle())
+                    .disabled(session.isWorking || joinCode.isEmpty)
+                    .accessibilityIdentifier("pairing.join")
             }
         }
     }
@@ -400,6 +363,7 @@ private struct PairingView: View {
 private struct PartnerWaitingView: View {
     @EnvironmentObject private var session: AppSession
     @State private var copied = false
+    @State private var confirmsWithdrawal = false
 
     /// Who the invitation is for, in their own name.
     ///
@@ -438,78 +402,64 @@ private struct PartnerWaitingView: View {
     private var closedTitle: String { WEGateCopy.invitationClosedTitle }
     private var closedDetail: String { WEGateCopy.invitationClosedDetail }
 
+    /// Who it is for, the code on a card you could read across a table, and
+    /// Share where the thumb is. Copying, a fresh code and withdrawing are
+    /// the rare cases; they sit under the card as quiet links.
     private var invitationScreen: some View {
-        FieldGateScaffold {
-            VStack(alignment: .leading, spacing: FieldMetrics.sectionGap) {
-                FieldGateHeadline(
-                    // "The invitation is at the threshold" is the register of
-                    // the specification document that produced it. The word
-                    // "threshold" survives fine as internal geometry naming
-                    // and does not belong in a sentence anybody reads.
-                    title: isLive
-                        ? WEGateCopy.invitationTitle(for: invitee)
-                        : closedTitle,
-                    subtitle: isLive
-                        ? WEGateCopy.invitationDetail(for: invitee)
-                        : closedDetail
-                )
-
-                if isLive {
-                    FieldTextField(
-                        label: WEGateCopy.inviteeNameField,
-                        text: $inviteeName,
-                        identifier: "waiting.inviteeName"
-                    )
-                }
-
-                // The code itself, in the app's label face at a size you can read
-                // across a table. Selectable, because somebody will want to
-                // copy it by hand rather than share it.
-                VStack(alignment: .leading, spacing: 14) {
-                    FieldRuleLine()
-
-                    // Struck through rather than hidden when it is not live.
-                    // Somebody who sent this code to their partner an hour
-                    // ago needs to recognise the string they are looking at
-                    // before they can understand that it stopped working.
-                    Text(code)
-                        .font(FieldType.metric)
-                        .tracking(4)
-                        .foregroundStyle(
-                            .fieldInk(isLive ? .headline : .recessive)
+        FirstRunScreen(
+            title: isLive ? WEGateCopy.invitationTitle(for: invitee) : closedTitle,
+            subtitle: isLive ? WEGateCopy.invitationDetail(for: invitee) : closedDetail,
+            content: {
+                VStack(alignment: .leading, spacing: 18) {
+                    if isLive {
+                        FieldTextField(
+                            label: WEGateCopy.inviteeNameField,
+                            text: $inviteeName,
+                            identifier: "waiting.inviteeName"
                         )
-                        .strikethrough(!isLive)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 6)
-                        .textSelection(.enabled)
-                        .accessibilityLabel(
-                            isLive
-                                ? "Join code \(code)"
-                                : "Join code \(code), no longer valid"
-                        )
+                    }
 
-                    FieldRuleLine()
+                    codeCard
+
+                    if isLive {
+                        HStack(spacing: 18) {
+                            copyInvitationButton
+                            Spacer(minLength: 0)
+                            withdrawal
+                        }
+                        .sensoryFeedback(.success, trigger: copied)
+
+                        Text("They open it, make their own account, and join you. Nothing is sent until you share it.")
+                            .font(.footnote)
+                            .foregroundStyle(.fieldInk(.reasoning))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    SessionMessageView()
                 }
+            },
+            actions: { invitationActions }
+        )
+    }
 
+    /// Struck through rather than hidden when it is not live: somebody who
+    /// sent this an hour ago needs to recognise the string before they can
+    /// understand it stopped working.
+    private var codeCard: some View {
+        FirstRunCard(padding: 24) {
+            VStack(spacing: 10) {
+                Text(code)
+                    .font(.system(size: 34, weight: .medium, design: .monospaced))
+                    .tracking(8)
+                    .foregroundStyle(.fieldInk(isLive ? .headline : .recessive))
+                    .strikethrough(!isLive)
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
+                    .textSelection(.enabled)
+                    .accessibilityLabel(isLive ? "Join code \(code)" : "Join code \(code), no longer valid")
                 window
-
-                invitationActions
-                    .sensoryFeedback(.success, trigger: copied)
-
-                if isLive {
-                    Text("Your partner opens the link, makes their own account, and joins you. Sharing or copying does not send anything by itself.")
-                        .font(FieldType.body)
-                        .foregroundStyle(.fieldInk(.reasoning))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                withdrawal
-
-                SessionMessageView()
-
-                Button("Sign out") { Task { await session.signOut() } }
-                    .buttonStyle(FieldQuietButtonStyle())
             }
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -521,9 +471,9 @@ private struct PartnerWaitingView: View {
     @ViewBuilder
     private var window: some View {
         if let expires = couple?.invitationExpiresAt, isLive {
-            Text("This code works until \(expires.formatted(.dateTime.month(.wide).day())).")
-                .font(FieldType.body)
-                .foregroundStyle(.fieldInk(.metadataProse))
+            Text("Works until \(expires.formatted(.dateTime.month(.wide).day()))")
+                .font(.footnote)
+                .foregroundStyle(.fieldInk(.reasoning))
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("waiting.window")
         }
@@ -532,10 +482,7 @@ private struct PartnerWaitingView: View {
     @ViewBuilder
     private var invitationActions: some View {
         if isLive {
-            VStack(alignment: .leading, spacing: 12) {
-                sendInvitationButton
-                copyInvitationButton
-            }
+            sendInvitationButton
         } else {
             Button {
                 Task { await session.createInvitation() }
@@ -546,9 +493,8 @@ private struct PartnerWaitingView: View {
                     Text("Make a new invitation")
                 }
             }
-            .buttonStyle(FieldFilledButtonStyle())
+            .buttonStyle(FirstRunPrimaryButtonStyle())
             .disabled(session.isWorking)
-            .accessibilityLabel("Make a new invitation")
             .accessibilityIdentifier("waiting.regenerate")
         }
     }
@@ -558,24 +504,22 @@ private struct PartnerWaitingView: View {
     /// this screen rather than behind Account.
     @ViewBuilder
     private var withdrawal: some View {
-        if isLive {
-            VStack(alignment: .leading, spacing: 10) {
-                FieldRuleLine()
-
-                Button("Withdraw this invitation") {
+        Button("Withdraw") { confirmsWithdrawal = true }
+            .buttonStyle(FirstRunLinkStyle())
+            .disabled(session.isWorking)
+            .accessibilityLabel("Withdraw this invitation")
+            .accessibilityIdentifier("waiting.revoke")
+            .confirmationDialog(
+                "Withdraw this invitation?",
+                isPresented: $confirmsWithdrawal,
+                titleVisibility: .visible
+            ) {
+                Button("Withdraw", role: .destructive) {
                     Task { await session.revokeInvitation() }
                 }
-                .buttonStyle(FieldQuietButtonStyle())
-                .disabled(session.isWorking)
-                .accessibilityIdentifier("waiting.revoke")
-                .padding(.top, 4)
-
+            } message: {
                 Text("The code stops working straight away, for everyone.")
-                    .font(FieldType.body)
-                    .foregroundStyle(.fieldInk(.metadataProse))
-                    .fixedSize(horizontal: false, vertical: true)
             }
-        }
     }
 
     // The Field button styles uppercase, so each of these carries its sentence
@@ -583,9 +527,9 @@ private struct PartnerWaitingView: View {
 
     private var sendInvitationButton: some View {
         ShareLink(item: invitationShareMessage) {
-            Text("Share invitation")
+            Label("Share invitation", systemImage: "square.and.arrow.up")
         }
-        .buttonStyle(FieldFilledButtonStyle())
+        .buttonStyle(FirstRunPrimaryButtonStyle())
         .accessibilityLabel("Share invitation")
         .accessibilityIdentifier("waiting.share")
 
@@ -601,9 +545,9 @@ private struct PartnerWaitingView: View {
             UIPasteboard.general.string = code
             copied = true
         } label: {
-            Text(copied ? "Code copied" : "Copy code")
+            Label(copied ? "Copied" : "Copy code", systemImage: copied ? "checkmark" : "doc.on.doc")
         }
-        .buttonStyle(FieldOutlinedButtonStyle())
+        .buttonStyle(FirstRunLinkStyle())
         .accessibilityLabel(copied ? "Copied" : "Copy")
         .accessibilityIdentifier("waiting.copy")
     }

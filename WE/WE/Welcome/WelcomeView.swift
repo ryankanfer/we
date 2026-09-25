@@ -11,10 +11,8 @@
 //  nobody had asked yet. This answers the one they did: what is this, and which
 //  door is mine. Three doors, named: start one, join one, return to one.
 //
-//  Not built on `FieldGateScaffold`. The scaffold centres its content, caps it
-//  at 440pt, and owns the background — and the bloom has to run full-bleed to
-//  the top edge. The scaffold's *components* are all reused; only its frame is
-//  not. Every sheet this screen opens goes back to the scaffold.
+//  Built on `FirstRunScreen`, like every screen before pairing: the bloom and
+//  the question scroll, and the three doors stay pinned where the thumb is.
 //
 
 import SwiftUI
@@ -41,36 +39,35 @@ struct WelcomeView: View {
     @State private var hasOfferedHeldInvitation = false
 
     var body: some View {
-        ZStack(alignment: .top) {
-            WECanvas.cream.bg.ignoresSafeArea()
-
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 0) {
-                    WelcomeBloom()
-                        .padding(.bottom, FieldMetrics.sectionGapTight)
-
-                    VStack(
-                        alignment: .leading,
-                        spacing: FieldMetrics.sectionGap
-                    ) {
-                        introduction
-                        start
-                        invitation
-                        returning
-                    }
-                    .padding(.horizontal, FieldMetrics.screenSide)
+        FirstRunScreen(
+            title: WEGateCopy.welcome,
+            subtitle: WEGateCopy.welcomeLine,
+            hero: {
+                ZStack(alignment: .topTrailing) {
+                    WelcomeBloom(diameter: 280)
+                        .padding(.top, 12)
+                    // The explanation, offered rather than played at them.
+                    Button("How it works") { walkthrough.replay() }
+                        .buttonStyle(FirstRunLinkStyle())
+                        .accessibilityIdentifier("welcome.walkthrough")
                 }
-                .frame(maxWidth: 440, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, FieldMetrics.sectionGapLoose)
+            },
+            actions: {
+                Button(WEGateCopy.begin) { destination = .createAccount }
+                    .buttonStyle(FirstRunPrimaryButtonStyle())
+                    .accessibilityIdentifier("welcome.start")
+                // One door, whether or not a code is already held: both go
+                // through the screen that says who is waiting.
+                Button(WEGateCopy.invited) { destination = .joinWithCode }
+                    .buttonStyle(FirstRunSecondaryButtonStyle())
+                    .accessibilityIdentifier("welcome.join")
+                FirstRunPromptLink(
+                    prompt: "Already have an account?",
+                    link: WEGateCopy.signIn,
+                    identifier: "welcome.signIn"
+                ) { destination = .signIn }
             }
-            .scrollBounceBehavior(.basedOnSize)
-        }
-        // The same paper as the app behind it. This was the one dark screen
-        // left: a person met a black room, then every screen after it was
-        // cream, and the first thing WE said about itself was not true.
-        .environment(\.weCanvas, .cream)
-        .preferredColorScheme(.light)
+        )
         .task(id: pendingInvitation.code) {
             guard pendingInvitation.code != nil, !hasOfferedHeldInvitation
             else { return }
@@ -97,90 +94,6 @@ struct WelcomeView: View {
             }
         }
     }
-
-    /// One question, and nothing above it.
-    ///
-    /// What stood here was a tracked "WELCOME TO WE" eyebrow over a headline
-    /// naming the category and a subtitle explaining the category again. Three
-    /// pieces of furniture to say one thing, and none of them about the person
-    /// the reader has in mind.
-    private var introduction: some View {
-        FieldGateHeadline(title: WEGateCopy.welcome, subtitle: WEGateCopy.welcomeLine)
-    }
-
-    private var start: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // The width goes on the *label*: every Field button style pads and
-            // then backs its label, so stretching the button leaves the fill
-            // hugging the text.
-            Button {
-                destination = .createAccount
-            } label: {
-                Text(WEGateCopy.begin).frame(maxWidth: .infinity)
-            }
-            .buttonStyle(FieldFilledButtonStyle())
-            .accessibilityIdentifier("welcome.start")
-        }
-    }
-
-    /// One door, whether or not a code is already held.
-    ///
-    /// It used to split: a held code turned the button into "Join with
-    /// WEDEMO" and routed straight to account creation, skipping the only
-    /// screen that tells this person who is waiting for them. Both routes now
-    /// go through that screen, which is where a held code belongs anyway.
-    private var invitation: some View {
-        Button {
-            destination = .joinWithCode
-        } label: {
-            Text(WEGateCopy.invited).frame(maxWidth: .infinity)
-        }
-        .buttonStyle(FieldOutlinedButtonStyle())
-        .accessibilityIdentifier("welcome.join")
-    }
-
-    private var returning: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            // Built the way `ContentView`'s account button is, rather than on
-            // `FieldQuietButtonStyle`: that style pads without a background,
-            // and an unbacked pad is not hit-testable, so the only tappable
-            // part is the glyphs. A door on the first screen needs 44pt.
-            Button {
-                destination = .signIn
-            } label: {
-                Text(WEGateCopy.signIn)
-                    .font(FieldType.button)
-                    .tracking(FieldTracking.button)
-                    // The underline is drawn to the text, not to the tap
-                    // target — `.underline()` on an uppercased, tracked label
-                    // label sits too low and runs past the last letter.
-                    .overlay(alignment: .bottom) {
-                        Rectangle()
-                            .fill(FieldRule.row)
-                            .frame(height: 1)
-                            .offset(y: 4)
-                            .allowsHitTesting(false)
-                    }
-                    .frame(minHeight: 44, alignment: .leading)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.fieldInk(.label))
-            .accessibilityLabel("Sign in")
-            .accessibilityIdentifier("welcome.signIn")
-
-            // The explanation, offered rather than played at them. It used
-            // to open by itself in front of this screen.
-            Button("See how it works") { walkthrough.replay() }
-                .font(FieldType.body)
-                .buttonStyle(.plain)
-                .foregroundStyle(.fieldInk(.label))
-                .frame(minHeight: 44, alignment: .leading)
-                .contentShape(Rectangle())
-                .accessibilityIdentifier("welcome.walkthrough")
-        }
-    }
-
 }
 
 #Preview("Welcome") {

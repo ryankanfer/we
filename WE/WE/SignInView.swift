@@ -17,6 +17,7 @@ struct SignInView: View {
     @State private var showsReset = false
     @State private var submitting = false
     @FocusState private var focus: WEAccountFocus?
+    @Namespace private var modeSpace
 
     init(initialMode: Mode = .signIn) { _mode = State(initialValue: initialMode) }
     private var busy: Bool { submitting || session.isWorking }
@@ -28,11 +29,12 @@ struct SignInView: View {
 
     var body: some View {
         WEAccountSurface(
-            title: mode == .signIn ? "Welcome back." : "A little space for you two.",
+            title: mode == .signIn ? "Welcome back." : "Start with you.",
             subtitle: mode == .signIn ? "Today and Life, right where you left them." : "Your own account first. Then invite your partner, or join them.",
             closeLabel: "Close", onClose: { dismiss() }
         ) {
             VStack(alignment: .leading, spacing: 28) {
+                modePicker.disabled(busy)
                 fields.disabled(busy)
                 WEAccountFeedback()
                 VStack(spacing: 12) {
@@ -57,8 +59,6 @@ struct SignInView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                FieldRuleLine(color: FieldRule.row)
-                modeSwitch.disabled(busy)
             }
         }
         .sheet(isPresented: $showsReset) { PasswordResetView(email: $email) }
@@ -94,27 +94,35 @@ struct SignInView: View {
         }
     }
 
-    private var modeSwitch: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 8) { modePrompt; modeButton }.fixedSize(horizontal: true, vertical: false)
-            VStack(alignment: .leading, spacing: 4) { modePrompt; modeButton }
-        }.frame(maxWidth: .infinity, alignment: .leading)
-    }
-    private var modePrompt: some View {
-        Text(mode == .signIn ? "New to WE?" : "Already have an account?")
-            .font(.system(.subheadline)).foregroundStyle(.fieldInk(.reasoning))
-    }
-    private var modeButton: some View {
-        Button(mode == .signIn ? "Create an account" : "Sign in") {
-            focus = nil
-            WEAccountInput.dismissKeyboard()
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
-                mode = mode == .signIn ? .create : .signIn
+    /// Both doors at the top, one tap apart. The switch used to sit at the
+    /// bottom as "New to WE? Create an account", under a form for the other
+    /// thing — found only by someone who had already scrolled past it.
+    private var modePicker: some View {
+        HStack(spacing: 4) {
+            ForEach([Mode.create, Mode.signIn]) { option in
+                Button {
+                    focus = nil
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { mode = option }
+                } label: {
+                    Text(option.rawValue)
+                        .font(.system(.subheadline, weight: .medium))
+                        .foregroundStyle(mode == option ? WECanvas.cream.bg : WECanvas.cream.ink.opacity(0.7))
+                        .frame(maxWidth: .infinity, minHeight: 40)
+                        .background {
+                            if mode == option {
+                                Capsule().fill(WECanvas.cream.ink)
+                                    .matchedGeometryEffect(id: "mode", in: modeSpace)
+                            }
+                        }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(mode == option ? .isSelected : [])
+                .accessibilityIdentifier(option == .create ? "account.mode.create" : "account.mode.signIn")
             }
         }
-        .font(.system(.subheadline, weight: .medium)).frame(minHeight: 44)
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(mode == .signIn ? "account.mode.create" : "account.mode.signIn")
+        .padding(4)
+        .background(WECanvas.cream.ink.opacity(0.06), in: Capsule())
     }
     private var disablesCredentialPrompts: Bool {
         ProcessInfo.processInfo.environment["WE_DISABLE_CREDENTIAL_PROMPTS"] == "1"

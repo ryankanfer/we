@@ -115,8 +115,9 @@ struct WEInvitationArrival: View {
                     // No second explanation. The next screen is an account,
                     // and saying so twice would be the app hedging the one
                     // sentence it just made.
-                    VStack(alignment: .leading, spacing: 20) {
-                        WEEditorialAction(WEGateCopy.begin, action: hold)
+                    VStack(spacing: 10) {
+                        Button(greeting.map { "Join \($0.name)" } ?? WEGateCopy.begin, action: hold)
+                            .buttonStyle(FirstRunPrimaryButtonStyle())
                             .accessibilityIdentifier("welcome.joinCode.continue")
 
                         // Saying no, in the same typeface and at the same
@@ -124,13 +125,14 @@ struct WEInvitationArrival: View {
                         // yes is a sales funnel, and a decline hidden behind a
                         // gesture or drawn three shades quieter is the same
                         // funnel being coy about it.
-                        WEEditorialAction(WEGateCopy.decline, action: decline)
+                        Button(WEGateCopy.decline, action: decline)
+                            .buttonStyle(FirstRunSecondaryButtonStyle())
                             .accessibilityIdentifier("welcome.invitation.decline")
                     }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, FieldMetrics.usSide)
+            .padding(.horizontal, FirstRunMetrics.side)
             .padding(.bottom, FieldMetrics.screenBottom(at: typeSize))
 
             WEColourField(state: .mine(.a), identity: identity, height: 168)
@@ -168,9 +170,10 @@ struct WEInvitationArrival: View {
                 if normalized != value { code = normalized }
             }
 
-            WEEditorialAction(WEGateCopy.useCode) {
+            Button(WEGateCopy.useCode) {
                 Task { await lookUp(normalizedCode) }
             }
+            .buttonStyle(FirstRunPrimaryButtonStyle())
             .disabled(normalizedCode == nil)
             .accessibilityIdentifier("welcome.joinCode.continue")
         }
