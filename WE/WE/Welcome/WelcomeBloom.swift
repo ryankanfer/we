@@ -26,6 +26,12 @@ struct WelcomeBloom: View {
     /// The bloom's full width. The lens geometry scales off this, so the whole
     /// cluster grows and shrinks as one.
     var diameter: CGFloat = 320
+    /// The couple's own colours, once there is a couple (the splash passes
+    /// them). Before that, the fixed roles: burgundy and sage.
+    var identity: FieldIdentity?
+    /// 0 to 1: how far the two circles have come together. The splash
+    /// animates it; everywhere else it is simply together.
+    var formation: CGFloat = 1
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency)
@@ -167,10 +173,10 @@ struct WelcomeBloom: View {
 
     private var paperBloom: some View {
         ZStack {
-            paperDisc(FieldIdentity.seed.personA.color(on: .cream))
-                .offset(x: -offset * 1.6)
-            paperDisc(FieldIdentity.seed.personB.color(on: .cream))
-                .offset(x: offset * 1.6)
+            paperDisc((identity ?? .seed).personA.color(on: .cream))
+                .offset(x: -offset * (1.6 + (1 - formation) * 0.6))
+            paperDisc((identity ?? .seed).personB.color(on: .cream))
+                .offset(x: offset * (1.6 + (1 - formation) * 0.6))
         }
         .compositingGroup()
     }

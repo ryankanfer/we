@@ -190,8 +190,11 @@ final class WEUITests: XCTestCase {
 
         app.buttons["welcome.start"].tap()
         XCTAssertTrue(
-            app.staticTexts["Begin on your side."]
-                .waitForExistence(timeout: 3),
+            app.buttons["accountSubmitButton"].waitForExistence(timeout: 3),
+            "Begin should open the account form"
+        )
+        XCTAssertEqual(
+            app.buttons["accountSubmitButton"].label, "Create account",
             "Begin should open account creation, not sign-in"
         )
     }
