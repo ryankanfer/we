@@ -205,14 +205,16 @@ struct FieldPaletteTests {
 @MainActor
 struct FieldConstraintTests {
     @Test
-    func weIsIndexOneAndIsTheHome() {
-        #expect(FieldZone.we.rawValue == 1)
-        #expect(FieldStore().activeZone == .we)
+    func todayIsIndexZeroAndIsTheHome() {
+        #expect(FieldZone.today.rawValue == 0)
+        #expect(FieldStore().activeZone == .today)
     }
 
+    /// Two zones, and only two. Life is everything, Today is what matters,
+    /// and Us is not a place — a third zone is the taxonomy work this removed.
     @Test
     func zoneOrderIsFixed() {
-        #expect(FieldZone.allCases == [.life, .we, .us])
+        #expect(FieldZone.allCases == [.today, .life])
     }
 
     /// The domain has no place to put a score, and that is deliberate. If a
@@ -626,6 +628,30 @@ struct FieldClassifierTests {
         #expect(receipt.category == .talk)
         #expect(receipt.dueOn == nil)
         #expect(receipt.category.carriesDates == false)
+    }
+
+    /// "weekend" as a thing does not make a question into a dated errand.
+    @Test
+    func aWeekendAwayIsAQuestionNotADate() {
+        let receipt = FieldClassifier.classify(
+            "what about a weekend away?",
+            context: context
+        )
+        #expect(receipt.category == .talk)
+        #expect(receipt.title == "What about a weekend away?")
+        #expect(receipt.dueOn == nil)
+    }
+
+    /// The same word as a time still carries the date.
+    @Test
+    func callMomThisWeekendKeepsItsDate() {
+        let receipt = FieldClassifier.classify(
+            "call mom this weekend",
+            context: context
+        )
+        #expect(receipt.category == .care)
+        #expect(receipt.title == "Call mom")
+        #expect(receipt.dueOn == FieldSampleData.date(2025, 8, 16))
     }
 
     /// Most people do not type the mark on a phone.
@@ -1098,6 +1124,62 @@ struct FieldPhrasingTests {
         let result = FieldPhrasing.tidy("reminder for tomorrow", now: now)
         #expect(!result.title.isEmpty)
         #expect(result.dueOn == FieldSampleData.date(2025, 8, 14))
+    }
+
+    /// A day that names when the thing happens is lifted into a date, the
+    /// "this" holding it included.
+    @Test
+    func aDayNamedForTheItemIsLifted() {
+        // 13 August 2025 is a Wednesday; the coming Saturday is the 16th.
+        let result = FieldPhrasing.tidy("call mom this weekend", now: now)
+        #expect(result.title == "Call mom")
+        #expect(result.dueOn == FieldSampleData.date(2025, 8, 16))
+    }
+
+    /// "a weekend" is a thing, not a time. Lifting it filed "What about a
+    /// away?" with a Saturday nobody named.
+    @Test
+    func aDayUsedAsAThingStaysInTheSentence() {
+        let result = FieldPhrasing.tidy("what about a weekend away?", now: now)
+        #expect(result.title == "What about a weekend away?")
+        #expect(result.dueOn == nil)
+
+        let sun = FieldPhrasing.tidy("sit in the sun", now: now)
+        #expect(sun.title == "Sit in the sun")
+        #expect(sun.dueOn == nil)
+    }
+
+    /// Recognising the noun must not cost the time said later in the same
+    /// sentence, or the time said as "over the weekend".
+    @Test
+    func theTimeIsStillFoundAroundTheThing() {
+        let both = FieldPhrasing.tidy("plan a weekend away this weekend", now: now)
+        #expect(both.title == "Plan a weekend away")
+        #expect(both.dueOn == FieldSampleData.date(2025, 8, 16))
+
+        let over = FieldPhrasing.tidy("fix the sink over the weekend", now: now)
+        #expect(over.title == "Fix the sink")
+        #expect(over.dueOn == FieldSampleData.date(2025, 8, 16))
+
+        let bare = FieldPhrasing.tidy("call the vet friday about miso", now: now)
+        #expect(bare.title == "Call the vet about miso")
+        #expect(bare.dueOn == FieldSampleData.date(2025, 8, 15))
+    }
+
+    /// The reported path end to end: typed, classified, sent, filed.
+    @Test
+    func aWeekendAwayIsFiledWhole() throws {
+        let store = FieldStore(
+            state: FieldState.empty(nameA: "Ryan", nameB: "Sam", now: now),
+            now: now
+        )
+        store.captureDraft = "what about a weekend away?"
+        store.submitCapture()
+        store.send()
+
+        let item = try #require(store.state.lifeItems.first)
+        #expect(item.title == "What about a weekend away?")
+        #expect(item.dueOn == nil)
     }
 }
 
@@ -2372,12 +2454,12 @@ struct FieldStoreTests {
     @Test
     func theMarkAlwaysReturnsHome() {
         let store = FieldStore()
-        store.go(to: .us)
+        store.go(to: .life)
         store.openCalendar()
 
         store.returnHome()
 
-        #expect(store.activeZone == .we)
+        #expect(store.activeZone == .today)
         #expect(store.calendarOpen == false)
     }
 

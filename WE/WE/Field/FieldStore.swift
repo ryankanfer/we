@@ -365,7 +365,7 @@ final class FieldStore {
     // offset, calendarOpen, activeCluster, captureDraft, lastReceipt.
 
     /// WE is index 1 and is the home. Cold launch always lands on Today.
-    var activeZone: FieldZone = .we
+    var activeZone: FieldZone = .today
     // Per-zone scroll offset is listed in the handoff's ephemeral state, but
     // it is not stored here: the paging TabView keeps all three zones mounted,
     // so each ScrollView keeps its own position for free. Mirroring it would
@@ -600,6 +600,12 @@ final class FieldStore {
 
     var speaker: FieldOwner {
         backend?.viewerOwner ?? .a
+    }
+
+    /// The other person's name, for copy that has to say who will or will not
+    /// see something. WE never says "your partner" about somebody it can name.
+    var partnerName: String {
+        identity.name(for: speaker == .b ? .a : .b)
     }
 
     /// The two questions the app can ask that are not about a single item.
@@ -1094,7 +1100,7 @@ final class FieldStore {
     func returnHome() {
         calendarOpen = false
         searchOpen = false
-        activeZone = .we
+        activeZone = .today
     }
 
     /// One overlay at a time over Life. Opening either closes the other rather
@@ -1109,7 +1115,12 @@ final class FieldStore {
         calendarOpen = false
     }
 
-    func openSearch() {
+    /// Words to start a search with, from a suggestion on Life. Read once,
+    /// by the search surface as it opens.
+    var searchSeed = ""
+
+    func openSearch(_ seed: String = "") {
+        searchSeed = seed
         calendarOpen = false
         searchOpen = true
     }
@@ -1187,17 +1198,30 @@ final class FieldStore {
         // The chip carries the tidied thought, not the sentence. What was
         // literally typed still travels with the correction, which is the only
         // place it is load-bearing.
+        let visibility: FieldVisibility? = receipt.isPrivate ? .private : nil
         let capture = FieldCapture(
             id: receipt.id,
             text: receipt.title,
             owner: speaker,
-            capturedAt: now
+            capturedAt: now,
+            visibility: visibility
         )
+        // Stamped here, at the crossing, rather than when each correction was
+        // made: "Only me" can be turned on after a correction, and the typed
+        // words in it are exactly as private as the item. Stamped *before*
+        // staging, because the durable outbox is what actually reaches the
+        // server — an unstamped copy there would publish a private item's
+        // words as a shared correction.
+        let corrections = pendingCorrections.map {
+            var correction = $0
+            correction.visibility = visibility
+            return correction
+        }
         if let outbox {
             let item = makeCapturedItem(receipt)
             do {
                 try outbox.stage([.append(capture), .upsertItem(item)]
-                    + pendingCorrections.map { .record($0) })
+                    + corrections.map { .record($0) })
             } catch {
                 captureSaveError = "This has not been saved. Keep this screen open and try again."
                 return
@@ -1212,7 +1236,6 @@ final class FieldStore {
 
         // Corrections are training signal about the classifier, and they are
         // held back with everything else until the moment of crossing.
-        let corrections = pendingCorrections
         pendingCorrections = []
         lastReceipt = nil
         correctingReceipt = nil
@@ -1263,7 +1286,10 @@ final class FieldStore {
     }
 
     private func makeCapturedItem(_ receipt: FieldReceipt) -> LifeItem {
-        let match = state.lifeItems.first {
+        // Never for an "Only me" receipt. Marking a private thing as "both
+        // added it" would tell this person something about their partner's
+        // list by way of their own, and would make a private item shared-owned.
+        let match = receipt.isPrivate ? nil : state.lifeItems.first {
             $0.title.localizedCaseInsensitiveCompare(receipt.title) == .orderedSame
                 && $0.owner != speaker && !$0.isDone
         }
@@ -1272,8 +1298,30 @@ final class FieldStore {
             owner: match == nil ? speaker : .shared, dueOn: receipt.dueOn,
             closesAt: nil, clusterID: nil, source: .captured,
             detail: match == nil ? nil : "Both added it, independently",
-            isTimeCritical: false, isDone: false
+            isTimeCritical: false, isDone: false,
+            sourceURL: receipt.sourceURL,
+            visibility: receipt.isPrivate ? .private : nil
         )
+    }
+
+    /// Where these words would be filed, without filing anything. For the +
+    /// card, which says where a thing is going before it goes.
+    func previewDestination(for text: String, link: URL? = nil) -> LifeCategory? {
+        if let link, let category = FieldLinkReader.category(for: link) { return category }
+        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty else { return nil }
+        return FieldClassifier.classify(words, context: classifierContext).category
+    }
+
+    /// Hands a link to the receipt about to be sent. A site whose kind is
+    /// plain decides the category, the same way the preview said it would.
+    func attachLink(_ url: URL?) {
+        guard let url, lastReceipt != nil else { return }
+        lastReceipt?.sourceURL = url
+        if let category = FieldLinkReader.category(for: url) {
+            lastReceipt?.category = category
+            if !category.carriesDates { lastReceipt?.dueOn = nil }
+        }
     }
 
     /// Puts a captured thing on today, or takes it back off.
@@ -1297,6 +1345,26 @@ final class FieldStore {
 
         receipt.dueOn = alreadyToday ? nil : today
         lastReceipt = receipt
+    }
+
+    /// "Only me", on the receipt. Nothing has left the phone yet, so this
+    /// only changes what `send()` will do.
+    func togglePrivate() {
+        lastReceipt?.isPrivate.toggle()
+    }
+
+    /// Lets a partner see something that was "Only me". One way: the
+    /// database refuses the reverse, and nothing here offers it.
+    func share(_ itemID: String) {
+        guard let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
+              state.lifeItems[index].visibility == .private
+        else { return }
+        state.lifeItems[index].visibility = .shared
+        if let captureIndex = state.captures.firstIndex(where: { $0.id == itemID }) {
+            state.captures[captureIndex].visibility = .shared
+        }
+        let item = state.lifeItems[index]
+        Task { [backend] in try? await backend?.upsert(item) }
     }
 
     func beginCorrection() {
@@ -1386,6 +1454,9 @@ final class FieldStore {
     }
 
     var conversationOpen = false
+    /// This person's private look-ups for the day. In memory only: never
+    /// filed, never sent, never on the partner's screen. See `FieldLookup`.
+    var lookups: [FieldLookup] = []
     var conversationContext: FieldChatContext?
     var conversationDraft = ""
     var conversationError: String?
@@ -1494,6 +1565,31 @@ final class FieldStore {
         do { return try await backend?.chatPage(before: before, decisionsOnly: decisionsOnly) ?? chatMessages.filter { !decisionsOnly || ($0.decision && $0.confirmed) } }
         catch { conversationError = "Couldn’t load this conversation. Try again."; return [] }
     }
+    /// Whether this person's phone is told when the other suggests deciding
+    /// on something. The server sends unless someone has said no, so unset
+    /// reads as on — and Account says so.
+    var decisionNoticesOn: Bool {
+        state.chatPreferences?.first { $0.owner == speaker }?.notifications != false
+    }
+
+    func setDecisionNotices(_ on: Bool) async {
+        let current = state.chatPreferences?.first { $0.owner == speaker }
+        await updateChatPreference(notices: current?.notices ?? true, notifications: on)
+    }
+
+    /// Today has shown the partner's proposals, so they are seen. Without
+    /// this the notifier counts every proposal as unread: the screen that
+    /// used to mark them read was the retired chat.
+    func markDecisionsSeen() async {
+        let current = state.chatPreferences?.first { $0.owner == speaker }
+        guard let latest = chatMessages
+            .filter({ $0.decision && $0.sender != speaker })
+            .map(\.createdAt).max(),
+            latest > (current?.readAt ?? .distantPast)
+        else { return }
+        await updateChatPreference(notices: current?.notices ?? true, readAt: now)
+    }
+
     func updateChatPreference(notices: Bool, readAt: Date? = nil, notifications: Bool? = nil) async {
         do {
             if let backend { try await backend.setChatPreference(notices: notices, readAt: readAt, notifications: notifications); await retryLoad() }

@@ -1,3 +1,26 @@
+# Simplification, September 23–24 2026
+
+Branch `claude/simplify-on-beta`, on `beta/p0-p1-execution`. This supersedes
+anything below that conflicts with it, including §4 (Navigation): the bar is
+now **Today · + · Life**, uppercase exception retired. See README "Native
+product" for the current shape.
+
+- Yours is retired for per-item Only me (`20260923120000_private_by_choice`,
+  `20260923130000_retire_yours`). **Neither migration has been applied or
+  dry-run**; pgTAP for them has not been run (no Docker here).
+- Us is gone as a place: goals are "Where we're headed" at the top of Life;
+  the shared question opens from Today.
+- Chat is retired except decision proposals; old messages stay findable
+  through Today's look-ups. Decision notices are opt-out in Account.
+- Colour choice, the Profile screen, the arrival screen, the first-save
+  offer and the automatic walkthrough are removed.
+- `WELexiconTests` guards the vocabulary.
+- **UI tests are stale** (they look for Chat, Us, Yours, tabs, the old
+  capture sheet and the automatic walkthrough) and have not been run.
+- `notify-conversation` has new copy and needs redeploying.
+
+---
+
 # Current private beta handoff
 
 The approved September 7 private beta plan supersedes the historical design decisions below wherever they conflict, including cream Life/Account, visible Yours and Account entrances, sentence-case actions, and the interactive story walkthrough. Current reconciliation, release gates and testing checklist: [docs/PRIVATE_BETA.md](docs/PRIVATE_BETA.md).

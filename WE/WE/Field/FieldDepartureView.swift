@@ -35,7 +35,7 @@ struct FieldDepartureView: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    FieldLabel("Your space")
+                    FieldLabel("What stays")
                         .padding(.bottom, 18)
 
                     Text("This is yours now.")

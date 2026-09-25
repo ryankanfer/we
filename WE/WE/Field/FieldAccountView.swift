@@ -12,7 +12,11 @@ struct FieldAccountView: View {
     @Environment(FieldStore.self) private var store
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var walkthrough: WalkthroughPresenter
+    @EnvironmentObject private var externalSurfaces: ExternalSurfaceController
     @Environment(\.dismiss) private var dismiss
+
+    /// Shown only where there is a Promise to replay from.
+    var onReplayPromise: (() -> Void)? = nil
 
     @State private var surface: FieldAccountSurface?
     @State private var showsDelete = false
@@ -20,6 +24,10 @@ struct FieldAccountView: View {
     @State private var showsFeedback = false
     @State private var showsPrivacyPolicy = false
     @State private var copiedInvitationCode = false
+    @State private var name = ""
+    @State private var didSaveName = false
+    @State private var selectedArchive: RelationshipArchive?
+    @State private var selectedProposal: SavedPrivateProposal?
 
     var body: some View {
         ZStack {
@@ -30,6 +38,9 @@ struct FieldAccountView: View {
                     header
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
+                    yourName
+                        .padding(.bottom, FieldMetrics.sectionGapLoose)
+
                     if canInvitePartner {
                         partnerConnection
                             .padding(.bottom, FieldMetrics.sectionGapLoose)
@@ -38,11 +49,22 @@ struct FieldAccountView: View {
                     noticing
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
+                    decisionNotices
+                        .padding(.bottom, FieldMetrics.sectionGapLoose)
+
                     responseSettings
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
                     privacy
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
+
+                    outsideWE
+                        .padding(.bottom, FieldMetrics.sectionGapLoose)
+
+                    if !session.archives.isEmpty || !session.privateProposals.isEmpty {
+                        records
+                            .padding(.bottom, FieldMetrics.sectionGapLoose)
+                    }
 
                     understanding
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
@@ -96,6 +118,11 @@ struct FieldAccountView: View {
         .sheet(item: $surface) { selection in
             FieldAccountSurfaceView(surface: selection).environment(store)
         }
+        .sheet(item: $selectedArchive) { RelationshipArchiveView(archive: $0) }
+        .sheet(item: $selectedProposal) { proposal in
+            NavigationStack { SavedPrivateProposalView(proposal: proposal) }
+        }
+        .onAppear { if name.isEmpty { name = session.snapshot?.profile.name ?? "" } }
         .onChange(of: liveInvitation?.code) { _, _ in
             copiedInvitationCode = false
         }
@@ -154,7 +181,13 @@ struct FieldAccountView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(store.identity.name(for: .shared))
+            // Just this person until there is a partner: "Ryan and Your
+            // partner" names somebody who does not exist yet.
+            Text(
+                (session.snapshot?.members.count ?? 2) < 2
+                    ? store.identity.name(for: store.speaker)
+                    : store.identity.name(for: .shared)
+            )
                 .font(FieldType.pageHeadline)
                 .foregroundStyle(.fieldInk(.headline))
                 .fieldLineHeight(1.16, size: 32)
@@ -396,6 +429,145 @@ struct FieldAccountView: View {
         }
     }
 
+    // MARK: Decisions
+
+    /// The one notice besides the arrival: your partner suggested deciding
+    /// on something. It says only that something is waiting, never what.
+    private var decisionNotices: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldRuleLine()
+
+            FieldLabel("Decisions")
+                .padding(.top, 20)
+                .padding(.bottom, 10)
+
+            Toggle(
+                "Tell me when \(store.partnerName) suggests a decision",
+                isOn: Binding(
+                    get: { store.decisionNoticesOn },
+                    set: { on in Task { await store.setDecisionNotices(on) } }
+                )
+            )
+            .font(FieldType.body)
+            .frame(minHeight: 44)
+            .accessibilityIdentifier("field.account.decisionNotices")
+
+            Text("The notice says something is waiting for you both, and nothing else.")
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.metadataProse))
+                .fieldLineHeight(1.5, size: 14.5)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 10)
+        }
+    }
+
+    // MARK: Your name
+
+    private var yourName: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldRuleLine()
+
+            FieldLabel("Your name")
+                .padding(.top, 20)
+                .padding(.bottom, 18)
+
+            HStack(spacing: 12) {
+                TextField("Your name", text: $name)
+                    .textContentType(.name)
+                    .font(FieldType.body)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 44)
+                    .background(WECanvas.cream.ink.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+                    .onChange(of: name) { _, _ in didSaveName = false }
+                    .accessibilityIdentifier("field.account.name")
+                Button(didSaveName ? "Saved" : "Save") {
+                    Task {
+                        await session.updateProfile(name: name)
+                        didSaveName = session.errorMessage == nil
+                    }
+                }
+                .buttonStyle(FieldOutlinedButtonStyle())
+                .disabled(
+                    name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || name == session.snapshot?.profile.name
+                        || !session.canMutate
+                )
+            }
+        }
+    }
+
+    // MARK: Outside WE
+
+    private var outsideWE: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldRuleLine()
+
+            FieldLabel("Outside WE")
+                .padding(.top, 20)
+                .padding(.bottom, 18)
+
+            Toggle(
+                "Show approved shared wording",
+                isOn: Binding(
+                    get: { externalSurfaces.specificWordingOptedIn },
+                    set: { externalSurfaces.setSpecificWordingOptIn($0) }
+                )
+            )
+            .font(FieldType.body)
+            .frame(minHeight: 44)
+
+            Text(
+                "Lock Screen, widgets, StandBy and Live Activities say "
+                    + "something generic unless this is on. Answers, names, "
+                    + "invitation details and read receipts never appear there."
+            )
+            .font(FieldType.body)
+            .foregroundStyle(.fieldInk(.metadataProse))
+            .fieldLineHeight(1.5, size: 14.5)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 10)
+        }
+    }
+
+    // MARK: What you can look back on
+
+    private var records: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldRuleLine()
+
+            FieldLabel("Looking back")
+                .padding(.top, 20)
+                .padding(.bottom, 10)
+
+            ForEach(session.privateProposals) { proposal in
+                Button { selectedProposal = proposal } label: {
+                    HStack {
+                        Label(proposal.title, systemImage: "lock")
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(.fieldInk(.reasoning))
+                    }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Only you can open this")
+            }
+            ForEach(session.archives) { archive in
+                Button { selectedArchive = archive } label: {
+                    HStack {
+                        Label("Relationship ended", systemImage: "archivebox")
+                        Spacer()
+                        Text(ArchiveDate.display(archive.endedAt)).foregroundStyle(.fieldInk(.reasoning))
+                    }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .font(FieldType.body)
+    }
+
     // MARK: Understanding
 
     /// The way back to the explanation, months after the one time it played.
@@ -423,6 +595,15 @@ struct FieldAccountView: View {
             .buttonStyle(FieldOutlinedButtonStyle())
             .accessibilityIdentifier("field.account.walkthrough")
             .padding(.bottom, 14)
+
+            if let onReplayPromise {
+                Button(WEGateCopy.replayPromise) {
+                    dismiss()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { onReplayPromise() }
+                }
+                .buttonStyle(FieldOutlinedButtonStyle())
+                .padding(.bottom, 14)
+            }
 
             Text("Try a fictional example: put down a thought, correct its date, and find it in Life. Nothing from the example is saved to your account.")
                 .font(FieldType.body)
@@ -576,7 +757,7 @@ struct FieldDeleteAccountView: View {
             // through a key WE destroys and can prove it destroyed, this is
             // the strongest true sentence available, and the two surfaces
             // must not disagree about it.
-            Text(YoursCopy.deletionAssurance)
+            Text("Unrecoverable within 24 hours.")
         }
         .onChange(of: session.state) { _, state in
             if state == .signedOut { dismiss() }

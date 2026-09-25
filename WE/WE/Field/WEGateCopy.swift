@@ -46,6 +46,10 @@ enum WEGateCopy {
     /// are thinking of.
     static let welcome = "Who are you making this with?"
 
+    /// The whole app in one line, in its own two words. Anything longer is
+    /// the walkthrough, which is one tap away.
+    static let welcomeLine = "Today is your day together. Life is everything else. Say anything with +."
+
     /// One word. It was "Start a WE space", which names the mechanism, and
     /// the mechanism is not what anybody is deciding at this moment.
     static let begin = "Begin"
@@ -142,7 +146,7 @@ enum WEGateCopy {
 
     /// Was "How WE notices". The setting is about the one thing a person
     /// actually wants control of, which is being interrupted.
-    static let interruptions = "When WE interrupts you"
+    static let interruptions = "What WE may notice"
 
     // MARK: The rules' subject
 

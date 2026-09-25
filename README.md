@@ -9,17 +9,21 @@ material only; native development has no parity or maintenance obligation to it.
 
 ## Native product
 
-The iPhone app has three primary destinations:
+The iPhone app has two places and one way in, fixed at the bottom: **Today · + · Life**.
 
-- **Life**: practical information, plans and commitments, with visible Search and Calendar.
-- **WE / Today**: one relevant next action and a persistent capture entrance.
-- **Us**: shared questions, proposals and agreed directions.
+- **Today** is the day's conversation. WE opens with one thing worth doing now; below it, what each of you added today and where WE filed it. It starts fresh each morning, and a question like "what did we get for dad?" is answered privately, with links to real records only.
+- **+** opens a card in the middle of the screen: say something, or paste a link. WE reads a link on the phone (title, site, picture) and says where it will go before it goes. Two circles send it to both of you; one circle keeps it Only me.
+- **Life** is where everything lives. It opens on search, in the middle of the screen. Below that is **Where we're headed** (goals), then an icon bar: All, then each group (Care, Food, Trips, Watchlist, Buys…). Calendar is in the header.
 
-**Yours** is a labelled private writing entrance on Today. **Account** is visibly reachable from each main screen.
+**Only me** is a property of any item, not a place. Anything can be kept private, and sharing it later is one way: private can become shared, never the reverse. Nothing your partner sees is shaped by it. Yours, the separate private space, is retired; its writing moved into Life as private notes (`docs/archive/CIRCLE.md`).
 
-First use follows “One little plan”: a table-for-two introduction, a fictional thought, real date and visibility review, an optional correction, and a saved plan that can be reopened. A tappable Life / WE / Us overview explains the rest of the app, including private writing in Yours. The walkthrough supports Back, Skip, Reduce Motion, and large text; it never writes to a real account. Registration, invitation entry and sign-in follow; the joint Promise remains at partner arrival. An optional account-scoped first-save guide teaches the same loop with a real item.
+**Decide on this together** turns a shared item into a proposal the other person agrees to. That agreement is the one thing stored as a message; everything else typed is filed into Life.
 
-The walkthrough can be replayed from Account and preserves pending invitation context. The current beta does not introduce a fourth main destination.
+**Account** is the same screen before and after pairing, reached from the top of each place.
+
+The first run is Welcome, sign in, pair or wait for your partner, then the Promise. Colours are fixed by role (the first person burgundy, the second sage); there is no colour step. The walkthrough never opens by itself: "See how it works" on the welcome and "See how WE works" in Account play it, and it never writes to a real account.
+
+Retired words stay retired: `WELexiconTests` fails if one comes back into on-screen text.
 
 ## Trust model
 
@@ -105,10 +109,18 @@ It is not the source of truth for native navigation, presentation, or maintenanc
 
 **WE never sends a notification containing news, only ones inviting presence.**
 
-There is exactly one, and it is sent once per space: the moment the second
-person joins, both phones receive the same fixed sentence, which names nobody
-and reports nothing. No badge, no sound, no payload beyond that sentence. Local
-moments follow the same rule.
+There are two, and neither says what happened:
+
+1. **Arrival**, once per space: the moment the second person joins, both phones
+   receive the same fixed sentence, which names nobody and reports nothing.
+2. **A decision is waiting**, opt-out in Account ("Tell me when … suggests a
+   decision"): when your partner suggests deciding on something, your phone
+   receives "Something is waiting for you both in WE." Nothing else — not what,
+   not who. It is sent only within an hour of the proposal and only if Today
+   has not already shown it.
+
+No badge, no sound, no payload beyond the sentence. Local moments follow the
+same rule. The permission is asked once, after the Promise.
 
 Refusing notifications is a first class path, not a degraded one. The ceremony
 is driven by persisted state and an aggregate that reveals no timing, so a
@@ -117,7 +129,8 @@ all costs a convenience and never correctness — the arrival is simply there
 when the app is next opened. Nothing is retried, and nothing ever reports that
 the other person was or was not notified.
 
-See `supabase/functions/announce-arrival/README.md`.
+See `supabase/functions/announce-arrival/README.md` and
+`supabase/functions/notify-conversation/`.
 
 ## Deliberate exclusions
 
@@ -128,6 +141,6 @@ are outside this milestone.
 
 ## Private beta implementation
 
-The current beta work and verification gates are tracked in [docs/PRIVATE_BETA.md](docs/PRIVATE_BETA.md). The entry walkthrough now follows one fictional thought through capture, date correction and retrieval, followed by a brief explanation of privacy. It is skippable and replayable. After entry, an optional account-scoped guide supports a first real save.
+The current beta work and verification gates are tracked in [docs/PRIVATE_BETA.md](docs/PRIVATE_BETA.md). The walkthrough follows one fictional thought through capture, date correction and retrieval. It is offered, never automatic, and replayable.
 
-The main destinations remain Life, WE (Today), and Us. Life and practical utilities use warm cream; Today, Us, and Yours retain their dark canvases. Yours and Account have visible routes. A fixed capture entrance opens composition without answering Today’s featured question first.
+The main places are Today and Life, with + between them; see Native product above.

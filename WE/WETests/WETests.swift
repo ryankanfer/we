@@ -227,7 +227,6 @@ struct WETests {
             (.empty, .ready),
             (.waiting, .waitingForPartner),
             (.archived, .needsCouple),
-            (.choosingHue, .choosingHue),
             (.signedOut, .signedOut),
         ]
 

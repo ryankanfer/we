@@ -8,7 +8,7 @@ struct WalkthroughView: View {
     @State private var step = 0
     @State private var store = WalkthroughPractice.makeStore()
     @State private var openedItem: FieldItemReference?
-    @State private var selectedSpace = 1
+    @State private var selectedSpace = 0
     @State private var appeared = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -196,11 +196,11 @@ struct WalkthroughView: View {
     private var spaces: some View {
         VStack(alignment: .leading, spacing: 24) {
             HStack(spacing: 8) {
-                ForEach(0..<3) { index in
+                ForEach(0..<2) { index in
                     Button { withAnimation(motion) { selectedSpace = index } } label: {
                         VStack(spacing: 12) {
-                            Text(["Life", "WE", "Us"][index])
-                                .font(index == 1 ? FieldType.mark : FieldType.button)
+                            Text(["Today", "Life"][index])
+                                .font(FieldType.button)
                             Capsule()
                                 .fill(selectedSpace == index ? canvas.ink : canvas.ink.opacity(0.12))
                                 .frame(height: 2)
@@ -214,32 +214,29 @@ struct WalkthroughView: View {
                 }
             }
             VStack(alignment: .leading, spacing: 16) {
-                Text(["Keep the details close.", "A place to begin, every day.", "Choose what comes next, together."][selectedSpace])
+                Text(["A place to begin, every day.", "Where everything lives."][selectedSpace])
                     .font(FieldType.pageHeadline)
                 Text([
-                    "Plans and things you save. Search helps you find them; Calendar shows their accepted dates.",
-                    "What matters now: a useful next step, upcoming plans, and a place to capture a thought.",
-                    WEFeatureFlags.sharedJourneysEnabled
-                        ? "So Us and New to Us reflect what you’ve shared and built together. Tap a concept to see why it appears. Your goals remain under Our goals."
-                        : "Shared questions and directions. For mutual questions, answers appear only after you both submit."
+                    "The day's conversation: one thing worth doing now, what you both added, and where WE filed it. Tap + to add anything, or paste a link.",
+                    "Search sits in the middle when you need something fast. Below it: where you're headed, then every group — Care, Food, Trips and the rest."
                 ][selectedSpace])
                 .font(FieldType.body).foregroundStyle(.fieldInk(.sectionSubtitle))
                 .lineSpacing(4)
-                if selectedSpace == 1 {
+                if selectedSpace == 0 {
                     Divider().overlay(canvas.ink.opacity(0.15))
-                    Label("Yours · an optional space for private reflection", systemImage: "lock")
+                    Label("Only me · anything you add can be kept just for you", systemImage: "lock")
                         .font(FieldType.body)
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
             .id(selectedSpace)
             .transition(.opacity)
-            Text("Chat stays in the header across Today, Life, Us, Search, and Calendar. Use Discuss this together inside a shared plan or goal.")
+            Text("Decide on this together turns anything shared into a choice you both agree to.")
                 .font(FieldType.body)
                 .foregroundStyle(.fieldInk(.reasoning))
             if WEFeatureFlags.shareInboxEnabled {
                 DisclosureGroup("Save something from elsewhere") {
-                    Text("Bring in a thought, link, or image from Life or the Share Sheet. Only Me means private wherever it appears. Review a separate version before sharing; your original stays private.")
+                    Text("Bring in a thought, link, or image from Life or the Share Sheet. Only me means private wherever it appears. Review a separate version before sharing; your original stays private.")
                     Text("You choose when WE may open a website. Edit suggested details and dates, or ask Why this? to see the evidence. Needs attention in Account keeps unresolved work reachable.")
                 }
                 .font(FieldType.body)

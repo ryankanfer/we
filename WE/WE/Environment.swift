@@ -19,7 +19,6 @@ enum PreviewScenario: String, Sendable {
     case waiting
     case archived
     case signedOut = "signedout"
-    case choosingHue = "choosinghue"
     case journeyHeld = "journeyheld"
     case journeyProposal = "journeyproposal"
     case journeyActive = "journeyactive"

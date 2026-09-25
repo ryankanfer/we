@@ -35,35 +35,12 @@ struct FieldZoneShell: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var store: FieldStore
     @State private var showsAccount = false
-    @State private var showsPrivateCapture = false
     @State private var planNavigation = WEPlanNavigation.shared
     @State private var intentPlan: FieldItemReference?
-    @State private var showsYours = false
-    @State private var showsCapture = false
+    /// The + card.
+    @State private var showsComposer = false
     @State private var footerHeight: CGFloat = 240
-    @State private var firstSave: FirstSaveGuide?
 
-    /// Whether the way into Yours has been shown once on this device.
-    ///
-    /// Deliberately `@AppStorage`, and deliberately *unlike* the two teaching
-    /// moments in `YoursOwnerState`, which are server-side because §2 rations
-    /// the word "Yours" across a person's lifetime and a second phone would
-    /// spend it again. This flag rations nothing and names nothing — it
-    /// records that a hand has been shown where to swipe, which is knowledge
-    /// about a device. A new phone is a new place to learn the gesture.
-    ///
-    /// It also has to be readable here, before `YoursStore` exists: the store
-    /// is built per presentation by `yoursStore()`, so anything it knows is
-    /// known only *after* somebody has already found the way in.
-    ///
-    /// Named for a gesture it no longer describes. Kept anyway: renaming the
-    /// key would show the hint a second time to everyone who has already
-    /// learned this, which is the one thing it exists not to do.
-    @AppStorage("yours.gesture.hinted") private var hasHintedGesture = false
-
-    /// Drives the hint's breath. Held here rather than in the hint so the
-    /// animation survives the bar's own re-layout on a zone change.
-    @State private var hintBreath: CGFloat = 1
 
     // Constructed in the body, not as a default argument. Default argument
     // expressions are evaluated in a nonisolated context, so `= FieldStore()`
@@ -119,17 +96,7 @@ struct FieldZoneShell: View {
         .preferredColorScheme(store.activeZone.canvas == .cream ? .light : .dark)
         .safeAreaInset(edge: .top, spacing: 0) {
             HStack {
-                if store.activeZone == .we && !store.calendarOpen && !store.searchOpen {
-                    Button(action: openYours) {
-                        Text("Yours").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
-                    }
-                        .accessibilityIdentifier("field.openYours")
-                }
                 Spacer()
-                Button { store.openConversation() } label: {
-                    HStack(spacing: 5) { Text("Chat"); if store.chatUnread { Circle().frame(width: 5, height: 5) } }.frame(minHeight: 44)
-                }.accessibilityLabel(store.chatUnread ? "Chat, new messages" : "Chat")
-                    .accessibilityIdentifier("field.openChat")
                 Button { showsAccount = true } label: {
                     Text("Account").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }
@@ -145,35 +112,6 @@ struct FieldZoneShell: View {
         .overlay(alignment: .bottom) {
             if !store.calendarOpen, !store.searchOpen {
                 VStack(spacing: 0) {
-                    if store.activeZone == .we {
-                        if let guide = firstSave, guide.progress.phase == .offered {
-                            HStack {
-                                Button("Try with your life") { guide.start(); showsCapture = true }
-                                Spacer()
-                                Button("Not now") { guide.skip() }
-                            }
-                            .font(FieldType.body)
-                            .buttonStyle(.plain)
-                            .frame(minHeight: 44)
-                            .padding(.horizontal, FieldMetrics.screenSide)
-                            .accessibilityIdentifier("field.firstSave.offer")
-                        }
-                        Button { showsCapture = true } label: {
-                            HStack {
-                                Text("What is on your mind?")
-                                Spacer()
-                                Image(systemName: "square.and.pencil")
-                            }
-                            .font(FieldType.body)
-                            .padding(.horizontal, 20)
-                            .frame(minHeight: 56)
-                            .glassEffect(.regular.interactive(), in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, FieldMetrics.screenSide)
-                        .padding(.vertical, 12)
-                        .accessibilityIdentifier("field.capture.open")
-                    }
                     FieldLoadStateLine(store: store)
                     navigationBar
                 }
@@ -198,59 +136,16 @@ struct FieldZoneShell: View {
                 }
             }
         }
-        .sheet(isPresented: $showsCapture) {
-            NavigationStack {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        if let guide = firstSave,
-                           guide.progress.phase == .started || guide.progress.phase == .saved {
-                            Text("Put down one thought. You’ll review where it goes and who can see it before saving.")
-                                .font(FieldType.body)
-                        }
-                        if WEFeatureFlags.shareInboxEnabled {
-                            Button("Save something · Only Me", systemImage: "lock") { showsPrivateCapture = true }
-                                .sheet(isPresented: $showsPrivateCapture) { WEPrivateCaptureView() }
-                        }
-                        FieldCaptureField(
-                            savedItemID: firstSave?.progress.itemID,
-                            compact: true,
-                            onSaved: { firstSave?.saved($0) },
-                            onRetrieved: { firstSave?.retrieved($0) }
-                        )
-                    }
-                    .padding(FieldMetrics.screenSide)
-                }
-                .scrollDismissesKeyboard(.interactively)
-                .navigationTitle("")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { showsCapture = false }
-                            .accessibilityIdentifier("field.capture.done")
-                    }
-                }
-                .weCanvas(.cream)
-            }
-            .presentationDetents([.height(410), .large])
-            .presentationBackground(.ultraThinMaterial)
-            .presentationDragIndicator(.visible)
-            .presentationCornerRadius(32)
-            .preferredColorScheme(.light)
-            .environment(\.weCanvas, .cream)
-            .environment(store)
+        .overlay {
+            FieldComposerOverlay(isPresented: $showsComposer) { store.go(to: .today) }
+                .preferredColorScheme(.light)
+                .environment(\.weCanvas, .cream)
+                .environment(store)
         }
         .environment(store)
         .animation(.fieldZone(reduceMotion), value: store.activeZone)
         .animation(.fieldZone(reduceMotion), value: store.calendarOpen)
         .animation(.fieldZone(reduceMotion), value: store.searchOpen)
-        .task(id: guideScope) {
-            showsCapture = false
-            if let user = session.user?.id, let couple = session.snapshot?.membership?.coupleID {
-                firstSave = FirstSaveGuide(accountID: user, coupleID: couple)
-            } else {
-                firstSave = nil
-            }
-        }
         .task { await store.load() }
         .task {
             if WEFeatureFlags.shareInboxEnabled { WEIntelligenceStore.shared.reload(); await WEIntelligenceStore.shared.synchronize() }
@@ -302,39 +197,12 @@ struct FieldZoneShell: View {
                 await store.retryLoad()
                 if WEFeatureFlags.shareInboxEnabled { WEIntelligenceStore.shared.reload(); await WEIntelligenceStore.shared.synchronize() }
             }
-                // §5's ninety-day rule is about the product, not this room, so
-                // this fires on every foreground whether or not Yours is ever
-                // opened. Without it, somebody who used the shared side daily
-                // and never opened the space would have their private writing
-                // swept out from under them at ninety days.
-                if FieldEntry.Mode.current == .live {
-                    Task {
-                        try? await YoursSupabaseBackend(
-                            client: SupabaseClientProvider.shared.client
-                        )?.touch()
-                    }
-                }
             }
             Task { await store.refreshDailyMoment() }
         }
         .fullScreenCover(isPresented: $showsAccount) {
             FieldAccountView()
                 .environment(store)
-        }
-        // The room animates itself, in both directions. The cover's own slide
-        // is suppressed by the transaction that raises `showsYours` (see
-        // `openYours`) and by the one around `dismiss()` inside the room —
-        // not by a `.transaction` modifier here, which would apply to this
-        // whole view and silently kill the zone change, the calendar, and
-        // every other animation in the shell.
-        .fullScreenCover(isPresented: $showsYours) {
-            YoursSurface(
-                store: yoursStore(),
-                hue: store.identity.color(for: store.speaker)
-            )
-        }
-        .sheet(isPresented: Binding(get: { store.conversationOpen }, set: { store.conversationOpen = $0 })) {
-            FieldConversationView().environment(store).environmentObject(session)
         }
         // 2a. Asked once, on the first arrival in the zones after a second
         // person joins — which is where both people land, whichever of them
@@ -388,10 +256,6 @@ struct FieldZoneShell: View {
         }
     }
 
-    private var guideScope: String {
-        "\(session.user?.id ?? ""):\(session.snapshot?.membership?.coupleID ?? "")"
-    }
-
     /// Open while both of them are open, closed once somebody closes it.
     ///
     /// The setter is live rather than ignored, unlike the crossing below: a
@@ -436,29 +300,6 @@ struct FieldZoneShell: View {
         Binding(get: { store.lostUnsentWriting }, set: { _ in })
     }
 
-    /// Built per presentation rather than held, because the store owns
-    /// ephemeral state — the draft, the open drawer, the visit — and a visit
-    /// that outlived the screen would defeat the presentation gate: the whole
-    /// point of §5 is that the next entry waits until somebody comes back.
-    ///
-    /// The mode decides the backend, rather than whether a client happens to
-    /// exist. `SupabaseClientProvider.shared.client` is non-nil in seeded and
-    /// gallery runs too — the configuration comes from the bundle, not from
-    /// being signed in — so keying off it would send `WE_FIELD=seeded`, which
-    /// promises no network, straight at the network and leave every UI test
-    /// asserting on a failed load.
-    private func yoursStore() -> YoursStore {
-        let clock = FieldLiveClock.app
-        let backend: YoursBackend = switch FieldEntry.Mode.current {
-        case .live:
-            YoursSupabaseBackend(client: SupabaseClientProvider.shared.client)
-                ?? YoursMemoryBackend(clock: clock)
-        case .seeded, .demo, .sparse, .gallery:
-            YoursMemoryBackend(clock: clock)
-        }
-        return YoursStore(backend: backend, clock: clock)
-    }
-
     private var crossingDecision: FieldCrossingDecision? {
         guard let user = session.user?.id,
               let couple = session.snapshot?.membership?.coupleID
@@ -473,15 +314,12 @@ struct FieldZoneShell: View {
 
     private var pager: some View {
         TabView(selection: zoneBinding) {
+            FieldTodayZone()
+                .tag(FieldZone.today)
+
             FieldLifeZone()
                 .environment(\.weCanvas, WECanvas.cream)
                 .tag(FieldZone.life)
-
-            FieldTodayZone()
-                .tag(FieldZone.we)
-
-            FieldUsZone()
-                .tag(FieldZone.us)
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
     }
@@ -501,11 +339,29 @@ struct FieldZoneShell: View {
     // transparent) so content scrolls softly beneath it. Bar padding
     // 16px 30px 30px; the bar occupies roughly 103pt."
 
+    /// Add something, from either zone. The one way in, always in the same
+    /// place — it replaced a composer that lived only on Today.
+    private var addButton: some View {
+        Button {
+            showsComposer = true
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 18, weight: .regular))
+                .foregroundStyle(.fieldInk(.headline))
+                .frame(width: 48, height: 48)
+                .glassEffect(.regular.interactive(), in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add something")
+        .accessibilityIdentifier("field.capture.open")
+    }
+
     private var navigationBar: some View {
         HStack(alignment: .center, spacing: 46) {
+            zoneLabel(.today)
+            addButton
             zoneLabel(.life)
-            weMark
-            zoneLabel(.us)
         }
         .padding(.horizontal, 26)
         .padding(.vertical, 8)
@@ -529,8 +385,8 @@ struct FieldZoneShell: View {
             // Life only. US has no room behind it, and inventing a general
             // `zone.deeperRoom` for a single case would make the bar look like
             // it holds three of these when it holds one.
-            if zone == .life, store.activeZone == .life {
-                store.openCalendar()
+            if zone == .today {
+                store.returnHome()
             } else {
                 store.go(to: zone)
             }
@@ -576,150 +432,6 @@ struct FieldZoneShell: View {
             }
         }
     }
-
-    /// 40 × 40pt circle, 1px border at ink .5, fill ink .06, the wordmark in
-    /// 11pt DM Sans at +2.4. Present on every zone.
-    ///
-    /// Tap returns to Today; tap it *from* Today and it opens Yours;
-    /// long-press opens the account. The handoff allows no chrome for
-    /// settings, so the mark carries it — but a long-press does not exist for
-    /// VoiceOver, so the accessibility actions below are the only route for
-    /// those users and are not optional.
-    ///
-    /// The way into Yours used to be an upward drag on this bar. It asked for
-    /// 40pt of travel in a direction nothing else moved, resolved only on
-    /// release, and gave no sign while it was being attempted — so a failed
-    /// attempt and no attempt looked identical, and the failure mode of a
-    /// private space nobody can open is that it does not exist. The mark was
-    /// already the way home and therefore already inert on Today, which makes
-    /// it the one control that could take this without giving anything up.
-    private var weMark: some View {
-        // Not a `Button`: a Button consumes the long press, so tap and
-        // long-press have to be attached as peers to the same shape.
-        ZStack {
-            Circle()
-                .fill(store.activeZone.canvas.ink.opacity(isHome ? 0.10 : 0.03))
-                .overlay {
-                    Circle().strokeBorder(FieldRule.mark, lineWidth: 1)
-                }
-                .frame(width: 40, height: 40)
-
-            Text("WE")
-                .font(FieldType.mark)
-                .tracking(FieldTracking.mark)
-                .foregroundStyle(.fieldInk(.headline))
-        }
-        .frame(width: 48, height: 48)
-        .contentShape(Circle())
-        .onTapGesture { markTapped() }
-        .onLongPressGesture(minimumDuration: 0.5) { showsAccount = true }
-        .accessibilityElement(children: .ignore)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("WE")
-        .accessibilityHint(isHome ? "" : "Returns to Today")
-        .accessibilityIdentifier("field.nav.we")
-        .accessibilityAction { store.returnHome() }
-        .accessibilityAction(named: "Account") { showsAccount = true }
-        // The only route into Yours for VoiceOver, and therefore not
-        // optional: the way in is an upward drag, and a drag does not exist
-        // for these users. It ships with the gesture, never after it.
-        //
-        // Named with the word itself — the one place the label is sanctioned
-        // permanently (`YoursCopy.accessibilityName`), so that sighted and
-        // unsighted users hold the same mental model of the same room.
-        .accessibilityAction(named: Text(YoursCopy.accessibilityName)) {
-            openYours()
-        }
-    }
-
-    /// Whether the mark has nothing left to do as a way home.
-    ///
-    /// Today, with nothing over it. The two overlays count as "not home"
-    /// deliberately: while one is up the mark has to mean *close this*, or
-    /// somebody dismissing the calendar would land in the private space
-    /// instead.
-    private var isHome: Bool {
-        store.activeZone == .we && !store.calendarOpen && !store.searchOpen
-    }
-
-    private func markTapped() {
-        if isHome {
-            openYours()
-        } else {
-            store.returnHome()
-        }
-    }
-
-    /// Opening Yours, from wherever.
-    ///
-    /// Spends the hint on the way through. Any route counts — the mark, the
-    /// VoiceOver action, a deep link: once somebody is inside, the hint has
-    /// done its work and showing it again would be the app repeating itself to
-    /// someone who already knows.
-    private func openYours() {
-        hasHintedGesture = true
-
-        // Presented without the system's slide because the personal field and
-        // mark own the transition — see `YoursSurface`. Scoped to this one
-        // state change rather than
-        // applied to the view, so nothing else in the shell loses its motion.
-        var silent = Transaction()
-        silent.disablesAnimations = true
-        withTransaction(silent) { showsYours = true }
-    }
-
-    /// Shown once, then never.
-    ///
-    /// With the mark gone from the bar there is nothing on screen to find, and
-    /// a way in nobody knows about is a feature nobody has. So the circle makes
-    /// exactly one appearance — and that is also the moment CIRCLE.md §2 wants:
-    /// one circle is yours, the joined mark below is WE, and the grammar
-    /// teaches itself because the two are visible together, once.
-    ///
-    /// It used to drift upward, pointing along a swipe. There is no swipe now,
-    /// and a circle sliding toward the top of the screen would be aiming at
-    /// nothing. It breathes instead — the slowest motion in the app, saying
-    /// only *there is something here*, directly above the thing to press.
-    ///
-    /// Only on Today, because that is the only place the mark opens anything.
-    /// Elsewhere it is the way home, and a hint over a control that currently
-    /// does something else is a lie told quietly.
-    ///
-    /// Wordless. §2 rations the word to the Promise and to first entry, and
-    /// this is neither.
-    ///
-    /// A layout child of the bar rather than an overlay on it, so it stays
-    /// inside the bar's gradient. As an overlay it rode over the zone's own
-    /// content. The row it occupies collapses the first time somebody goes in
-    /// — a one-time reflow, underneath a full-screen cover that is already
-    /// presenting.
-    @ViewBuilder
-    private var gestureHint: some View {
-        if !hasHintedGesture, store.activeZone == .we {
-            YoursMark(
-                style: .compact,
-                presence: .living,
-                hue: store.identity.color(for: store.speaker)
-            )
-            .frame(width: 24, height: 24)
-            .opacity(0.45)
-            .scaleEffect(reduceMotion ? 1 : hintBreath)
-            .frame(height: 30)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(
-                    .easeInOut(duration: 2.4).repeatForever(autoreverses: true)
-                ) {
-                    hintBreath = 1.06
-                }
-            }
-        }
-    }
-
-    /// A 48 × 1pt track containing a 16pt segment filled with the blend,
-    /// translated 0 / 16 / 32pt for zone 0 / 1 / 2.
 
 }
 

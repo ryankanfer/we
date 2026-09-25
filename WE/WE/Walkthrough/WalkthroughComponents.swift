@@ -123,21 +123,21 @@ struct WalkthroughScaffold<Stage: View, Caption: View>: View {
 // MARK: - The navigation they will see after the walkthrough
 
 /// A quiet, non-interactive replica of the app's navigation. Showing the real
-/// grammar on every screen makes the three explanations add up to one map:
-/// Life to the left, Today at the WE mark, and Us to the right.
+/// grammar on every screen makes the explanations add up to one map: Today,
+/// the + between, and Life — where goals live too.
 struct WalkthroughNavigation: View {
     let active: WalkthroughJourney
 
     var body: some View {
         VStack(spacing: 8) {
             HStack(alignment: .center, spacing: 0) {
-                label("LIFE", journey: .life)
+                label("TODAY", isActive: active == .today)
                     .frame(maxWidth: .infinity, alignment: .trailing)
 
                 mark
                     .padding(.horizontal, 26)
 
-                label("US", journey: .us)
+                label("LIFE", isActive: active != .today)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
@@ -157,55 +157,41 @@ struct WalkthroughNavigation: View {
         .frame(maxWidth: 440)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
-            "Navigation: Life, Today, Us. \(active.headerLabel) selected."
+            "Navigation: Today, add, Life. \(active == .today ? "Today" : "Life") selected."
         )
         .accessibilityIdentifier("walkthrough.navigation")
     }
 
     private func label(
         _ text: String,
-        journey: WalkthroughJourney
+        isActive: Bool
     ) -> some View {
         Text(text)
             .font(FieldType.zoneLabel)
             .tracking(FieldTracking.zoneLabel)
             .foregroundStyle(
-                active == journey
+                isActive
                     ? .fieldInk(.headline)
                     : .fieldInk(.labelQuiet)
             )
             .frame(minWidth: 44, minHeight: 44)
     }
 
+    /// The + , as it looks in the bar.
     private var mark: some View {
-        ZStack {
-            Circle()
-                .fill(FieldPalette.ink.opacity(active == .today ? 0.11 : 0.06))
-                .overlay {
-                    Circle().strokeBorder(FieldRule.mark, lineWidth: 1)
-
-                    if active == .today {
-                        Circle().strokeBorder(
-                            WalkthroughSeed.identity.blend(),
-                            lineWidth: 1
-                        )
-                    }
-                }
-                .frame(width: 40, height: 40)
-
-            Text("WE")
-                .font(FieldType.mark)
-                .tracking(FieldTracking.mark)
-                .foregroundStyle(.fieldInk(.headline))
-        }
-        .frame(width: 48, height: 48)
+        Image(systemName: "plus")
+            .font(.system(size: 17, weight: .regular))
+            .foregroundStyle(.fieldInk(.headline))
+            .frame(width: 44, height: 44)
+            .background(FieldPalette.ink.opacity(0.06), in: Circle())
+            .overlay { Circle().strokeBorder(FieldRule.mark, lineWidth: 1) }
+            .frame(width: 48, height: 48)
     }
 
     private var indicatorOffset: CGFloat {
         switch active {
-        case .life: 0
-        case .today: 16
-        case .us: 32
+        case .today: 0
+        case .life, .goals: 32
         }
     }
 }

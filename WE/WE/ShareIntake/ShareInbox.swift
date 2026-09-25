@@ -392,7 +392,7 @@ final class ShareReviewModel {
             publishedItemID = itemID
         } catch {
             message = error.localizedDescription
-            WEIntelligenceStore.shared.recordFailure(manifest.id, message: "Sharing needs attention. Open the item to review and retry; the original remains Only Me.")
+            WEIntelligenceStore.shared.recordFailure(manifest.id, message: "Sharing needs attention. Open the item to review and retry; the original remains Only me.")
         }
         isPublishing = false
     }
@@ -711,7 +711,7 @@ struct ShareReviewView: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 28) {
-                    WEPrivacyLabel(text: "Original: Only Me")
+                    WEPrivacyLabel(text: "Original: Only me")
                     Text("Reviewed version will be shared with \(session.partnerName).").font(.footnote)
                     if let content = WEIntelligenceStore.shared.ledger.records[manifest.id]?.content {
                         if !content.place.isEmpty { Text("Place: \(content.place)") }
@@ -732,7 +732,7 @@ struct ShareReviewView: View {
 
                     if model.publishedItemID != nil {
                         FieldReasoning(
-                            text: "Released to Life. The original remains Only Me.",
+                            text: "Released to Life. The original remains Only me.",
                             accent: store.identity.personA.color
                         )
                     }

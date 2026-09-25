@@ -35,50 +35,35 @@ import Foundation
 // receipt never names it, because nothing is ever sent there.
 
 enum FieldZone: Int, CaseIterable, Codable, Sendable, Identifiable {
-    case life = 0
-    /// Index 1, and the home. Cold launch always lands here.
-    case we = 1
-    case us = 2
+    /// Index 0, and the home. Cold launch always lands here. The day's
+    /// conversation: what matters now, and what either of you added today.
+    case today = 0
+    /// Everything the couple is carrying, goals included. The only zone that
+    /// holds anything; Us is no longer a place of its own.
+    case life = 1
 
     var id: Int { rawValue }
 
     var label: String {
         switch self {
+        case .today: "TODAY"
         case .life: "LIFE"
-        case .we: "TODAY"
-        case .us: "US"
         }
     }
 
-    /// The ground this zone stands on.
-    ///
-    /// All three zones stand on the same ground.
-    ///
-    /// Practical reading uses cream; Today and Us retain the dark ground.
+    /// Both zones read on the warm paper.
     var canvas: WECanvas { .cream }
 
-    /// Which way the light falls here.
-    ///
-    /// With the ground constant across all three zones, this is what does the
-    /// orientation work — V2 §3 assigns each zone one corner and Today gets
-    /// both, because Today is the one that belongs to the two of you at once.
+    /// Today is lit from both sides, because it belongs to the two of you at
+    /// once; Life pools warm from the left.
     var glow: FieldGlowStatement {
         switch self {
+        case .today: .splitBottom
         case .life: .warmBottomLeft
-        case .we: .splitBottom
-        case .us: .coolBottomRight
         }
     }
 
-    /// The nav renders WE as a mark, not a word, so its nav label differs
-    /// from its zone label.
-    var navLabel: String {
-        switch self {
-        case .life: "LIFE"
-        case .we: "WE"
-        case .us: "US"
-        }
-    }
+    var navLabel: String { label }
 }
 
 // MARK: - Partners
@@ -300,10 +285,11 @@ enum FieldItemSource: String, Codable, Sendable {
 
 /// Whether a row has crossed to the partner yet.
 ///
-/// This is not a per-item toggle the user operates. `private` means solo-era
-/// history — written before there was a partner to write it to — and it stays
-/// private until its owner crosses it deliberately through
-/// `field_share_solo_history()`. See `20260803180000_field_solo_visibility.sql`.
+/// Two ways to be `private`: solo-era history, written before there was a
+/// partner (`20260803180000_field_solo_visibility.sql`), and "Only me", chosen
+/// on the receipt (`20260923120000_private_by_choice.sql`). Either way it
+/// crosses only when its author says so, and it never comes back: the
+/// database allows `private → shared` by the author and nothing else.
 ///
 /// The client needs it for one reason: a derivation whose output is *shared*
 /// presence must not read rows only one person can see, or the two people end
@@ -714,6 +700,10 @@ struct FieldCorrection: Identifiable, Codable, Hashable, Sendable {
     var original: LifeCategory
     var corrected: LifeCategory
     var correctedAt: Date
+    /// A correction made on an "Only me" receipt carries the words that were
+    /// typed, so it is exactly as private as the item. It still teaches this
+    /// person's own classifier; the partner can never read it.
+    var visibility: FieldVisibility? = nil
 }
 
 /// The derived record the correction receipt renders. Every statistic on that
@@ -783,6 +773,12 @@ struct FieldReceipt: Identifiable, Codable, Hashable, Sendable {
     var accent: FieldOwner
     var acknowledged: Bool
     var wasCorrected: Bool
+    /// "Only me". Off unless the person turns it on, so the default stays
+    /// what it has always been: filed things are shared.
+    var isPrivate: Bool = false
+    /// A link handed over with the words, from the + card. It travels onto
+    /// the filed item, where the link is what gets opened.
+    var sourceURL: URL? = nil
 
     /// Shown under the destination when tidying actually changed something.
     /// Silent when the title is the input, so the receipt does not narrate a
@@ -798,6 +794,9 @@ struct FieldCapture: Identifiable, Codable, Hashable, Sendable {
     var text: String
     var owner: FieldOwner
     var capturedAt: Date
+    /// Travels with the item it was filed as, which shares its id. Optional
+    /// so a cached capture written before this existed still decodes.
+    var visibility: FieldVisibility? = nil
 }
 
 // MARK: - What Today may surface

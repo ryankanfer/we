@@ -1,6 +1,6 @@
 # The private-to-shared contract
 
-This is the written threat model `CIRCLE.md` §10 requires before ship, for the one Edge Function
+This is the written threat model `docs/archive/CIRCLE.md` §10 requires before ship, for the one Edge Function
 that touches plaintext in transit: `synthesize-shared-journeys`.
 
 It governs Shared Journeys — the path by which two private answers become one shared direction.

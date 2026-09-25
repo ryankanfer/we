@@ -25,6 +25,8 @@ struct FieldTodayZone: View {
 
     /// 6d, reached from "What I'm watching".
     @State private var showsDeferral = false
+    /// The shared question, opened from its line. Us is no longer a zone.
+    @State private var showsSharedQuestion = false
 
     /// The watched line somebody tapped, when that line is reading a filed
     /// thing back.
@@ -32,7 +34,7 @@ struct FieldTodayZone: View {
 
     var body: some View {
         FieldZoneScaffold(
-            zone: .we,
+            zone: .today,
             showsZoneLabel: false
         ) {
             VStack(alignment: .leading, spacing: 0) {
@@ -56,6 +58,13 @@ struct FieldTodayZone: View {
                         .padding(.bottom, 20)
                         .accessibilityIdentifier("field.today.saveError")
                 }
+                FieldDayConversationView(
+                    part: .opening,
+                    openItem: $openItem,
+                    showsDeferral: $showsDeferral
+                )
+                .padding(.bottom, 8)
+
                 Group {
                     switch store.todaySelection {
                     case .resolved(let headline, let detail, _):
@@ -75,19 +84,16 @@ struct FieldTodayZone: View {
                         .padding(.top, FieldMetrics.sectionGapLoose)
                 }
 
-                if case .resolved(_, _, let watching) = store.todaySelection {
-                    // The heading is a claim, and with nothing under it the
-                    // claim was false: a label, two rules and a gap, on the
-                    // one screen that is supposed to read as resolved. A
-                    // couple with no open question, no horizon and nothing
-                    // held is not being watched over — so the app says
-                    // nothing rather than drawing an empty frame around it.
-                    if !watching.isEmpty {
-                        watchingBlock(watching)
-                            .padding(.top, FieldMetrics.sectionGapLoose)
-                            .padding(.bottom, FieldMetrics.sectionGap)
-                    }
-                }
+                // The day's conversation: what either of you added today, WE's
+                // replies, decisions, and this person's private look-ups. It
+                // replaces the watching list and the separate chat.
+                FieldDayConversationView(
+                    part: .thread,
+                    openItem: $openItem,
+                    showsDeferral: $showsDeferral
+                )
+                .padding(.top, FieldMetrics.sectionGap)
+                .padding(.bottom, FieldMetrics.sectionGap)
             }
         }
         .sheet(item: $openItem) { reference in
@@ -96,6 +102,16 @@ struct FieldTodayZone: View {
         .fullScreenCover(isPresented: $showsDeferral) {
             FieldDeferralView()
                 .environment(store)
+        }
+        // Proposals shown here are seen; see `FieldStore.markDecisionsSeen`.
+        .task(id: "\(store.activeZone == .today):\(store.chatMessages.count)") {
+            guard store.activeZone == .today else { return }
+            await store.markDecisionsSeen()
+        }
+        .sheet(isPresented: $showsSharedQuestion) {
+            SharedJourneyUsSurface()
+                .environment(store)
+                .environmentObject(session)
         }
 
     }
@@ -122,14 +138,14 @@ struct FieldTodayZone: View {
 
     private var sharedJourneyHandoff: some View {
         Button {
-            store.go(to: .us)
+            showsSharedQuestion = true
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text("One shared question is ready.")
                     .font(FieldType.listItem)
                     .foregroundStyle(.fieldInk(.headline))
                 Spacer(minLength: 0)
-                Text("OPEN US")
+                Text("OPEN")
                     .font(FieldType.dateCount)
                     .tracking(FieldTracking.dateCount)
                     .foregroundStyle(.fieldInk(.dateCount))
@@ -161,7 +177,6 @@ struct FieldTodayZone: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(spacing: 26) {
-                circleMark
 
                 VStack(spacing: 16) {
                     Text(headline)
@@ -191,16 +206,6 @@ struct FieldTodayZone: View {
             }
             .frame(maxWidth: .infinity)
         }
-    }
-
-    private var circleMark: some View {
-        Button { store.openConversation() } label: {
-            VStack(spacing: 10) {
-                Image(systemName: "bubble.left.and.bubble.right").font(.system(size: 24, weight: .light))
-                    .frame(width: 64, height: 64).glassEffect(.regular.interactive(), in: Circle())
-                Text("Your conversation").font(.system(.subheadline))
-            }.foregroundStyle(.fieldInk(.headline))
-        }.buttonStyle(.plain).accessibilityIdentifier("field.conversation.open")
     }
 
     private func watchingBlock(_ items: [FieldWatchItem]) -> some View {

@@ -85,15 +85,15 @@ struct WalkthroughMemory: View {
 
     private var caption: some View {
         WalkthroughBeat(
-            label: "Us notices what returns",
-            line: "Us notices what you keep returning to. Nothing opens until you both choose it."
+            label: "Where we're headed",
+            line: "WE notices what you both keep returning to. It becomes a goal in Life only when you both choose it."
         )
     }
 }
 
 #Preview("Memory") {
     WalkthroughJourneyView(
-        journey: .us,
+        journey: .goals,
         now: Date(),
         onNextJourney: { _ in },
         onClose: {}

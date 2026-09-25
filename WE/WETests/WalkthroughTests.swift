@@ -116,7 +116,7 @@ struct WalkthroughSeedTests {
     func japanIsTheSubjectSaidTwice() {
         for start in Self.starts {
             guard case .memory(let proposal)? = WalkthroughOutcome.resolve(
-                .us,
+                .goals,
                 now: start
             ) else {
                 Issue.record("no promotion on \(start)")
@@ -148,7 +148,7 @@ struct WalkthroughSeedTests {
     @Test
     func theUsQuestionOffersTwoAnswers() {
         guard case .memory(let proposal)? = WalkthroughOutcome.resolve(
-            .us,
+            .goals,
             now: FieldSampleData.today
         ) else {
             Issue.record("no Us question")
@@ -168,86 +168,40 @@ struct WalkthroughJourneyOrderTests {
     func theJourneysChainAndThenStop() {
         let ordered = WalkthroughJourney.ordered
 
-        #expect(ordered == [.today, .life, .us])
+        #expect(ordered == [.today, .life, .goals])
         #expect(ordered.map(\.progressIndex) == [0, 1, 2])
         #expect(WalkthroughJourney.today.next == .life)
-        #expect(WalkthroughJourney.life.next == .us)
-        #expect(WalkthroughJourney.us.next == nil)
-        #expect(WalkthroughJourney.today.headerLabel == "TODAY · HOME")
+        #expect(WalkthroughJourney.life.next == .goals)
+        #expect(WalkthroughJourney.goals.next == nil)
+        #expect(WalkthroughJourney.today.headerLabel == "TODAY")
         #expect(WalkthroughJourney.life.headerLabel == "LIFE")
-        #expect(WalkthroughJourney.us.headerLabel == "US")
+        #expect(WalkthroughJourney.goals.headerLabel == "LIFE · WHERE WE'RE HEADED")
         #expect(WalkthroughJourney.today.nextTitle == "Next: Life")
-        #expect(WalkthroughJourney.life.nextTitle == "Next: Us")
-        #expect(WalkthroughJourney.us.nextTitle == "Open WE")
+        #expect(WalkthroughJourney.life.nextTitle == "Next: Where we're headed")
+        #expect(WalkthroughJourney.goals.nextTitle == "Open WE")
     }
 }
 
 // MARK: - When it plays
 
 struct WalkthroughGateTests {
-    /// Signed out and only signed out — and never twice.
-    @Test
-    func itOpensOnceForSomeoneSignedOut() {
-        #expect(
-            WalkthroughGate.shouldPresent(
-                hasSeen: false,
-                isSignedOut: true,
-                isSkipped: false
-            )
-        )
-        #expect(
-            !WalkthroughGate.shouldPresent(
-                hasSeen: true,
-                isSignedOut: true,
-                isSkipped: false
-            )
-        )
-        #expect(
-            !WalkthroughGate.shouldPresent(
-                hasSeen: false,
-                isSignedOut: false,
-                isSkipped: false
-            )
-        )
-        #expect(
-            !WalkthroughGate.shouldPresent(
-                hasSeen: false,
-                isSignedOut: true,
-                isSkipped: true
-            )
-        )
-    }
-
-    /// A replay always plays, and `consider` must not close it or reopen it
-    /// underneath the person reading it.
+    /// Offered, never imposed: closed until someone asks, and asking always
+    /// opens it.
     @MainActor
     @Test
-    func aReplayIsNotOverruledByTheAutomaticGate() {
+    func itOpensOnlyWhenAskedFor() {
         let defaults = UserDefaults(
             suiteName: "walkthrough.tests.\(UUID().uuidString)"
         )!
         let presenter = WalkthroughPresenter(defaults: defaults)
-
-        presenter.consider(isSignedOut: true)
-        #expect(presenter.isPresented)
-
-        presenter.finish()
         #expect(!presenter.isPresented)
 
-        // Seen, so the gate declines.
-        presenter.consider(isSignedOut: true)
-        #expect(!presenter.isPresented)
-
-        // Asked for anyway.
         presenter.replay()
         #expect(presenter.isPresented)
 
-        // A session republishing its state must not close it.
-        presenter.consider(isSignedOut: true)
-        #expect(presenter.isPresented)
-
         presenter.finish()
         #expect(!presenter.isPresented)
+        #expect(presenter.hasSeen)
     }
 }
 
@@ -275,21 +229,4 @@ struct PrivateBetaWalkthroughTests {
         #expect(WalkthroughPractice.makeStore().state.lifeItems.isEmpty)
     }
 
-    @Test func firstSaveResumesOnlyForItsAccountAndRelationship() throws {
-        let suite = "firstSave-test-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let first = FirstSaveGuide(accountID: "a", coupleID: "one", defaults: defaults)
-        first.start()
-        first.saved("record")
-        let resumed = FirstSaveGuide(accountID: "a", coupleID: "one", defaults: defaults)
-        #expect(resumed.progress.phase == .saved)
-        #expect(resumed.progress.itemID == "record")
-        #expect(FirstSaveGuide(accountID: "b", coupleID: "one", defaults: defaults).progress.phase == .offered)
-        #expect(FirstSaveGuide(accountID: "a", coupleID: "two", defaults: defaults).progress.phase == .offered)
-        resumed.retrieved("other")
-        #expect(resumed.progress.phase == .saved)
-        resumed.retrieved("record")
-        #expect(resumed.progress.phase == .completed)
-    }
 }

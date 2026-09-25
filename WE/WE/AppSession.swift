@@ -11,7 +11,6 @@ final class AppSession: ObservableObject {
         case resettingPassword
         case needsCouple
         case waitingForPartner
-        case choosingHue
         case ready
         case failed(String)
     }
@@ -413,13 +412,6 @@ final class AppSession: ObservableObject {
         guard let user else { return }
         await perform {
             try await self.repository.updateProfile(name: name, userID: user.id)
-        }
-    }
-
-    func updateHue(_ hue: MemberHue) async {
-        guard let membership = snapshot?.membership else { return }
-        await perform {
-            try await self.repository.updateHue(hue, membership: membership)
         }
     }
 
@@ -864,8 +856,6 @@ final class AppSession: ObservableObject {
 
         if snapshot.members.count < 2 && !hasDeparted {
             state = .waitingForPartner
-        } else if !membership.hasChosenHue {
-            state = .choosingHue
         } else {
             state = .ready
         }

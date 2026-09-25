@@ -197,7 +197,7 @@ struct FieldJourneyRoom: View {
     private var putAway: some View {
         if !setDown.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
-                FieldLabel("Set down")
+                FieldLabel("Put away")
                 ForEach(setDown, id: \.self) { capability in
                     HStack(spacing: 12) {
                         Text(SharedJourneyCapabilityPolicy.word(capability))

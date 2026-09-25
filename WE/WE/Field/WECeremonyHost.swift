@@ -9,8 +9,8 @@
 //  The obvious hook already existed: `ContentView` watches for
 //  `.waitingForPartner -> .ready` and shows an arrival screen. It is the wrong
 //  mechanism, three times over. It fires only for the person who happens to be
-//  looking at that screen at that instant, so the joiner never gets it. It
-//  does not fire on the `.choosingHue` route at all. And an edge cannot
+//  looking at that screen at that instant, so the joiner never gets it. And
+//  an edge cannot
 //  survive a relaunch, which is the one thing a ceremony spread over two
 //  phones and possibly two days absolutely has to do.
 //
@@ -59,7 +59,16 @@ struct WECeremonyHost: View {
                     keep: { beat in
                         Task { await session.keep(beat) }
                     },
-                    onComplete: {}
+                    // The one permission ask, once the Promise is kept. It
+                    // used to follow the colour choice, which is gone; this
+                    // is the first moment the app has done anything worth
+                    // being told about. A no changes nothing anywhere.
+                    onComplete: {
+                        Task {
+                            await FieldMomentDelivery.requestAuthorization()
+                            await WEArrivalNotifications.registerIfPermitted()
+                        }
+                    }
                 )
                 .transition(.opacity)
             }

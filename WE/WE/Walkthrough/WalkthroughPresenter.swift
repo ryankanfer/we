@@ -13,9 +13,10 @@
 //  That is what makes "See how WE works" work from the account surface
 //  without threading a closure through three view layers.
 //
-//  It plays once. There is no day-boundary rule like the splash's, because
-//  this is not a ceremony — it is an explanation, and an explanation you have
-//  already read is an obstacle.
+//  It never opens by itself. It used to cover the screen on first launch,
+//  in front of the welcome, which made the first thing a new person met an
+//  explanation of an app they had not decided to use. Now it is offered:
+//  "See how it works" on the welcome, and "See how WE works" in Account.
 //
 
 import Combine
@@ -27,38 +28,6 @@ enum WalkthroughGate {
     /// Persisted across launches. `UserDefaults` is removed when the app is
     /// deleted, so a reinstall correctly gets its first run again.
     static let hasSeenKey = "hasSeenWalkthrough"
-
-    /// The harness's way out, mirroring `WE_SKIP_PROMISE`. Every UI test that
-    /// is not about the walkthrough launches with this set, because six of
-    /// them wait on the welcome screen's first button and a full-screen
-    /// explanation in front of it would fail all six for the wrong reason.
-    static let skipKey = "WE_SKIP_WALKTHROUGH"
-
-    static var isSkipped: Bool {
-        ProcessInfo.processInfo.environment[skipKey] == "1"
-    }
-
-    /// Whether the walkthrough should open by itself.
-    ///
-    /// Signed out and only signed out. Someone mid-verification or mid-pairing
-    /// has already decided to be here, and covering their screen to explain
-    /// what they are already doing is the app talking over them. Someone with
-    /// a couple can still reach it from the account surface, which is the
-    /// difference between offering and insisting.
-    ///
-    /// - Parameters:
-    ///   - hasSeen: whether it has played before on this install.
-    ///   - isSignedOut: whether the session has settled on signed out.
-    ///   - isSkipped: the harness override.
-    static func shouldPresent(
-        hasSeen: Bool,
-        isSignedOut: Bool,
-        isSkipped: Bool = WalkthroughGate.isSkipped
-    ) -> Bool {
-        guard !isSkipped else { return false }
-        guard !hasSeen else { return false }
-        return isSignedOut
-    }
 }
 
 @MainActor
@@ -75,77 +44,19 @@ final class WalkthroughPresenter: ObservableObject {
     }
 
     private let defaults: UserDefaults
-    /// A replay must not be overruled by the automatic gate on the next state
-    /// change, and must not be closed by one either.
-    private var isReplaying = false
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
     }
 
-    /// Called whenever the session settles. Idempotent — a session that
-    /// republishes `.signedOut` must not reopen something already dismissed,
-    /// which is why `hasSeen` is written at the moment it opens rather than
-    /// at the moment it closes.
-    func consider(isSignedOut: Bool) {
-        guard !isReplaying else { return }
-        guard WalkthroughGate.shouldPresent(
-            hasSeen: hasSeen,
-            isSignedOut: isSignedOut
-        ) else { return }
-
-        hasSeen = true
-        isPresented = true
-    }
-
-    /// From the account surface, and from the profile sheet before a couple
-    /// exists. Always plays, however many times it is asked for.
+    /// From the welcome, and from Account. Always plays, however many times
+    /// it is asked for.
     func replay() {
-        isReplaying = true
         isPresented = true
     }
 
     func finish() {
         hasSeen = true
-        isReplaying = false
         isPresented = false
-    }
-}
-
-/// Guidance stores only a phase and a record identifier, never captured text.
-/// Both account and couple scope matter when someone changes relationships.
-@MainActor
-@Observable
-final class FirstSaveGuide {
-    enum Phase: String, Codable { case offered, started, saved, completed, skipped }
-    struct Progress: Codable {
-        var phase: Phase = .offered
-        var itemID: String?
-    }
-    private let defaults: UserDefaults
-    private let key: String
-    private(set) var progress: Progress
-
-    init(accountID: String, coupleID: String, defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        key = "we.firstSave.v1.\(accountID).\(coupleID)"
-        progress = defaults.data(forKey: key).flatMap {
-            try? JSONDecoder().decode(Progress.self, from: $0)
-        } ?? Progress()
-    }
-
-    func start() { update(.started) }
-    func skip() { update(.skipped) }
-    func saved(_ id: String) {
-        guard progress.phase == .started || progress.phase == .saved else { return }
-        update(.saved, itemID: id)
-    }
-    func retrieved(_ id: String) {
-        guard progress.itemID == id else { return }
-        update(.completed, itemID: id)
-    }
-    private func update(_ phase: Phase, itemID: String? = nil) {
-        progress = Progress(phase: phase, itemID: itemID)
-        if let data = try? JSONEncoder().encode(progress) { defaults.set(data, forKey: key) }
     }
 }

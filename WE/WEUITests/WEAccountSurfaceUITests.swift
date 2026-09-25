@@ -36,7 +36,7 @@ final class WEAccountSurfaceUITests: XCTestCase {
         XCTAssertTrue(app.secureTextFields["account.field.password"].exists)
         keepScreenshot(of: app, named: "sign-in-keyboard")
         app.secureTextFields["account.field.password"].typeText("\n")
-        XCTAssertTrue(app.staticTexts["Your side is ready."].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Your account is ready."].waitForExistence(timeout: 10))
     }
 
     func testCreationAndReset() {

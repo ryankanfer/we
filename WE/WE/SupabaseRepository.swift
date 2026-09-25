@@ -203,23 +203,6 @@ final class SupabaseRepository: Repository {
             .execute()
     }
 
-    func updateHue(
-        _ hue: MemberHue,
-        membership: Membership
-    ) async throws {
-        _ = try await configuredClient()
-            .from("couple_members")
-            .update(
-                HueUpdatePayload(
-                    hue: hue.rawValue,
-                    hueChosenAt: Self.timestamp(Date())
-                )
-            )
-            .eq("couple_id", value: membership.coupleID)
-            .eq("profile_id", value: membership.profileID)
-            .execute()
-    }
-
     func loadPrivateProposals(
         for user: AuthenticatedUser
     ) async throws -> [SavedPrivateProposal] {

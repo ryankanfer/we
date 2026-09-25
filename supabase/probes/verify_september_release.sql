@@ -1,3 +1,8 @@
+-- NOTE (2026-09-23): the `yours_*` checks below describe a release that has
+-- since been superseded. `20260923130000_retire_yours.sql` moves Yours writing
+-- into private Life notes and drops every yours table and function, so after
+-- it is applied those rows report the objects as absent, which is correct.
+
 -- Did the September release land, and did the *right version* of it land?
 --
 -- `which_migrations_are_applied.sql` answers "is it there" by probing one

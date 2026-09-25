@@ -2,7 +2,7 @@
 //  FieldCaptureField.swift
 //  WE
 //
-//  "Tell WE anything" — the single input in the app. Option 5a.
+//  "Say something" — the single input in the app. Option 5a.
 //
 //  The user never has to know where anything goes. They type; the model
 //  classifies; the receipt says where it went and why; one tap corrects it.
@@ -40,15 +40,20 @@ struct FieldCaptureField: View {
     var compact = false
     var onSaved: (String) -> Void = { _ in }
     var onRetrieved: (String) -> Void = { _ in }
+    /// Called when what was typed was a question for WE rather than a thing
+    /// to add — the caller closes the sheet so the answer is seen in Today.
+    var onLookedUp: () -> Void = {}
 
     init(savedItemID: String? = nil, isWalkthrough: Bool = false, compact: Bool = false,
          onSaved: @escaping (String) -> Void = { _ in },
-         onRetrieved: @escaping (String) -> Void = { _ in }) {
+         onRetrieved: @escaping (String) -> Void = { _ in },
+         onLookedUp: @escaping () -> Void = {}) {
         self.isWalkthrough = isWalkthrough
         self.compact = compact
         _savedItemID = State(initialValue: savedItemID)
         self.onSaved = onSaved
         self.onRetrieved = onRetrieved
+        self.onLookedUp = onLookedUp
     }
 
     var body: some View {
@@ -182,6 +187,17 @@ struct FieldCaptureField: View {
     /// Classify, then step back. The receipt is the thing to read next, and it
     /// cannot be read from behind a keyboard.
     private func submit() {
+        let text = store.captureDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        // "What did we get for dad?" is asked of WE, privately, and answered
+        // with links in Today. Nothing is filed and nothing is shared. Never
+        // in the walkthrough, which must not touch a real account.
+        if !isWalkthrough, FieldLookupEngine.isLookup(text) {
+            store.lookUp(text)
+            store.captureDraft = ""
+            isFocused = false
+            onLookedUp()
+            return
+        }
         store.submitCapture()
         isFocused = false
     }
@@ -210,7 +226,7 @@ struct FieldCaptureField: View {
                     .scrollContentBackground(.hidden)
                     .frame(minHeight: compact ? 110 : 150, maxHeight: 220)
                     .focused($isFocused)
-                    .accessibilityLabel("Tell WE anything")
+                    .accessibilityLabel("Say something")
                     .accessibilityIdentifier("field.capture.input")
                 if let completion {
                     (Text(store.captureDraft).foregroundColor(FieldInk.headline.color(on: .cream)) +
@@ -382,10 +398,9 @@ struct FieldCaptureField: View {
                     .accessibilityIdentifier("field.receipt.revival")
                 }
 
-                Text("Shared with both of you after saving. Private thoughts belong in Yours.")
-                    .font(FieldType.body)
-                    .foregroundStyle(.fieldInk(.headline))
-                    .accessibilityIdentifier("field.receipt.visibility")
+                // Who will see it, said before it is saved, and changeable here.
+                // Private is a property of the thing, not a separate room.
+                privacyToggle(receipt)
 
                 receiptActions
             }
@@ -403,7 +418,9 @@ struct FieldCaptureField: View {
             .buttonStyle(.glassProminent)
             .tint(WECanvas.cream.ink)
             .accessibilityIdentifier("field.receipt.send")
-            .accessibilityHint("Saves this where both of you can see it")
+            .accessibilityHint(
+                store.lastReceipt?.isPrivate == true ? "Saves this just for you" : "Saves this where both of you can see it"
+            )
 
             Button("Change category") { store.beginCorrection() }
                 .font(FieldType.button)
@@ -412,6 +429,48 @@ struct FieldCaptureField: View {
                 .foregroundStyle(.fieldInk(.legend))
                 .accessibilityIdentifier("field.receipt.wrong")
         }
+    }
+
+    /// "Only me". A property of this one thing, chosen before it leaves the
+    /// phone — not a place to go and not a mode to be in.
+    ///
+    /// Off by default, so filing stays what it has always been: shared. When
+    /// it is on, the line says who will not see it, by name, because "private"
+    /// on its own leaves somebody guessing from whom.
+    private func privacyToggle(_ receipt: FieldReceipt) -> some View {
+        Button {
+            store.togglePrivate()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: receipt.isPrivate ? "lock.fill" : "lock.open")
+                    .font(FieldType.subLabel)
+                    .accessibilityHidden(true)
+                Text(
+                    receipt.isPrivate
+                        ? "Only me. \(store.partnerName) won't see this."
+                        : "Only me"
+                )
+                .font(FieldType.receiptReasoning)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(
+                receipt.isPrivate
+                    ? .fieldInk(.headline)
+                    : .fieldInk(.labelQuiet)
+            )
+            .frame(minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Only me")
+        .accessibilityValue(receipt.isPrivate ? "On" : "Off")
+        .accessibilityHint(
+            receipt.isPrivate
+                ? "\(store.partnerName) won't see this"
+                : "Keeps this from \(store.partnerName)"
+        )
+        .accessibilityAddTraits(receipt.isPrivate ? .isSelected : [])
+        .accessibilityIdentifier("field.receipt.private")
     }
 
     /// "Today", "Tomorrow", or the weekday. A date beside a one-line title
@@ -594,6 +653,7 @@ struct FieldCaptureField: View {
         HStack(spacing: 6) {
             FieldDot(
                 owner: capture.owner,
+                isPrivate: capture.visibility == .private,
                 identity: store.identity,
                 size: FieldDotSize.chip,
                 baselineNudge: 0
@@ -680,5 +740,19 @@ struct FieldFlowLayout: Layout {
             x += size.width + spacing
             lineHeight = max(lineHeight, size.height)
         }
+    }
+}
+
+/// Finishing a word from a title already saved in shared Life. Three
+/// letters first, and never a suffix that is not really there.
+struct FieldCaptureCompletion: Equatable {
+    let text: String
+    let reason: String
+    static func match(_ input: String, titles: [String]) -> Self? {
+        guard input.count >= 3, input == input.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+        let matches = Set(titles).filter { $0.count <= 240 && $0.count > input.count && $0.lowercased().hasPrefix(input.lowercased()) }
+            .sorted { $0.count == $1.count ? $0 < $1 : $0.count < $1.count }
+        guard let text = matches.first else { return nil }
+        return .init(text: input + text.dropFirst(input.count), reason: "From a title already saved in your shared Life.")
     }
 }

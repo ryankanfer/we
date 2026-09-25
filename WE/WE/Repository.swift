@@ -92,7 +92,6 @@ protocol Repository {
     /// interface never raises it again.
     func acknowledgeDeparture() async throws
     func updateProfile(name: String, userID: String) async throws
-    func updateHue(_ hue: MemberHue, membership: Membership) async throws
     func loadPrivateProposals(
         for user: AuthenticatedUser
     ) async throws -> [SavedPrivateProposal]

@@ -5,7 +5,7 @@ import Foundation
 
 struct WEPrivateCaptureIntent: AppIntent {
     static var title: LocalizedStringResource = "Save privately in WE"
-    static var description = IntentDescription("Save text or a link as Only Me. Understanding and sharing happen separately inside WE.")
+    static var description = IntentDescription("Save text or a link as Only me. Understanding and sharing happen separately inside WE.")
     static var openAppWhenRun = true
     static var authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     @Parameter(title: "Text or HTTPS link") var text: String

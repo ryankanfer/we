@@ -14,26 +14,27 @@ struct SignInView: View {
     @State private var name = ""
     @State private var email = ""
     @State private var password = ""
-    @State private var confirmation = ""
     @State private var showsReset = false
     @State private var submitting = false
     @FocusState private var focus: WEAccountFocus?
+    @Namespace private var modeSpace
 
     init(initialMode: Mode = .signIn) { _mode = State(initialValue: initialMode) }
     private var busy: Bool { submitting || session.isWorking }
     private var valid: Bool {
         mode == .signIn
             ? WEAccountInput.validSignIn(email: email, password: password)
-            : WEAccountInput.validCreation(name: name, email: email, password: password, confirmation: confirmation)
+            : WEAccountInput.validCreation(name: name, email: email, password: password)
     }
 
     var body: some View {
         WEAccountSurface(
-            title: mode == .signIn ? "Welcome back." : "A little space for you two.",
-            subtitle: mode == .signIn ? "Your shared life, right where you left it." : "Start with your own account. You can invite your partner or join them next.",
-            closeLabel: "Close sign in", onClose: { dismiss() }
+            title: mode == .signIn ? "Welcome back." : "Start with you.",
+            subtitle: mode == .signIn ? "Today and Life, right where you left them." : "Your own account first. Then invite your partner, or join them.",
+            closeLabel: "Close", onClose: { dismiss() }
         ) {
             VStack(alignment: .leading, spacing: 28) {
+                modePicker.disabled(busy)
                 fields.disabled(busy)
                 WEAccountFeedback()
                 VStack(spacing: 12) {
@@ -58,8 +59,6 @@ struct SignInView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                FieldRuleLine(color: FieldRule.row)
-                modeSwitch.disabled(busy)
             }
         }
         .sheet(isPresented: $showsReset) { PasswordResetView(email: $email) }
@@ -87,42 +86,43 @@ struct SignInView: View {
             WEAccountTextField(label: "Password", placeholder: mode == .signIn ? "Your password" : "Choose a password", text: $password,
                 field: .password, focus: $focus, secure: true,
                 contentType: disablesCredentialPrompts ? nil : (mode == .signIn ? .password : .newPassword),
-                submitLabel: mode == .signIn ? .go : .next,
+                submitLabel: .go,
                 hint: mode == .create ? "At least 8 characters." : nil,
                 problem: mode == .create && !password.isEmpty && password.count < 8 ? "Use at least 8 characters." : nil,
-                onSubmit: { if mode == .signIn { submit() } else { focus = .confirmation } })
+                onSubmit: submit)
                 .id(mode)
-            if mode == .create {
-                WEAccountTextField(label: "Confirm password", placeholder: "Once more", text: $confirmation,
-                    field: .confirmation, focus: $focus, secure: true,
-                    contentType: disablesCredentialPrompts ? nil : .newPassword, submitLabel: .go,
-                    problem: password == confirmation ? nil : "These passwords don’t match yet.", onSubmit: submit)
-                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: 8)))
-            }
         }
     }
 
-    private var modeSwitch: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 8) { modePrompt; modeButton }.fixedSize(horizontal: true, vertical: false)
-            VStack(alignment: .leading, spacing: 4) { modePrompt; modeButton }
-        }.frame(maxWidth: .infinity, alignment: .leading)
-    }
-    private var modePrompt: some View {
-        Text(mode == .signIn ? "New to WE?" : "Already have an account?")
-            .font(.system(.subheadline)).foregroundStyle(.fieldInk(.reasoning))
-    }
-    private var modeButton: some View {
-        Button(mode == .signIn ? "Create an account" : "Sign in") {
-            focus = nil
-            WEAccountInput.dismissKeyboard()
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
-                mode = mode == .signIn ? .create : .signIn
+    /// Both doors at the top, one tap apart. The switch used to sit at the
+    /// bottom as "New to WE? Create an account", under a form for the other
+    /// thing — found only by someone who had already scrolled past it.
+    private var modePicker: some View {
+        HStack(spacing: 4) {
+            ForEach([Mode.create, Mode.signIn]) { option in
+                Button {
+                    focus = nil
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { mode = option }
+                } label: {
+                    Text(option.rawValue)
+                        .font(.system(.subheadline, weight: .medium))
+                        .foregroundStyle(mode == option ? WECanvas.cream.bg : WECanvas.cream.ink.opacity(0.7))
+                        .frame(maxWidth: .infinity, minHeight: 40)
+                        .background {
+                            if mode == option {
+                                Capsule().fill(WECanvas.cream.ink)
+                                    .matchedGeometryEffect(id: "mode", in: modeSpace)
+                            }
+                        }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(mode == option ? .isSelected : [])
+                .accessibilityIdentifier(option == .create ? "account.mode.create" : "account.mode.signIn")
             }
         }
-        .font(.system(.subheadline, weight: .medium)).frame(minHeight: 44)
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(mode == .signIn ? "account.mode.create" : "account.mode.signIn")
+        .padding(4)
+        .background(WECanvas.cream.ink.opacity(0.06), in: Capsule())
     }
     private var disablesCredentialPrompts: Bool {
         ProcessInfo.processInfo.environment["WE_DISABLE_CREDENTIAL_PROMPTS"] == "1"
@@ -159,7 +159,7 @@ private struct PasswordResetView: View {
     var body: some View {
         WEAccountSurface(
             title: sentEmail == nil ? "We'll send a link." : "Check your email.",
-            subtitle: sentEmail == nil ? "A secure way back into your shared space." : "If there’s an account for this address, a reset link is on its way.",
+            subtitle: sentEmail == nil ? "A secure way back in." : "If there’s an account for this address, a reset link is on its way.",
             onClose: { dismiss() }
         ) {
             VStack(alignment: .leading, spacing: 28) {
@@ -185,7 +185,7 @@ private struct PasswordResetView: View {
                     WEAccountFeedback()
                     WEAccountPrimaryButton(title: "Send reset link", workingTitle: "Sending your link…", isWorking: busy,
                         enabled: WEAccountInput.validEmail(email), identifier: "sendResetLinkButton", action: send)
-                    Text("Your plans and conversations stay as they are.")
+                    Text("Everything in Today and Life stays as it is.")
                         .font(.system(.footnote)).foregroundStyle(.fieldInk(.reasoning))
                         .fixedSize(horizontal: false, vertical: true)
                 }

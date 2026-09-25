@@ -172,4 +172,14 @@ select '20260907120000_journey_subject_references_column',
          where table_schema = 'public' and table_name = 'field_journeys'
            and column_name = 'subject_references'
        )
+union all
+-- Only me. The helper is new in this migration and nothing else creates it.
+select '20260923120000_private_by_choice',
+       to_regprocedure('private.field_solo_era_ends(uuid,uuid)') is not null
+union all
+-- Read inverted: TRUE means the Yours tables are gone, which is what this
+-- migration does. Once it is applied, the 20260907020000 row above reads
+-- FALSE, correctly, because the function it probes was dropped with Yours.
+select '20260923130000_retire_yours',
+       to_regclass('public.yours_entries') is null
 order by 1;

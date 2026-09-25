@@ -15,9 +15,10 @@ struct WEAccountInputTests {
         #expect(!WEAccountInput.validSignIn(email: "alex@example.com", password: ""))
         #expect(!WEAccountInput.validPassword("short", confirmation: "short"))
     }
-    @Test func creationRequiresNameAndExactConfirmation() {
-        #expect(WEAccountInput.validCreation(name: " Alex ", email: "alex@example.com", password: "password", confirmation: "password"))
-        #expect(!WEAccountInput.validCreation(name: " \n", email: "alex@example.com", password: "password", confirmation: "password"))
+    @Test func creationRequiresNameAndALongEnoughPassword() {
+        #expect(WEAccountInput.validCreation(name: " Alex ", email: "alex@example.com", password: "password"))
+        #expect(!WEAccountInput.validCreation(name: " \n", email: "alex@example.com", password: "password"))
+        #expect(!WEAccountInput.validCreation(name: "Alex", email: "alex@example.com", password: "short"))
         #expect(!WEAccountInput.validPassword("password ", confirmation: "password"))
     }
 }

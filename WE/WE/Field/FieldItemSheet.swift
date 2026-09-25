@@ -38,6 +38,9 @@ struct FieldItemSheet: View {
 
     @State private var asksToRemove = false
     @State private var isPickingDay = false
+    @State private var asksToShare = false
+    /// Everything past the item's own work, folded until asked for.
+    @State private var showsMore = false
 
     /// Read live from the store rather than captured at presentation. Every
     /// control here mutates the item, and a copy taken when the sheet opened
@@ -46,7 +49,6 @@ struct FieldItemSheet: View {
         store.state.lifeItems.first { $0.id == itemID }
     }
 
-    @State private var showsChat = false
 
     var body: some View {
         ZStack {
@@ -61,23 +63,29 @@ struct FieldItemSheet: View {
                         delivery
                         if WEFeatureFlags.shareInboxEnabled { WEPlanAttachments(planID: itemID).environment(store) }
 
+                        // Only for private things. A shared thing already says
+                        // "Shared with …" in its header; saying it twice is
+                        // noise.
+                        if item.visibility == .private {
+                            whoSees(item)
+                                .padding(.bottom, FieldMetrics.sectionGap)
+                        }
+
                         if let error = store.itemSaveError {
                             Text(error).font(FieldType.body)
                                 .padding(.bottom, 20)
                                 .accessibilityIdentifier("field.item.saveError")
                         }
 
+                        // The thing itself first: the one piece of work this
+                        // item is, and finishing it. Everything else is
+                        // available and folded away — the page used to lay
+                        // out every tool at once, and a person who came to
+                        // send a list had to read past a calendar to do it.
                         if item.sourceURL != nil { FieldItemHelp(item: item, sourceOnly: true) }
 
                         FieldItemActionPanel(item: item)
                             .id(itemID)
-
-                        FieldItemHelp(item: item)
-
-                        if FieldItemPurpose.resolve(item) != .reference {
-                            when(item)
-                                .padding(.bottom, 24)
-                        }
 
                         if FieldItemPurpose.resolve(item) == .task {
                             Button("Mark complete") { store.complete(itemID) }
@@ -87,20 +95,46 @@ struct FieldItemSheet: View {
                                 .accessibilityIdentifier("field.item.complete")
                         }
 
-                        if item.isSharedPresence {
-                            Button("Discuss this together") { store.conversationContext = .init(kind: "life", id: item.id); showsChat = true }
-                                .buttonStyle(FieldWorkspacePrimaryStyle()).padding(.bottom, 24)
-                        }
-                        standing(item)
+                        DisclosureGroup(isExpanded: $showsMore) {
+                            VStack(alignment: .leading, spacing: 0) {
+                                FieldItemHelp(item: item)
 
-                        DisclosureGroup("Organize this item") {
-                            whereItLives(item)
-                                .padding(.top, 16)
+                                if FieldItemPurpose.resolve(item) != .reference {
+                                    when(item)
+                                        .padding(.bottom, 24)
+                                }
+
+                                // A shared thing can be put to the two of you
+                                // as a decision; it appears in Today's
+                                // conversation and the other person agrees.
+                                if item.isSharedPresence, !item.isDone,
+                                   !store.hasProposedDecision(itemID: item.id) {
+                                    Button("Decide on this together") {
+                                        store.proposeDecision(itemID: item.id)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .font(FieldType.body)
+                                    .underline()
+                                    .frame(minHeight: 44)
+                                    .padding(.bottom, 16)
+                                    .accessibilityIdentifier("field.item.propose")
+                                }
+
+                                standing(item)
+
+                                whereItLives(item)
+                                    .padding(.vertical, 16)
+
+                                removeIt
+                            }
+                            .padding(.top, 16)
+                        } label: {
+                            Text("More")
+                                .font(.system(.body, weight: .medium))
+                                .frame(minHeight: 44)
                         }
-                        .font(.system(.body, weight: .medium))
+                        .accessibilityIdentifier("field.item.more")
                         .padding(.bottom, 28)
-
-                        removeIt
                     }
                     .padding(.top, 72)
                     .padding(.horizontal, FieldMetrics.screenSide)
@@ -115,7 +149,6 @@ struct FieldItemSheet: View {
         )) { request in
             FieldOutreachConfirmation(request: request).environment(store)
         }
-        .sheet(isPresented: $showsChat) { FieldConversationView(initialContext: .init(kind: "life", id: itemID)).environment(store) }
         .preferredColorScheme(.light)
         .environment(\.weCanvas, WECanvas.cream)
         .animation(.fieldZone(reduceMotion), value: item?.category)
@@ -140,8 +173,27 @@ struct FieldItemSheet: View {
             Button("Keep it", role: .cancel) {}
         } message: {
             Text(
-                "It goes for both of you, from every screen, and there is no "
-                    + "undo."
+                item?.visibility == .private
+                    ? "It goes from every screen, and there is no undo."
+                    : "It goes for both of you, from every screen, and there "
+                        + "is no undo."
+            )
+        }
+        // Asked once, because this is the one change here that cannot be
+        // taken back: the database lets a private thing become shared and
+        // nothing the other way.
+        .confirmationDialog(
+            "Share with \(store.partnerName)?",
+            isPresented: $asksToShare,
+            titleVisibility: .visible
+        ) {
+            Button("Share it") { store.share(itemID) }
+                .accessibilityIdentifier("field.item.share.confirm")
+            Button("Keep it to myself", role: .cancel) {}
+        } message: {
+            Text(
+                "\(store.partnerName) will be able to see it from now on. "
+                    + "It can't be made private again."
             )
         }
     }
@@ -172,6 +224,7 @@ struct FieldItemSheet: View {
             HStack(alignment: .top, spacing: 11) {
                 FieldDot(
                     owner: item.owner,
+                    isPrivate: item.visibility == .private,
                     identity: store.identity,
                     size: FieldDotSize.prominentList,
                     baselineNudge: 8
@@ -337,6 +390,44 @@ struct FieldItemSheet: View {
             }
             .padding(.bottom, FieldMetrics.sectionGap)
             .accessibilityIdentifier("field.item.windowClosed")
+        }
+    }
+
+    // MARK: Who sees it
+
+    /// Always said, never implied. A shared thing names who else can see it;
+    /// a private one says so plainly and offers the one way it can change.
+    private func whoSees(_ item: LifeItem) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            FieldRuleLine()
+
+            if item.visibility == .private {
+                HStack(spacing: 8) {
+                    Image(systemName: "lock.fill")
+                        .font(FieldType.subLabel)
+                        .accessibilityHidden(true)
+                    Text("Only you can see this.")
+                        .font(FieldType.body)
+                }
+                .foregroundStyle(.fieldInk(.headline))
+                .padding(.top, 18)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("field.item.private")
+
+                Button("Share with \(store.partnerName)") {
+                    asksToShare = true
+                }
+                .buttonStyle(FieldQuietButtonStyle())
+                .accessibilityIdentifier("field.item.share")
+            } else {
+                // Both, not "{partner} can see this": the item may be the
+                // partner's own, and then naming them says nothing.
+                Text("You can both see this.")
+                    .font(FieldType.body)
+                    .foregroundStyle(.fieldInk(.metadataProse))
+                    .padding(.top, 18)
+                    .accessibilityIdentifier("field.item.shared")
+            }
         }
     }
 

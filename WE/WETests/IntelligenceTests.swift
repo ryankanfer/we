@@ -86,9 +86,9 @@ import Testing
     }
     @Test func originalAndPublishedVersionHaveDistinctVisibility() {
         var content = WEArtifactContent(title: "Reservation")
-        #expect(content.visibilityLabel == "Only Me")
+        #expect(content.visibilityLabel == "Only me")
         content.publishedItemID = UUID().uuidString
-        #expect(content.visibilityLabel.contains("Original: Only Me"))
+        #expect(content.visibilityLabel.contains("Original: Only me"))
         #expect(content.visibilityLabel.contains("Reviewed version: Shared"))
     }
 }

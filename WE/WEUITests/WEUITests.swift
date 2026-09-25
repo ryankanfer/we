@@ -35,7 +35,7 @@ final class WEUITests: XCTestCase {
         app.buttons["accountSubmitButton"].tap()
 
         XCTAssertTrue(
-            app.staticTexts["Your side is ready."]
+            app.staticTexts["Your account is ready."]
                 .waitForExistence(timeout: 3)
         )
         // "The invitation is at the threshold" was the register of the
@@ -49,18 +49,6 @@ final class WEUITests: XCTestCase {
             app.buttons["pairing.createInvitation"],
             in: app,
             untilReaching: invitationScreen
-        )
-
-        // Colour, and nothing else. The three questions that used to follow
-        // the blend are cut, and the step counter with them.
-        app.terminate()
-        app = launch(scenario: "choosinghue")
-        XCTAssertTrue(
-            app.staticTexts["Choose yours."].waitForExistence(timeout: 6)
-        )
-        app.buttons["field.onboarding.finish"].tap()
-        XCTAssertTrue(
-            app.buttons["field.nav.we"].waitForExistence(timeout: 8)
         )
     }
 

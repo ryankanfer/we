@@ -15,9 +15,8 @@ struct WEAccountSurface<Content: View>: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 WELens(diameter: 44, foreground: WECanvas.cream.ink)
-                    .scaleEffect(arrived || reduceMotion ? 1 : 0.92)
-                Text("WE").font(.system(.subheadline, weight: .medium)).tracking(2)
                     .accessibilityLabel("WE")
+                    .scaleEffect(arrived || reduceMotion ? 1 : 0.92)
                 Spacer()
                 if let onClose {
                     Button(action: onClose) {
@@ -27,26 +26,19 @@ struct WEAccountSurface<Content: View>: View {
                     .accessibilityIdentifier("account.close")
                 }
             }
-            .padding(.horizontal, 24).padding(.top, 16).padding(.bottom, 12)
+            .padding(.horizontal, FirstRunMetrics.side).padding(.top, 16).padding(.bottom, 4)
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 32) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(title).font(FieldType.hero)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityAddTraits(.isHeader)
-                        Text(subtitle).font(.system(.body))
-                            .foregroundStyle(.fieldInk(.reasoning))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .modifier(WEAccountArrival(visible: arrived, delay: 0))
+                    FirstRunHeadline(title: title, subtitle: subtitle)
+                        .modifier(WEAccountArrival(visible: arrived, delay: 0))
 
                     content
                         .modifier(WEAccountArrival(visible: arrived, delay: 0.08))
                 }
                 .frame(maxWidth: 440, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.horizontal, 24).padding(.top, 24).padding(.bottom, 36)
+                .padding(.horizontal, FirstRunMetrics.side).padding(.top, 12).padding(.bottom, 36)
             }
             .scrollDismissesKeyboard(.interactively)
             .scrollBounceBehavior(.basedOnSize)
@@ -177,26 +169,10 @@ struct WEAccountPrimaryButton: View {
                     .fixedSize(horizontal: false, vertical: true)
                 if !isWorking { Image(systemName: "arrow.right").font(.system(size: 18)) }
             }
-            .frame(maxWidth: .infinity, minHeight: 28)
         }
-        .buttonStyle(WEAccountButtonStyle())
+        .buttonStyle(FirstRunPrimaryButtonStyle())
         .disabled(!enabled || isWorking)
         .accessibilityIdentifier(identifier)
-    }
-}
-
-private struct WEAccountButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(.system(.body, weight: .medium))
-            .foregroundStyle(WECanvas.cream.bg)
-            .padding(.horizontal, 20).padding(.vertical, 16)
-            .background(WECanvas.cream.ink, in: RoundedRectangle(cornerRadius: 16))
-            .opacity(isEnabled ? (configuration.isPressed ? 0.85 : 1) : 0.38)
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: configuration.isPressed)
     }
 }
 
@@ -211,7 +187,7 @@ struct WEAccountFeedback: View {
                 Text(message).font(.system(.subheadline)).fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16).background(WECanvas.cream.bgElevated, in: RoundedRectangle(cornerRadius: 12))
+            .padding(16).background(WECanvas.cream.bgElevated, in: RoundedRectangle(cornerRadius: FirstRunMetrics.radius, style: .continuous))
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("account.feedback")
             .onAppear {
@@ -235,9 +211,12 @@ enum WEAccountInput {
     static func validSignIn(email: String, password: String) -> Bool {
         validEmail(email) && !password.isEmpty
     }
-    static func validCreation(name: String, email: String, password: String, confirmation: String) -> Bool {
+    /// One password field, with the eye to check it. A second "confirm" field
+    /// was one more thing between a couple and their first day; showing the
+    /// password does the same job without asking twice.
+    static func validCreation(name: String, email: String, password: String) -> Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && validEmail(email) && validPassword(password, confirmation: confirmation)
+            && validEmail(email) && password.count >= 8
     }
     static func validPassword(_ password: String, confirmation: String) -> Bool {
         password.count >= 8 && password == confirmation
