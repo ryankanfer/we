@@ -241,8 +241,20 @@ final class AppSession: ObservableObject {
     func handleAuthCallback(_ url: URL) async {
         authRoutingGeneration += 1
         let generation = authRoutingGeneration
+        let isConfirmation = url.host?.lowercased() == "email-confirmed"
         await working {
-            switch try await self.repository.handleAuthCallback(url) {
+            let result: AuthCallbackResult
+            do {
+                result = try await self.callbackRetryingCancellation(url)
+            } catch where isConfirmation {
+                // By the time the link opens WE, Supabase has already marked
+                // the address as confirmed; only the hand-off of the session
+                // to this phone failed. Say so, and send them to sign in,
+                // instead of showing a network error on a step that worked.
+                self.returnToSignIn(message: "Your email is verified. Sign in to continue.")
+                return
+            }
+            switch result {
             case .emailConfirmed(let confirmedUser):
                 try await self.load(
                     user: confirmedUser,
@@ -256,6 +268,20 @@ final class AppSession: ObservableObject {
                 self.snapshot = nil
                 self.privateProposals = []
                 self.state = .resettingPassword
+            }
+        }
+    }
+
+    /// The link usually opens WE while the app is waking up, and the first
+    /// request can be cancelled by that transition. Two quiet retries.
+    private func callbackRetryingCancellation(_ url: URL) async throws -> AuthCallbackResult {
+        var attempt = 0
+        while true {
+            do {
+                return try await repository.handleAuthCallback(url)
+            } catch let error as URLError where error.code == .cancelled && attempt < 2 {
+                attempt += 1
+                try? await Task.sleep(for: .milliseconds(500))
             }
         }
     }
@@ -777,6 +803,10 @@ final class AppSession: ObservableObject {
         defer { isWorking = false }
         do {
             try await operation()
+        } catch let error as URLError where error.code == .cancelled {
+            // URLError's own text for this is the single word "cancelled",
+            // which reads like something was called off. It was not.
+            errorMessage = "That didn\u{2019}t go through. Try again."
         } catch {
             errorMessage = error.localizedDescription
         }
