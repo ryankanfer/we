@@ -2,7 +2,7 @@ import SwiftUI
 
 struct WEPrivacyPolicyView: View {
     static let publicURL = URL(
-        string: "https://we-privacy-policy.kanfery.chatgpt.site"
+        string: "https://we-gamma-murex.vercel.app/privacy"
     )!
 
     var showsCloseButton = false

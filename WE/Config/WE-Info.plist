@@ -83,7 +83,7 @@
 	<key>WESharedJourneysEnabled</key>
 	<string>$(WE_SHARED_JOURNEYS_ENABLED)</string>
 	<key>WESupportURL</key>
-	<string>https://we-privacy-policy.kanfery.chatgpt.site</string>
+	<string>https://we-gamma-murex.vercel.app/support</string>
 	<key>WESupportEmail</key>
 	<string>kanfer.ryan@gmail.com</string>
 </dict>

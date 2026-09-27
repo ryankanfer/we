@@ -36,7 +36,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // The public pages stand on their own: no splash, no sign in, no nav.
   // WE is the iPhone app now; this site only greets and forwards people.
   const pathname = usePathname();
-  if (pathname === "/" || pathname?.startsWith("/join")) return <>{children}</>;
+  if (
+    pathname === "/" ||
+    pathname?.startsWith("/join") ||
+    pathname?.startsWith("/privacy") ||
+    pathname?.startsWith("/support")
+  )
+    return <>{children}</>;
 
   const showSplash = mounted && (!splashDone || status === "loading");
   const signedOut = status === "signedOut";

@@ -68,3 +68,45 @@ body {
     animation: none;
   }
 }
+
+/* ---- Public site: the two lights ------------------------------------- */
+.we-light {
+  position: absolute;
+  bottom: -28vh;
+  width: 90vmax;
+  height: 90vmax;
+  max-width: 1100px;
+  max-height: 1100px;
+  border-radius: 9999px;
+  filter: blur(40px);
+  transition: transform 2.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.we-light-a {
+  left: 50%;
+  background: radial-gradient(closest-side, rgba(180, 87, 106, 0.5), transparent);
+  animation: we-a-arrive 2.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform: translateX(-78%);
+}
+.we-light-b {
+  left: 50%;
+  background: radial-gradient(closest-side, rgba(138, 169, 139, 0.45), transparent);
+  animation: we-b-arrive 2.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform: translateX(-22%);
+}
+@keyframes we-a-arrive { from { transform: translateX(-120%); opacity: 0; } to { transform: translateX(-78%); opacity: 1; } }
+@keyframes we-b-arrive { from { transform: translateX(20%); opacity: 0; } to { transform: translateX(-22%); opacity: 1; } }
+
+.we-rise { animation: we-rise 1.1s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.we-rise-2 { animation-delay: 0.15s; }
+.we-rise-3 { animation-delay: 0.3s; }
+@keyframes we-rise { from { opacity: 0; transform: translateY(10px); filter: blur(6px); } to { opacity: 1; transform: none; filter: none; } }
+
+.we-glass {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+.we-prose h2 { font-family: var(--font-fraunces); font-size: 22px; font-weight: 400; margin: 40px 0 10px; }
+.we-prose p, .we-prose li { font-size: 16px; line-height: 1.7; opacity: 0.78; }
+.we-prose a { text-decoration: underline; text-underline-offset: 3px; }
