@@ -47,6 +47,20 @@ max_frequency = "1s"
 otp_length = 6
 otp_expiry = 3600
 
+# Account emails, in WE's voice. Local dev reads these files; the hosted
+# project needs the same HTML pasted into Authentication > Emails.
+[auth.email.template.confirmation]
+subject = "Confirm your email for WE"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.recovery]
+subject = "Reset your WE password"
+content_path = "./supabase/templates/recovery.html"
+
+[auth.email.template.email_change]
+subject = "Confirm your new email for WE"
+content_path = "./supabase/templates/email_change.html"
+
 [functions.cleanup-life-resources]
 verify_jwt = true
 

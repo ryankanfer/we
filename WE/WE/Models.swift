@@ -95,7 +95,7 @@ nonisolated struct PartnerInvitation: Equatable, Sendable {
     var webLink: String { WEDeepLinkRouter.invitationURL(code: code) }
 
     var shareMessage: String {
-        "Join me in WE. Tap to start, it only takes a minute:\n\(webLink)\nYour code: \(code)"
+        "I set up WE for us: one place for our plans and the little things. Tap to join me:\n\(webLink)\n\nNo WE yet? The link walks you through it. Code, if it asks: \(code)"
     }
 }
 
