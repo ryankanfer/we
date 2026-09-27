@@ -162,7 +162,7 @@ struct InvitationTests {
         let invitation = try #require(live.activeInvitation(asOf: now))
         #expect(invitation.code == "WEDEMO")
         #expect(invitation.deepLink == "we://join/WEDEMO")
-        #expect(invitation.shareMessage.contains("Code: WEDEMO"))
+        #expect(invitation.shareMessage.contains("code: WEDEMO"))
         let deepLink = try #require(URL(string: invitation.deepLink))
         #expect(
             WEDeepLinkRouter.destination(for: deepLink)
