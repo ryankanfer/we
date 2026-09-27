@@ -41,6 +41,21 @@ struct FieldZoneShell: View {
     @State private var showsComposer = false
     @State private var footerHeight: CGFloat = 240
 
+    // The two lights, as a language. Each of these is a real event between
+    // the two of them; none of them counts anything.
+    @State private var pulseBoth = 0
+    @State private var pulseMine = 0
+    @State private var pulseTheirs = 0
+    @State private var mergeLights = 0
+    @State private var knownItemIDs: Set<String> = []
+    @State private var knownDecisions: Set<String> = []
+    @State private var itemsPrimed = false
+    @State private var decisionsPrimed = false
+    @State private var arrivingName: String?
+    @State private var arrivalPose: WELightsPose?
+    @State private var whisper: String?
+    @Namespace private var navSelection
+
 
     // Constructed in the body, not as a default argument. Default argument
     // expressions are evaluated in a nonisolated context, so `= FieldStore()`
@@ -64,11 +79,38 @@ struct FieldZoneShell: View {
             // bottom-right is Us, split at the bottom is Today. The ground
             // beneath is constant, so this is the only thing that moves when
             // a zone changes — which is why it is the orientation.
-            FieldGlow(
-                identity: store.identity,
-                statement: store.activeZone.glow
+            //
+            // Now the two lights: yours and theirs, drawn together on Today
+            // and spread wide under Life. They swell once whenever something
+            // new lands in Life, from either of you.
+            WELights(
+                identity: store.viewerIdentity,
+                pose: lightsPose,
+                pulse: pulseBoth,
+                pulseMine: pulseMine,
+                pulseTheirs: pulseTheirs,
+                merge: mergeLights
             )
-            .animation(.weCanvasCrossing, value: store.activeZone)
+            .environment(\.weCanvas, store.activeZone.canvas)
+
+            // "Dylan is here." The first time both people are in, once per
+            // couple, per phone. Their light rises into place and the two meet.
+            if let arrivingName {
+                ZStack {
+                    store.activeZone.canvas.bg.opacity(0.82).ignoresSafeArea()
+                    WEWordReveal(
+                        text: "\(arrivingName) is here.",
+                        font: FieldType.hero(48),
+                        tracking: -1,
+                        alignment: .center
+                    )
+                    .foregroundStyle(store.activeZone.canvas.ink)
+                    .padding(.horizontal, 32)
+                }
+                .transition(.opacity)
+                .zIndex(30)
+                .onTapGesture { withAnimation(.weCanvasCrossing) { arrivingName = nil; arrivalPose = nil } }
+            }
 
             pager
                 .ignoresSafeArea(.container, edges: .bottom)
@@ -77,14 +119,14 @@ struct FieldZoneShell: View {
 
             if store.calendarOpen {
                 FieldCalendarSurface(store: store)
-                    .environment(\.weCanvas, WECanvas.cream)
+                    .environment(\.weCanvas, WECanvas.surface)
                     .transition(.opacity)
                     .zIndex(20)
             }
 
             if store.searchOpen {
                 FieldLifeSearch(store: store)
-                    .environment(\.weCanvas, WECanvas.cream)
+                    .environment(\.weCanvas, WECanvas.surface)
                     .transition(.opacity)
                     .zIndex(20)
             }
@@ -112,6 +154,14 @@ struct FieldZoneShell: View {
         .overlay(alignment: .bottom) {
             if !store.calendarOpen, !store.searchOpen {
                 VStack(spacing: 0) {
+                    if let whisper {
+                        Text(whisper)
+                            .font(.system(.footnote, weight: .medium))
+                            .foregroundStyle(store.activeZone.canvas.ink.opacity(0.75))
+                            .padding(.bottom, 10)
+                            .transition(.opacity.combined(with: .offset(y: 6)))
+                            .accessibilityAddTraits(.updatesFrequently)
+                    }
                     FieldLoadStateLine(store: store)
                     navigationBar
                 }
@@ -121,28 +171,35 @@ struct FieldZoneShell: View {
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
                     footerHeight = $0
                 }
+                // A soft fade rather than a frosted slab, so the two lights
+                // still come up from under the bar. The bar itself is glass.
                 .background {
-                    Rectangle()
-                        .fill(.ultraThinMaterial)
-                        .mask {
-                            LinearGradient(
-                                colors: [.clear, .black, .black],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        }
-                        .ignoresSafeArea(edges: .bottom)
-                        .allowsHitTesting(false)
+                    LinearGradient(
+                        colors: [
+                            store.activeZone.canvas.bg.opacity(0),
+                            store.activeZone.canvas.bg.opacity(0.55),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .ignoresSafeArea(edges: .bottom)
+                    .allowsHitTesting(false)
                 }
             }
         }
         .overlay {
             FieldComposerOverlay(isPresented: $showsComposer) { store.go(to: .today) }
-                .preferredColorScheme(.light)
-                .environment(\.weCanvas, .cream)
+                .preferredColorScheme(WETheme.shared.colorScheme)
+                .environment(\.weCanvas, .surface)
                 .environment(store)
         }
         .environment(store)
+        .onChange(of: Set(store.state.lifeItems.map(\.id)), initial: true) { _, ids in noticeNewItems(ids) }
+        .onChange(of: confirmedDecisionIDs, initial: true) { _, ids in noticeDecisions(ids) }
+        .onChange(of: store.heldItemsReadyToOffer.count, initial: true) { _, ready in
+            if ready > 0 { pulseMine += 1 }
+        }
+        .task(id: session.snapshot?.membership?.coupleID) { await playArrivalIfNew() }
         .animation(.fieldZone(reduceMotion), value: store.activeZone)
         .animation(.fieldZone(reduceMotion), value: store.calendarOpen)
         .animation(.fieldZone(reduceMotion), value: store.searchOpen)
@@ -223,7 +280,7 @@ struct FieldZoneShell: View {
         // to be swiped away unread, and `FieldDepartureView` dismisses itself
         // only after `acknowledge_departure()` has recorded the telling.
         .fullScreenCover(isPresented: departureBinding) {
-            FieldDepartureView()
+            FieldDepartureView(identity: store.viewerIdentity)
         }
         // Writing that was on this phone and owed to the server, in a file
         // that could not be read. It used to be moved aside in silence, which
@@ -310,6 +367,85 @@ struct FieldZoneShell: View {
         )
     }
 
+    // MARK: The lights
+
+    private var lightsPose: WELightsPose {
+        if let arrivalPose { return arrivalPose }
+        // An empty app lifts the lights into view behind its one line, so a
+        // new couple's first screen is warm rather than blank.
+        if store.state.lifeItems.isEmpty { return .lifted }
+        // "One of you said yes." Leaning, not touching, until the other does.
+        if hasPendingDecision { return .leaning }
+        return .near
+    }
+
+    /// A decision one of them has proposed and the other has not confirmed.
+    private var hasPendingDecision: Bool {
+        store.chatMessages.contains { $0.decision && !$0.confirmed }
+    }
+
+    private var confirmedDecisionIDs: Set<String> {
+        Set(store.chatMessages.filter { $0.decision && $0.confirmed }.map(\.id))
+    }
+
+    /// Something new in Life. Theirs makes their light rise; yours makes both
+    /// swell. The first read only learns what is already there.
+    private func noticeNewItems(_ ids: Set<String>) {
+        // Primed only once the first load has answered, so the launch itself
+        // never reads as a flood of new things.
+        defer { knownItemIDs = ids; if store.loadState != .loading { itemsPrimed = true } }
+        guard itemsPrimed else { return }
+        let fresh = store.state.lifeItems.filter { ids.subtracting(knownItemIDs).contains($0.id) }
+        guard !fresh.isEmpty else { return }
+        let partner: FieldOwner = store.speaker == .a ? .b : .a
+        if fresh.contains(where: { $0.owner == partner && $0.isSharedPresence }) {
+            pulseTheirs += 1
+            whisperOnce()
+        } else {
+            pulseBoth += 1
+        }
+    }
+
+    /// Both said yes. The one moment the lights fully overlap.
+    private func noticeDecisions(_ ids: Set<String>) {
+        defer { knownDecisions = ids; if store.loadState != .loading { decisionsPrimed = true } }
+        guard decisionsPrimed else { return }
+        if !ids.subtracting(knownDecisions).isEmpty { mergeLights += 1 }
+    }
+
+    /// The lights speak once. The first time their light swells because
+    /// they added something, one small caption says why, and never again.
+    private func whisperOnce() {
+        let key = "we.lights.whispered"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        withAnimation(.weCanvasCrossing) { whisper = "\(store.partnerName) added to Life" }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.2) {
+            withAnimation(.weCanvasCrossing) { whisper = nil }
+        }
+    }
+
+    private func playArrivalIfNew() async {
+        guard let snapshot = session.snapshot,
+              let couple = snapshot.membership?.coupleID,
+              snapshot.members.count >= 2
+        else { return }
+        let key = "we.arrival.played.\(couple)"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+
+        arrivalPose = .alone
+        try? await Task.sleep(for: .milliseconds(400))
+        withAnimation(.weCanvasCrossing) { arrivingName = store.partnerName }
+        try? await Task.sleep(for: .milliseconds(700))
+        arrivalPose = .merged
+        try? await Task.sleep(for: .milliseconds(2600))
+        withAnimation(.weCanvasCrossing) {
+            arrivingName = nil
+            arrivalPose = nil
+        }
+    }
+
     // MARK: The pager
 
     private var pager: some View {
@@ -318,7 +454,7 @@ struct FieldZoneShell: View {
                 .tag(FieldZone.today)
 
             FieldLifeZone()
-                .environment(\.weCanvas, WECanvas.cream)
+                .environment(\.weCanvas, WECanvas.surface)
                 .tag(FieldZone.life)
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
@@ -346,10 +482,10 @@ struct FieldZoneShell: View {
             showsComposer = true
         } label: {
             Image(systemName: "plus")
-                .font(.system(size: 18, weight: .regular))
-                .foregroundStyle(.fieldInk(.headline))
-                .frame(width: 48, height: 48)
-                .glassEffect(.regular.interactive(), in: Circle())
+                .font(.system(size: 22, weight: .light))
+                .foregroundStyle(store.activeZone.canvas.bg)
+                .frame(width: 52, height: 52)
+                .background(store.activeZone.canvas.ink, in: Circle())
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -357,14 +493,16 @@ struct FieldZoneShell: View {
         .accessibilityIdentifier("field.capture.open")
     }
 
+    /// One glass capsule: Today, +, Life. The selected word sits on a lighter
+    /// pill that slides between the two, the way the walkthrough shows it.
     private var navigationBar: some View {
-        HStack(alignment: .center, spacing: 46) {
+        HStack(alignment: .center, spacing: 6) {
             zoneLabel(.today)
             addButton
             zoneLabel(.life)
         }
-        .padding(.horizontal, 26)
-        .padding(.vertical, 8)
+        .padding(6)
+        .weGlass(in: Capsule())
         .frame(maxWidth: .infinity)
         .padding(.top, 8)
         .environment(\.weCanvas, store.activeZone.canvas)
@@ -398,13 +536,15 @@ struct FieldZoneShell: View {
                         ? .fieldInk(.headline)
                         : .fieldInk(.labelQuiet)
                 )
-                .frame(minWidth: 44, minHeight: 44)
-                .overlay(alignment: .bottom) {
+                .frame(minWidth: 92, minHeight: 52)
+                .background {
                     if store.activeZone == zone {
-                        Capsule().fill(store.activeZone.canvas.ink).frame(width: 18, height: 2)
+                        Capsule()
+                            .fill(store.activeZone.canvas.ink.opacity(store.activeZone.canvas.isDark ? 0.14 : 0.08))
+                            .matchedGeometryEffect(id: "zone.selection", in: navSelection)
                     }
                 }
-                .contentShape(Rectangle())
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(zone.navLabel.capitalized)

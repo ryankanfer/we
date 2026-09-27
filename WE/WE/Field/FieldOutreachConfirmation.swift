@@ -70,8 +70,8 @@ struct FieldOutreachConfirmation: View {
 
     private var headerLabel: String {
         switch request.state {
-        case .found: "BEFORE I DO"
-        case .foundNothing, .needsContactsPermission: "WHAT I HAVE"
+        case .found: "BEFORE THIS GOES"
+        case .foundNothing, .needsContactsPermission: "WHAT'S SAVED"
         }
     }
 
@@ -80,9 +80,9 @@ struct FieldOutreachConfirmation: View {
         case .found:
             return FieldOutreach.headline(for: destination(for: request.candidates[0]))
         case .foundNothing:
-            return "I don't have a number for \(request.query.text)."
+            return "No number saved for \(request.query.text)."
         case .needsContactsPermission:
-            return "I haven't looked in your contacts."
+            return "Your contacts haven't been checked."
         }
     }
 
@@ -126,7 +126,7 @@ struct FieldOutreachConfirmation: View {
             // Said out loud, because the app went and asked something on
             // their behalf and they should know it did.
             if request.query.kind == .place {
-                Text("I asked Maps for \"\(request.query.text)\". Nothing else "
+                Text("Maps was asked for \"\(request.query.text)\". Nothing else "
                      + "about this left the phone.")
                     .font(FieldType.receiptReasoning)
                     .foregroundStyle(.fieldInk(.metadataProse))
@@ -141,9 +141,9 @@ struct FieldOutreachConfirmation: View {
     private var nothingFound: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text(
-                "I looked \(request.query.kind == .person ? "in your contacts" : "on Maps") "
-                + "and didn't find one I'm sure about. I'm not going to guess "
-                + "at a number."
+                "Nothing \(request.query.kind == .person ? "in your contacts" : "on Maps") "
+                + "was a sure match, and a number is never "
+                + "guessed."
             )
             .font(FieldType.body)
             .foregroundStyle(.fieldInk(.reasoning))
@@ -168,8 +168,8 @@ struct FieldOutreachConfirmation: View {
 
     private var contactsNotAsked: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("I only look when you ask me to, and I only look for the one "
-                 + "name. I don't read the rest of your address book.")
+            Text("Contacts are only checked when you ask, and only for the one "
+                 + "name. The rest of your address book is never read.")
                 .font(FieldType.body)
                 .foregroundStyle(.fieldInk(.reasoning))
                 .fieldLineHeight(1.6, size: 14.5)

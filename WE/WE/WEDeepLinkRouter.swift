@@ -13,7 +13,27 @@ enum WEDeepLinkRouter {
         "WEDeepLinkRouter.didRequestToday"
     )
 
+    /// Where invitation links live on the web. Claimed by the app through the
+    /// Associated Domains entitlement, so on a phone with WE installed a tap
+    /// opens the app directly; anywhere else it opens the invitation page.
+    /// Change this, `WE.entitlements`, and the site's domain together.
+    static let webHost = "we-gamma-murex.vercel.app"
+
+    /// The link an invitation is shared as.
+    static func invitationURL(code: String) -> String {
+        "https://\(webHost)/join/\(code)"
+    }
+
     static func destination(for url: URL) -> WEDeepLinkDestination? {
+        if url.scheme?.lowercased() == "https",
+           url.host?.lowercased() == webHost {
+            // https://host/join/CODE
+            let parts = url.pathComponents.filter { $0 != "/" && !$0.isEmpty }
+            guard parts.count >= 2, parts[0].lowercased() == "join",
+                  let code = PendingInvitation.normalized(parts[1])
+            else { return nil }
+            return .join(code: code)
+        }
         guard url.scheme?.lowercased() == "we" else { return nil }
         switch url.host?.lowercased() {
         case "today":

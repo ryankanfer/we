@@ -52,7 +52,7 @@ struct FieldCategoryRoom: View {
 
     var body: some View {
         ZStack {
-            WECanvas.cream.bgElevated.ignoresSafeArea()
+            WECanvas.surface.bgElevated.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -72,8 +72,8 @@ struct FieldCategoryRoom: View {
             }
         }
         .overlay(alignment: .topTrailing) { controls }
-        .preferredColorScheme(.light)
-        .environment(\.weCanvas, WECanvas.cream)
+        .preferredColorScheme(WETheme.shared.colorScheme)
+        .environment(\.weCanvas, WECanvas.surface)
         .sheet(item: $openItem) { reference in
             FieldItemSheet(itemID: reference.id)
                 .environment(store)
@@ -397,7 +397,7 @@ private struct FieldGroupDestinationSheet: View {
 
     var body: some View {
         ZStack {
-            WECanvas.cream.bgElevated.ignoresSafeArea()
+            WECanvas.surface.bgElevated.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 18) {
                 headline
@@ -423,8 +423,8 @@ private struct FieldGroupDestinationSheet: View {
             .padding(.horizontal, FieldMetrics.screenSide)
             .padding(.bottom, 40)
         }
-        .preferredColorScheme(.light)
-        .environment(\.weCanvas, WECanvas.cream)
+        .preferredColorScheme(WETheme.shared.colorScheme)
+        .environment(\.weCanvas, WECanvas.surface)
         .presentationDetents([.medium])
         // Deliberately no identifier on this root. SwiftUI propagates a
         // container's identifier down over the one on any descendant that is

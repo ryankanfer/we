@@ -50,9 +50,20 @@ struct FieldItemSheet: View {
     }
 
 
+    /// Only me, felt rather than read: while a private item is open, their
+    /// light is gone. Sharing it brings their light back up, and that rise
+    /// is the confirmation.
+    @State private var sharedPulse = 0
+
     var body: some View {
         ZStack {
-            WECanvas.cream.bgElevated.ignoresSafeArea()
+            WECanvas.surface.bgElevated.ignoresSafeArea()
+            WELights(
+                identity: store.viewerIdentity,
+                pose: item?.visibility == .private ? .alone : .near,
+                pulseTheirs: sharedPulse
+            )
+            .opacity(0.8)
 
             ScrollView(showsIndicators: false) {
                 if let item {
@@ -149,13 +160,16 @@ struct FieldItemSheet: View {
         )) { request in
             FieldOutreachConfirmation(request: request).environment(store)
         }
-        .preferredColorScheme(.light)
-        .environment(\.weCanvas, WECanvas.cream)
+        .preferredColorScheme(WETheme.shared.colorScheme)
+        .environment(\.weCanvas, WECanvas.surface)
         .animation(.fieldZone(reduceMotion), value: item?.category)
         .animation(.fieldZone(reduceMotion), value: item?.dueOn)
         .animation(.fieldZone(reduceMotion), value: isPickingDay)
         // The item can leave from underneath this — the partner completes it,
         // or removing it succeeds. A sheet over nothing is not a state.
+        .onChange(of: item?.visibility) { old, new in
+            if old == .private, new == .shared { sharedPulse += 1 }
+        }
         .onChange(of: item == nil) { _, gone in
             if gone { dismiss() }
         }
@@ -677,7 +691,7 @@ private struct FieldItemActionPanel: View {
                     .font(FieldType.body)
                     .lineLimit(2...5)
                     .padding(16)
-                    .background(WECanvas.cream.bg, in: RoundedRectangle(cornerRadius: 12))
+                    .background(WECanvas.surface.bg, in: RoundedRectangle(cornerRadius: 12))
                     .accessibilityIdentifier("field.item.decision.choice")
                 Text(sharing).font(.system(.footnote)).foregroundStyle(.fieldInk(.reasoning))
                 Button("Save decision") {
@@ -695,7 +709,7 @@ private struct FieldItemActionPanel: View {
                         .font(FieldType.body)
                         .lineLimit(4...10)
                         .padding(16)
-                        .background(WECanvas.cream.bg, in: RoundedRectangle(cornerRadius: 12))
+                        .background(WECanvas.surface.bg, in: RoundedRectangle(cornerRadius: 12))
                         .accessibilityIdentifier("field.item.action.shareDraft")
                     ShareLink(item: shareText) {
                         Label("Choose where to share", systemImage: "square.and.arrow.up")
@@ -722,7 +736,7 @@ private struct FieldItemActionPanel: View {
                             .font(FieldType.body)
                             .lineLimit(3...8)
                             .padding(14)
-                            .background(WECanvas.cream.bg, in: RoundedRectangle(cornerRadius: 12))
+                            .background(WECanvas.surface.bg, in: RoundedRectangle(cornerRadius: 12))
                             .accessibilityIdentifier("field.item.action.note")
                         Text(sharing).font(.system(.footnote)).foregroundStyle(.fieldInk(.reasoning))
                         Button("Save note") {
@@ -750,10 +764,10 @@ private struct FieldWorkspacePrimaryStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(.body, weight: .medium))
-            .foregroundStyle(WECanvas.cream.bgElevated)
+            .foregroundStyle(WECanvas.surface.bgElevated)
             .frame(maxWidth: .infinity, minHeight: 52)
             .padding(.horizontal, 16)
-            .background(WECanvas.cream.ink.opacity(isEnabled ? 1 : 0.35), in: RoundedRectangle(cornerRadius: 14))
+            .background(WECanvas.surface.ink.opacity(isEnabled ? 1 : 0.35), in: RoundedRectangle(cornerRadius: 14))
             .opacity(configuration.isPressed ? 0.8 : 1)
     }
 }

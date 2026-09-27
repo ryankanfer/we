@@ -15,7 +15,7 @@ struct WEPrivacyPolicyView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Privacy Policy")
                         .font(.largeTitle.weight(.semibold))
-                    Text("Effective August 20, 2026")
+                    Text("Effective September 27, 2026")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -25,10 +25,12 @@ struct WEPrivacyPolicyView: View {
                     "WE keeps the account information needed to sign you in; "
                         + "the relationship, plans, responsibilities, and other "
                         + "content you choose to store; and limited operational "
-                        + "records needed to keep the service reliable. Private "
-                        + "answers and notes are owner-only and are never shown "
-                        + "to a partner. WE does not sell personal data or use "
-                        + "third-party advertising trackers."
+                        + "records needed to keep the service reliable. Anything "
+                        + "private, including anything you mark Only me and the "
+                        + "day you choose to be asked about sharing it, is visible "
+                        + "only to you and is never shown to a partner. WE does "
+                        + "not sell personal data or use third-party advertising "
+                        + "trackers."
                 )
 
                 policySection(
@@ -59,8 +61,14 @@ struct WEPrivacyPolicyView: View {
                     "Supabase provides authentication, database storage, realtime "
                         + "updates, and server functions. OpenAI processes only "
                         + "the explicitly permitted shared-direction payload "
-                        + "described above. Apple processes information required "
-                        + "to distribute the app and provide system services."
+                        + "described above. Resend sends account emails, such as "
+                        + "confirming your address and resetting your password; it "
+                        + "receives your email address and nothing else. Vercel "
+                        + "hosts the invitation page: when someone opens an "
+                        + "invitation link, the page shows the first name of the "
+                        + "person who sent it, and only while the invitation is "
+                        + "live. Apple processes information required to "
+                        + "distribute the app and provide system services."
                 )
 
                 policySection(
@@ -85,7 +93,7 @@ struct WEPrivacyPolicyView: View {
                 policySection(
                     "Contact",
                     "Questions or privacy requests can be sent to "
-                        + (WEFeedbackReport.supportAddress ?? "the support address listed in the app")
+                        + (WEFeedbackReport.supportAddress ?? WEFeedbackReport.fallbackSupportAddress)
                         + "."
                 )
 

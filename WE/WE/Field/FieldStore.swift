@@ -260,7 +260,7 @@ struct FieldState: Codable, Hashable, Sendable {
             dailyMoment: FieldDailyMoment(
                 sendMinute: 8 * 60 + 12,
                 queuedCount: 0,
-                hourRationale: "I haven't learned your hour yet.",
+                hourRationale: "Your hour isn't learned yet.",
                 replyRateBefore: 0,
                 replyRateAfter: 0,
                 lastSentOn: nil
@@ -341,7 +341,7 @@ struct FieldState: Codable, Hashable, Sendable {
         dailyMoment: FieldDailyMoment(
             sendMinute: 8 * 60 + 12,
             queuedCount: 0,
-            hourRationale: "I haven't learned your hour yet.",
+            hourRationale: "Your hour isn't learned yet.",
             replyRateBefore: 0,
             replyRateAfter: 0,
             lastSentOn: nil
@@ -2342,8 +2342,8 @@ final class FieldStore {
         let cluster = FieldCluster(
             id: UUID().uuidString,
             title: FieldOccasion.shortTitle(anchor.title),
-            rationale: "You put these together. I'll keep anything else that "
-                + "belongs with them here too — and ask first, every time.",
+            rationale: "You put these together. Anything else that belongs with "
+                + "them lands here too, and you're asked first, every time.",
             tint: anchor.owner,
             timeframe: proposal.anchorDate.map {
                 DateFormatter.fieldWeekdayShort.string(from: $0).uppercased()
@@ -2644,6 +2644,29 @@ final class FieldStore {
     }
 
     // MARK: Onboarding (6f)
+
+    /// The couple's colours as the person holding this phone sees them:
+    /// `personA` is always their own light, `personB` always their partner's.
+    /// Slots are A and B on the server; the lights speak in "you" and "them".
+    var viewerIdentity: FieldIdentity {
+        var viewer = identity
+        if speaker == .b {
+            swap(&viewer.personA, &viewer.personB)
+            swap(&viewer.nameA, &viewer.nameB)
+        }
+        return viewer
+    }
+
+    /// A goal, read in the lights' language: both in, one yes, or one person's.
+    func lightsReading(for goal: FieldHorizon) -> WELightsMark.Reading {
+        if let plan = goal.goalPlan {
+            if plan.isBuilding { return .together }
+            if !plan.approvedOwners.isEmpty { return .leaning }
+        }
+        if goal.owner == speaker { return .mine }
+        if goal.owner != .shared { return .theirs }
+        return .apart
+    }
 
     func canChooseSwatch(for owner: FieldOwner) -> Bool {
         backend == nil || owner == speaker

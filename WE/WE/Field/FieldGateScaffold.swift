@@ -34,7 +34,7 @@ struct FieldGateScaffold<Content: View>: View {
 
     var body: some View {
         ZStack {
-            WECanvas.cream.bg.ignoresSafeArea()
+            WECanvas.surface.bg.ignoresSafeArea()
 
             // The gates are entry surfaces — §2 calls entry "a poster" — so
             // they take the warm top-anchored statement rather than a zone's.
@@ -64,8 +64,8 @@ struct FieldGateScaffold<Content: View>: View {
             .scrollBounceBehavior(.basedOnSize)
             .scrollDismissesKeyboard(.interactively)
         }
-        .preferredColorScheme(.light)
-        .environment(\.weCanvas, .cream)
+        .preferredColorScheme(WETheme.shared.colorScheme)
+        .environment(\.weCanvas, .surface)
     }
 }
 

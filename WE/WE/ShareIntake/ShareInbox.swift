@@ -3,6 +3,12 @@ import SwiftUI
 import UIKit
 
 enum WEFeatureFlags {
+    /// The live Promise ceremony on both phones at arrival. Retired: its
+    /// three beats now live as one page in the walkthrough, which everyone
+    /// meets once, right after making an account. The code and the server
+    /// records stay, so turning this back on is a one line change.
+    static let promiseCeremonyEnabled = false
+
     static var shareInboxEnabled: Bool {
         let value = Bundle.main.object(
             forInfoDictionaryKey: "WEShareInboxEnabled"
@@ -520,7 +526,7 @@ struct ShareInboxView: View {
 
     var body: some View {
         ZStack {
-            WECanvas.cream.bgElevated.ignoresSafeArea()
+            WECanvas.surface.bgElevated.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 header
@@ -550,8 +556,8 @@ struct ShareInboxView: View {
                 }
             }
         }
-        .preferredColorScheme(.light)
-        .environment(\.weCanvas, .cream)
+        .preferredColorScheme(WETheme.shared.colorScheme)
+        .environment(\.weCanvas, .surface)
         .task { model.load() }
         .sheet(item: $selected, onDismiss: model.load) { manifest in
             ShareReviewView(manifest: manifest) {
@@ -576,14 +582,14 @@ struct ShareInboxView: View {
         }
         .padding(.horizontal, FieldMetrics.screenSide)
         .frame(minHeight: 56)
-        .background(WECanvas.cream.bgElevated.opacity(0.98))
+        .background(WECanvas.surface.bgElevated.opacity(0.98))
     }
 
     @ViewBuilder
     private var content: some View {
         if model.isLoading {
             ProgressView()
-                .tint(FieldInk.headline.color(on: .cream))
+                .tint(FieldInk.headline.color(on: .surface))
                 .frame(maxWidth: .infinity, minHeight: 180)
                 .accessibilityLabel("Opening private drafts")
         } else if let message = model.message {

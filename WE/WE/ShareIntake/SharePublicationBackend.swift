@@ -157,7 +157,7 @@ enum SharePublicationError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unavailable:
-            "WE can't reach the shared space right now. Your private draft is safe."
+            "The shared space can't be reached right now. Your private draft is safe."
         case .privateResourceChanged:
             "A private photo no longer matches the reviewed copy. Nothing was shared."
         case .invalidReview:

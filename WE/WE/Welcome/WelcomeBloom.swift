@@ -173,9 +173,9 @@ struct WelcomeBloom: View {
 
     private var paperBloom: some View {
         ZStack {
-            paperDisc((identity ?? .seed).personA.color(on: .cream))
+            paperDisc((identity ?? .seed).personA.color(on: .surface))
                 .offset(x: -offset * (1.6 + (1 - formation) * 0.6))
-            paperDisc((identity ?? .seed).personB.color(on: .cream))
+            paperDisc((identity ?? .seed).personB.color(on: .surface))
                 .offset(x: offset * (1.6 + (1 - formation) * 0.6))
         }
         .compositingGroup()

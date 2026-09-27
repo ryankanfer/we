@@ -88,7 +88,7 @@ struct FieldDeferralView: View {
                     .foregroundStyle(.fieldInk(.headerMeta))
             }
 
-            Text("Things I'm not bringing up yet.")
+            Text("Things held back for now.")
                 .font(FieldType.pageHeadline)
                 .foregroundStyle(.fieldInk(.headline))
                 .fieldLineHeight(1.16, size: 32)
@@ -97,8 +97,8 @@ struct FieldDeferralView: View {
             // The line that makes deferral feel like tact rather than
             // withholding.
             Text(
-                "Timing is most of tact. You can override any of these — I'd "
-                    + "rather be early than sneaky."
+                "Timing is most of tact. You can override any of these; "
+                    + "early beats sneaky."
             )
             .font(FieldType.body)
             .foregroundStyle(.fieldInk(.sectionSubtitle))

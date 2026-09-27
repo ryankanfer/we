@@ -378,7 +378,7 @@ private struct FieldMentionSheet: View {
 
     var body: some View {
         ZStack {
-            WECanvas.cream.bgElevated.ignoresSafeArea()
+            WECanvas.surface.bgElevated.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -425,8 +425,8 @@ private struct FieldMentionSheet: View {
                 .padding(.bottom, 48)
             }
         }
-        .preferredColorScheme(.light)
-        .environment(\.weCanvas, .cream)
+        .preferredColorScheme(WETheme.shared.colorScheme)
+        .environment(\.weCanvas, .surface)
         .accessibilityIdentifier("field.us.mention")
     }
 }

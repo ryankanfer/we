@@ -87,8 +87,8 @@ enum WEGateCopy {
     // MARK: Waiting
 
     static func stillness(for name: String?) -> String {
-        guard let name = trimmed(name) else { return "WE is still until they arrive." }
-        return "WE is still until \(name) arrives."
+        guard let name = trimmed(name) else { return "Quiet until they arrive." }
+        return "Quiet until \(name) arrives."
     }
 
     // MARK: Being invited
@@ -250,7 +250,7 @@ enum WEOnlyMeCopy {
     static let holdPrompt = "Share it on a day"
 
     static func holdSet(_ day: Date, partner: String) -> String {
-        "WE will ask you on \(day.formatted(.dateTime.weekday(.wide).month(.wide).day())) if it's time to share it with \(partner)."
+        "You'll be asked on \(day.formatted(.dateTime.weekday(.wide).month(.wide).day())) if it's time to share it with \(partner)."
     }
 
     // Today, on the day.
@@ -264,7 +264,7 @@ enum WEOnlyMeCopy {
 
     // The Only me list in Life.
     static func sheetIntro(partner: String) -> String {
-        "The things you're keeping to yourself for now. Share one with \(partner) whenever it's ready, or pick a day and WE will ask you then."
+        "The things you're keeping to yourself for now. Share one with \(partner) whenever it's ready, or pick a day and you'll be asked then."
     }
     static let heldSection = "Held for a day"
     static let waitingSection = "No day yet"
@@ -277,8 +277,8 @@ enum WEOnlyMeCopy {
     static func accountLines(partner: String) -> [String] {
         [
             "Only me is for things that aren't ready yet: a gift idea, a surprise, something you're still working out how to say.",
-            "\(partner) doesn't see it, and WE never uses it in anything you both see.",
-            "When it's ready, share it. Or pick a day, and WE will ask you then. WE never shares anything on its own.",
+            "\(partner) doesn't see it, and it's never used in anything you both see.",
+            "When it's ready, share it. Or pick a day, and you'll be asked then. Nothing is ever shared without you.",
             "Sharing goes one way. Once \(partner) can see something, it can't be made private again.",
         ]
     }

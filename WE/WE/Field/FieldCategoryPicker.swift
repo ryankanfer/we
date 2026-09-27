@@ -154,8 +154,8 @@ struct FieldCategoryPicker: View {
 
             Text(
                 error
-                    ?? "One or two words. It becomes a list in Life, and I'll "
-                    + "file this shape of thing there from now on."
+                    ?? "One or two words. It becomes a list in Life, and things "
+                    + "like this go there from now on."
             )
             .font(FieldType.receiptReasoning)
             .foregroundStyle(

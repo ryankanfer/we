@@ -584,7 +584,7 @@ enum FieldTodaySelector {
         if candidate.reachability < 0.5,
            let away = context.partners.first(where: { $0.isAway(on: context.now) }) {
             return "\(away.name) is \(away.awayWindow(on: context.now)?.reason ?? "away"), "
-                + "so I'm bringing this to you rather than to both of you."
+                + "so this comes to you rather than to both of you."
         }
         if let dueOn = item.dueOn {
             let days = context.calendar.dateComponents(
@@ -617,7 +617,7 @@ enum FieldTodaySelector {
                 + "then that needs a decision."
         }
         return "Nothing else is pressing, and this has been sitting long "
-            + "enough that I'd rather raise it than keep holding it."
+            + "enough that it's worth raising now."
     }
 
     /// "Three other things are waiting. None of them are urgent."
@@ -657,8 +657,8 @@ enum FieldTodaySelector {
            context.horizons.isEmpty,
            context.clusters.isEmpty {
             return (
-                "I'm still learning your week.",
-                "Say anything below and I'll start sorting it. Today shows "
+                "A quiet start.",
+                "Say anything below and it gets sorted for you. Today shows "
                     + "one thing at a time, or nothing at all."
             )
         }
@@ -1135,7 +1135,7 @@ enum FieldClassifier {
                calendar: context.calendar
            ).dueOn {
             return "\(dayWord(dueOn, context: context)), so it's on the "
-                + "calendar. I didn't start a list for it — one thing "
+                + "calendar. No list has been started for it — one thing "
                 + "happening once isn't a category."
         }
 
@@ -1147,8 +1147,8 @@ enum FieldClassifier {
                 .prefix(3)
                 .map(\.word)
                 .joined(separator: ", ")
-            return "This didn't sit with \(existing), so I started "
-                + "\(category.word). If that's wrong, move it and I'll drop it."
+            return "This didn't sit with \(existing), so \(category.word) was "
+                + "started for it. If that's wrong, move it and \(category.word) goes away."
         }
 
         let hasDay = namesADay(lowered)
@@ -1166,7 +1166,7 @@ enum FieldClassifier {
             return sentence
 
         case .food where !hasDay:
-            return "No day on it, so I read it as an appetite rather than an "
+            return "No day on it, so it reads as an appetite rather than an "
                 + "errand. It'll come back when you're deciding "
                 + "\(nextDecisionDay(context))."
 
@@ -1188,9 +1188,9 @@ enum FieldClassifier {
             let mentioned = openItems(in: .trips, context: context).count + 1
             if mentioned >= 3 {
                 sentence += " — that's \(mentioned.spelled) now, so at some "
-                    + "point I'll ask whether one of them is real."
+                    + "point you'll be asked whether one of them is real."
             } else {
-                sentence += ", and if it starts looking real I'll ask."
+                sentence += ", and if it starts looking real you'll be asked."
             }
             return sentence
 
@@ -1202,7 +1202,7 @@ enum FieldClassifier {
             let open = openItems(in: .talk, context: context).count + 1
             var sentence = "You asked something rather than named a task, so "
                 + "there's no date on it and nothing will chase you about it. "
-                + "I'll keep it where you can both see it"
+                + "It stays where you can both see it"
             if open >= 3 {
                 sentence += " — that's \(open.spelled) open now, so one of "
                     + "them is probably worth an evening."
@@ -1212,8 +1212,8 @@ enum FieldClassifier {
             return sentence
 
         case .notes:
-            return "I couldn't tie this to a week or a list, so I kept it "
-                + "rather than guessing. It'll surface when something makes "
+            return "This didn't tie to a week or a list, so it's kept here "
+                + "rather than guessed at. It'll surface when something makes "
                 + "it relevant."
 
         case .care:
@@ -1221,8 +1221,8 @@ enum FieldClassifier {
                 $0.health == .slipping
             }) {
                 let weeks = weeksSince(slipping.lastOccurred, context: context)
-                return "Something for one of them, so it went to Care. I tied "
-                    + "it to \(slipping.title.lowercased()) — the rhythm that "
+                return "Something for one of them, so it went to Care, tied "
+                    + "to \(slipping.title.lowercased()) — the rhythm that "
                     + "has been slipping \(weeks.spelled) weeks."
             }
             return "Something for one of them, so it went to Care, where the "
@@ -1232,7 +1232,7 @@ enum FieldClassifier {
             let opening = hasDay
                 ? "A task with a day attached."
                 : "A thing to do, with no day on it yet."
-            return opening + " I put it where the rest of your "
+            return opening + " It went where the rest of your "
                 + "\(category.rawValue) already sits."
         }
     }
@@ -1318,7 +1318,7 @@ enum FieldClassifier {
         return (
             latest.corrected,
             "You moved something like this before, so it goes here now. "
-                + "I stopped guessing after the \(similar.count.spelled) time."
+                + "No more guessing after the \(similar.count.spelled) time."
         )
     }
 
@@ -1381,8 +1381,8 @@ enum FieldClassifier {
                 calendar: context.calendar
             ).dueOn
             : nil
-        corrected.reasoning = "Moved. I'll file this shape of thing here from "
-            + "now on, and I'll tell you what it changed."
+        corrected.reasoning = "Moved. Things like this go here from "
+            + "now on, and you'll see what it changed."
 
         let correction = FieldCorrection(
             id: UUID().uuidString,
@@ -1891,7 +1891,7 @@ enum FieldDeferral {
         guard let window = partner.awayWindow(on: context.now), heldCount > 0
         else { return nil }
         let day = DateFormatter.fieldWeekday.string(from: window.end)
-        return "\(day) evening, I'll bring \(partner.name) the "
+        return "\(day) evening, \(partner.name) gets the "
             + "\(heldCount.spelled) things that waited — in one go, not "
             + "\(heldCount.spelled) notifications."
     }
@@ -1924,7 +1924,7 @@ enum FieldMomentScheduler {
         calendar: Calendar = .gregorianUS
     ) -> Decision {
         let watched = max(0, candidates.count - 1)
-        let restraint = "That's the only thing I'll send today. "
+        let restraint = "That's the only notification today. "
             + "\(watched.spelled.capitalized) others are being watched."
 
         // Already sent today. There is no second attempt, ever.
@@ -2068,11 +2068,11 @@ enum FieldPromotion {
         return FieldQuestion(
             id: "promote:\(subject.lowercased())",
             prompt: "Is \(subject) something you're actually doing?",
-            stakes: "If it is, I'll start keeping track of what moves it. If "
-                + "it isn't, it stays on the list and I stop asking.",
+            stakes: "If it is, what moves it gets tracked. If "
+                + "it isn't, it stays on the list and the question stops.",
             reasoning: "You've both mentioned \(subject) \(mentions.spelled) "
                 + "times and neither of you has put a date on it. That's the "
-                + "only reason I'm asking.",
+                + "only reason for the question.",
             choices: [
                 FieldChoice(
                     id: "promote:\(subject.lowercased()):yes",
@@ -2364,9 +2364,9 @@ enum FieldOccasion {
         FieldQuestion(
             id: id,
             prompt: "Does this belong with \(shortTitle(occasion.title))?",
-            stakes: "If it does, I'll show them together and it counts toward "
+            stakes: "If it does, they show together and it counts toward "
                 + "that day. If it doesn't, it stays exactly where it is and "
-                + "I stop asking.",
+                + "the question stops.",
             reasoning: reasoning(
                 occasion: occasion,
                 item: item,
@@ -2400,7 +2400,7 @@ enum FieldOccasion {
         case .named(let person):
             return "You wrote \(person) into both of these"
                 + (when.map { ", and \($0) is when it happens" } ?? "")
-                + ". That's the only reason I'm asking."
+                + ". That's the only reason for the question."
         case .referred(let pronoun):
             return "\"\(pronoun.capitalized)\" isn't anyone else here — "
                 + "\(shortTitle(occasion.title)) is the only thing coming "
@@ -2916,10 +2916,10 @@ enum FieldLearning {
             changes.append(
                 FieldBehaviourChange(
                     id: "not-a-task",
-                    observation: "You told me “not a task” \(datedToDateless.count.spelled) times",
+                    observation: "You said “not a task” \(datedToDateless.count.spelled) times",
                     change: "Things you mention without a day stay undated now.",
                     outcome: "“Steak” is an appetite. “Groceries” is a task. "
-                        + "I can tell them apart now.",
+                        + "They're told apart now.",
                     accent: .a
                 )
             )
@@ -2936,8 +2936,8 @@ enum FieldLearning {
                     id: "stopped-inventing",
                     observation: "You moved \(deletions.count.spelled) things into Trips",
                     change: "A place with no date is a trip you mentioned, not "
-                        + "an errand. I file it that way now.",
-                    outcome: "And when one of them starts looking real, I ask "
+                        + "an errand. It's filed that way now.",
+                    outcome: "And when one of them starts looking real, you're asked "
                         + "rather than deciding.",
                     accent: .b
                 )
@@ -2950,8 +2950,8 @@ enum FieldLearning {
             changes.append(
                 FieldBehaviourChange(
                     id: "learned-hour",
-                    observation: "You answer me in the morning, not at night",
-                    change: "I ask once, at \(moment.hourLabel).",
+                    observation: "You answer in the morning, not at night",
+                    change: "One question a day, at \(moment.hourLabel).",
                     outcome: "Your reply rate went from "
                         + "\(Int(moment.replyRateBefore * 100))% to "
                         + "\(Int(moment.replyRateAfter * 100))%.",

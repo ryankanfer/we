@@ -169,6 +169,25 @@ struct InvitationTests {
                 == .join(code: "WEDEMO")
         )
         #expect(spent.activeInvitation(asOf: now) == nil)
+
+        // What is actually shared: an https link the app claims.
+        #expect(invitation.webLink == "https://\(WEDeepLinkRouter.webHost)/join/WEDEMO")
+        #expect(invitation.shareMessage.contains(invitation.webLink))
+        let webLink = try #require(URL(string: invitation.webLink))
+        #expect(
+            WEDeepLinkRouter.destination(for: webLink)
+                == .join(code: "WEDEMO")
+        )
+    }
+
+    @Test
+    func webLinksOnOtherHostsOrPathsAreNotInvitations() throws {
+        let otherHost = try #require(URL(string: "https://example.com/join/WEDEMO"))
+        let otherPath = try #require(URL(string: "https://\(WEDeepLinkRouter.webHost)/plan"))
+        let noCode = try #require(URL(string: "https://\(WEDeepLinkRouter.webHost)/join/"))
+        #expect(WEDeepLinkRouter.destination(for: otherHost) == nil)
+        #expect(WEDeepLinkRouter.destination(for: otherPath) == nil)
+        #expect(WEDeepLinkRouter.destination(for: noCode) == nil)
     }
 
     @Test

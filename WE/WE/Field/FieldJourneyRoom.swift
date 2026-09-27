@@ -41,7 +41,7 @@ struct FieldJourneyRoom: View {
 
     var body: some View {
         ZStack {
-            WECanvas.cream.bgElevated.ignoresSafeArea()
+            WECanvas.surface.bgElevated.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -65,8 +65,8 @@ struct FieldJourneyRoom: View {
                 .padding(.bottom, 60)
             }
         }
-        .preferredColorScheme(.light)
-        .environment(\.weCanvas, .cream)
+        .preferredColorScheme(WETheme.shared.colorScheme)
+        .environment(\.weCanvas, .surface)
         .overlay(alignment: .topTrailing) {
             Button("Close") { dismiss() }
                 .buttonStyle(.plain)
@@ -265,7 +265,7 @@ private struct FieldJourneyGrowthHelp: View {
 
     var body: some View {
         ZStack {
-            WECanvas.cream.bgElevated.ignoresSafeArea()
+            WECanvas.surface.bgElevated.ignoresSafeArea()
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
                     FieldLabel("How this journey grows")
@@ -288,7 +288,7 @@ private struct FieldJourneyGrowthHelp: View {
                 .padding(.bottom, 60)
             }
         }
-        .preferredColorScheme(.light)
-        .environment(\.weCanvas, .cream)
+        .preferredColorScheme(WETheme.shared.colorScheme)
+        .environment(\.weCanvas, .surface)
     }
 }

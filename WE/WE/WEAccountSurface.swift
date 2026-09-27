@@ -14,7 +14,7 @@ struct WEAccountSurface<Content: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                WELens(diameter: 44, foreground: WECanvas.cream.ink)
+                WELens(diameter: 44, foreground: WECanvas.surface.ink)
                     .accessibilityLabel("WE")
                     .scaleEffect(arrived || reduceMotion ? 1 : 0.92)
                 Spacer()
@@ -43,9 +43,9 @@ struct WEAccountSurface<Content: View>: View {
             .scrollDismissesKeyboard(.interactively)
             .scrollBounceBehavior(.basedOnSize)
         }
-        .background(WECanvas.cream.bg.ignoresSafeArea())
+        .background(WECanvas.surface.bg.ignoresSafeArea())
         .foregroundStyle(.fieldInk(.headline))
-        .environment(\.weCanvas, .cream).preferredColorScheme(.light)
+        .environment(\.weCanvas, .surface).preferredColorScheme(WETheme.shared.colorScheme)
         .presentationDetents([.large]).presentationDragIndicator(.visible)
         .onAppear {
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.55)) { arrived = true }
@@ -108,7 +108,7 @@ struct WEAccountTextField: View {
                 .focused(focus, equals: field)
                 .submitLabel(submitLabel)
                 .onSubmit(onSubmit)
-                .tint(FieldIdentity.seed.personA.color(on: .cream))
+                .tint(FieldIdentity.seed.personA.color(on: .surface))
                 .frame(minHeight: 44)
                 .accessibilityLabel(label)
                 .accessibilityIdentifier("account.field.\(field.rawValue)")
@@ -130,16 +130,16 @@ struct WEAccountTextField: View {
                     .accessibilityIdentifier("account.\(field.rawValue).visibility")
                 }
             }
-            Rectangle().fill(FieldRule.row.color(on: .cream)).frame(height: 1)
+            Rectangle().fill(FieldRule.row.color(on: .surface)).frame(height: 1)
                 .overlay {
-                    Rectangle().fill(FieldIdentity.seed.personA.color(on: .cream))
+                    Rectangle().fill(FieldIdentity.seed.personA.color(on: .surface))
                         .frame(height: 2).opacity(isFocused ? 1 : 0)
                 }
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: isFocused)
 
             if let message = visibleProblem ?? hint {
                 Text(message).font(.system(.footnote))
-                    .foregroundStyle(visibleProblem != nil ? FieldSwatch.rust.color(on: .cream) : WECanvas.cream.ink.opacity(0.7))
+                    .foregroundStyle(visibleProblem != nil ? FieldSwatch.rust.color(on: .surface) : WECanvas.surface.ink.opacity(0.7))
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("account.\(field.rawValue).hint")
             }
@@ -164,7 +164,7 @@ struct WEAccountPrimaryButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                if isWorking { ProgressView().tint(WECanvas.cream.bg) }
+                if isWorking { ProgressView().tint(WECanvas.surface.bg) }
                 Text(isWorking ? workingTitle : title)
                     .fixedSize(horizontal: false, vertical: true)
                 if !isWorking { Image(systemName: "arrow.right").font(.system(size: 18)) }
@@ -187,7 +187,7 @@ struct WEAccountFeedback: View {
                 Text(message).font(.system(.subheadline)).fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16).background(WECanvas.cream.bgElevated, in: RoundedRectangle(cornerRadius: FirstRunMetrics.radius, style: .continuous))
+            .padding(16).background(WECanvas.surface.bgElevated, in: RoundedRectangle(cornerRadius: FirstRunMetrics.radius, style: .continuous))
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("account.feedback")
             .onAppear {

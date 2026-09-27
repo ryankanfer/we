@@ -20,6 +20,17 @@
 	  simply never yields a token — which is the same path as somebody who
 	  declined, and is a path the product is built to treat as ordinary.
 	-->
+	<!--
+	  Invitation links are https (see WEDeepLinkRouter.webHost) so that
+	  Messages, Mail and WhatsApp make them tappable. This claims /join/* on
+	  that host; the site serves the matching
+	  /.well-known/apple-app-site-association. Change both together if the
+	  domain changes.
+	-->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:we-gamma-murex.vercel.app</string>
+	</array>
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.com.ryankanfer.WE.shared</string>

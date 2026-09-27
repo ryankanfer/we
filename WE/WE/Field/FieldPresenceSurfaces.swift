@@ -38,7 +38,7 @@ struct FieldPresenceView: View {
                     Text("No shared presence information is available yet.")
                 }
                 if !store.heldTopics.isEmpty {
-                    Text("What I'm holding").font(FieldType.body)
+                    Text("What's being held").font(FieldType.body)
                     ForEach(store.heldTopics) { topic in
                         VStack(alignment: .leading, spacing: 8) {
                             Text(topic.title)

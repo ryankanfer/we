@@ -104,9 +104,9 @@ struct FieldChatComposer: View {
             }
         }
         .padding(20)
-        .background(canvas.bgElevated, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .weGlass(in: RoundedRectangle(cornerRadius: 30, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
                 .strokeBorder(
                     canvas.ink.opacity(justMe && !isLookup ? 0.35 : 0.1),
                     style: StrokeStyle(lineWidth: 1, dash: justMe && !isLookup ? [5, 4] : [])
@@ -257,6 +257,9 @@ struct FieldChatComposer: View {
                 .foregroundStyle(canSend ? AnyShapeStyle(canvas.bgElevated) : AnyShapeStyle(.fieldInk(.legend)))
                 .frame(width: 44, height: 44)
                 .background(canSend ? canvas.ink : canvas.ink.opacity(0.08), in: Circle())
+                // Until the first thing is ever added, the send button glows
+                // once there is something to send. After that it is quiet.
+                .weCoach(canSend && store.state.lifeItems.isEmpty, tint: store.identity.personA.color(on: canvas))
         }
         .buttonStyle(.plain)
         .disabled(!canSend)
@@ -366,7 +369,9 @@ struct FieldComposerOverlay: View {
     var body: some View {
         ZStack {
             if isPresented {
-                Color.black.opacity(0.28)
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .overlay(Color.black.opacity(0.18))
                     .ignoresSafeArea()
                     .onTapGesture { isPresented = false }
                     .accessibilityLabel("Close")
@@ -381,9 +386,9 @@ struct FieldComposerOverlay: View {
                     }
                 )
                 .padding(.horizontal, 16)
-                .transition(.scale(scale: 0.92).combined(with: .opacity))
+                .transition(.scale(scale: 0.9).combined(with: .opacity))
             }
         }
-        .animation(.spring(duration: 0.32, bounce: 0.18), value: isPresented)
+        .animation(.spring(duration: 0.42, bounce: 0.22), value: isPresented)
     }
 }

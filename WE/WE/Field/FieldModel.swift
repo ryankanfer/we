@@ -52,7 +52,7 @@ enum FieldZone: Int, CaseIterable, Codable, Sendable, Identifiable {
     }
 
     /// Both zones read on the warm paper.
-    var canvas: WECanvas { .cream }
+    var canvas: WECanvas { .surface }
 
     /// Today is lit from both sides, because it belongs to the two of you at
     /// once; Life pools warm from the left.

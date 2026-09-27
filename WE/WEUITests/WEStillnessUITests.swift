@@ -27,7 +27,7 @@ final class WEStillnessUITests: XCTestCase {
         // line and a card. If a second sentence ever appears here, the screen
         // has started explaining itself.
         XCTAssertTrue(
-            app.staticTexts["WE is still until Dylan arrives."]
+            app.staticTexts["Quiet until Dylan arrives."]
                 .waitForExistence(timeout: 4)
         )
 
@@ -60,7 +60,7 @@ final class WEStillnessUITests: XCTestCase {
         keepScreenshot(of: app, named: "golden.we.stillness.reduced")
 
         XCTAssertTrue(
-            app.staticTexts["WE is still until Dylan arrives."].exists
+            app.staticTexts["Quiet until Dylan arrives."].exists
         )
     }
 

@@ -15,7 +15,7 @@ enum RepositoryError: LocalizedError {
         case .invalidSession:
             "Your saved session is no longer valid."
         case .offline:
-            "WE is offline. Your last shared state is still here, but changes need a connection."
+            "You're offline. Your last shared state is still here, but changes need a connection."
         }
     }
 }
@@ -53,6 +53,9 @@ protocol Repository {
 
     func createCouple() async throws
     func joinCouple(code: String) async throws
+    /// Leaves a space this person is alone in and joins the one behind
+    /// `code`. For when both people created a space before either joined.
+    func joinInstead(code: String) async throws
 
     /// Issues a fresh invitation, revoking any live one in the same
     /// transaction. "I sent it to the wrong person" has to mean the old code
@@ -181,6 +184,11 @@ extension Repository {
 
     /// Nothing to resend for a repository with no email behind it.
     func resendVerification(email: String) async throws {}
+
+    /// Repositories with no server behind them treat it as an ordinary join.
+    func joinInstead(code: String) async throws {
+        try await joinCouple(code: code)
+    }
 
     func loadPrivateProposals(
         for user: AuthenticatedUser

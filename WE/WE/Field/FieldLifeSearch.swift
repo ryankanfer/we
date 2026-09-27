@@ -40,7 +40,7 @@ struct FieldLifeSearch: View {
 
     var body: some View {
         ZStack {
-            WECanvas.cream.bg.ignoresSafeArea()
+            WECanvas.surface.bg.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 0) {
                 field
@@ -138,7 +138,7 @@ struct FieldLifeSearch: View {
                             .padding(.horizontal, 14)
                             .padding(.vertical, 12)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(WECanvas.cream.ink.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
+                            .background(WECanvas.surface.ink.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
                             .padding(.bottom, 12)
                             .accessibilityIdentifier("field.search.decision")
                     }

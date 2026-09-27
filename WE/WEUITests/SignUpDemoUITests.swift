@@ -106,9 +106,15 @@ final class SignUpDemoUITests: XCTestCase {
         // Return moves to the next field, the way a person would go.
         nameField.typeText(name + "\n")
         beat(0.6)
-        app.textFields["Email"].typeText(email + "\n")
+        let emailField = app.textFields["Email"]
+        XCTAssertTrue(emailField.waitForExistence(timeout: 3))
+        emailField.tap()
+        emailField.typeText(email + "\n")
         beat(0.6)
-        app.secureTextFields["Password"].typeText("together2026")
+        let passwordField = app.secureTextFields["Password"]
+        XCTAssertTrue(passwordField.waitForExistence(timeout: 3))
+        passwordField.tap()
+        passwordField.typeText("together2026")
         beat(1.2)
         // Go on the keyboard creates the account.
         app.secureTextFields["Password"].typeText("\n")

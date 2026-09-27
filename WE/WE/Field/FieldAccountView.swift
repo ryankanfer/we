@@ -31,7 +31,7 @@ struct FieldAccountView: View {
 
     var body: some View {
         ZStack {
-            WECanvas.cream.bg.ignoresSafeArea()
+            WECanvas.surface.bg.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -66,6 +66,12 @@ struct FieldAccountView: View {
                             .padding(.bottom, FieldMetrics.sectionGapLoose)
                     }
 
+                    appearance
+                        .padding(.bottom, FieldMetrics.sectionGapLoose)
+
+                    twoLights
+                        .padding(.bottom, FieldMetrics.sectionGapLoose)
+
                     understanding
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
@@ -86,9 +92,9 @@ struct FieldAccountView: View {
                 .padding(.bottom, 60)
             }
         }
-        .preferredColorScheme(.light)
+        .preferredColorScheme(WETheme.shared.colorScheme)
         .foregroundStyle(.fieldInk(.headline))
-        .tint(store.identity.personA.color(on: .cream))
+        .tint(store.identity.personA.color(on: .surface))
         .accessibilityIdentifier("field.account")
         .safeAreaInset(edge: .top, spacing: 0) {
             HStack {
@@ -97,9 +103,9 @@ struct FieldAccountView: View {
                 closeButton
             }
             .padding(.leading, FieldMetrics.screenSide)
-            .background(WECanvas.cream.bg)
+            .background(WECanvas.surface.bg)
         }
-        .environment(\.weCanvas, WECanvas.cream)
+        .environment(\.weCanvas, WECanvas.surface)
         .fullScreenCover(isPresented: $showsDelete) {
             FieldDeleteAccountView()
                 .environmentObject(session)
@@ -114,8 +120,8 @@ struct FieldAccountView: View {
             NavigationStack {
                 WEPrivacyPolicyView(showsCloseButton: true)
             }
-            .preferredColorScheme(.light)
-            .environment(\.weCanvas, WECanvas.cream)
+            .preferredColorScheme(WETheme.shared.colorScheme)
+            .environment(\.weCanvas, WECanvas.surface)
         }
         .sheet(isPresented: $showsRecovery) { WERecoveryCenter().environment(store) }
         .sheet(item: $surface) { selection in
@@ -332,7 +338,7 @@ struct FieldAccountView: View {
                 .padding(.bottom, 6)
 
             Text(
-                "Choose which shared signals WE can notice. Private writing "
+                "Choose which shared signals may be noticed. Private writing "
                     + "is never used to shape a response."
             )
             .font(FieldType.body)
@@ -391,7 +397,7 @@ struct FieldAccountView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .tint(store.identity.personA.color(on: .cream))
+        .tint(store.identity.personA.color(on: .surface))
         .disabled(signal.isPermanentlyDisabled || !session.canMutate)
         .padding(.vertical, 14)
         .overlay(alignment: .top) { FieldRuleLine(color: FieldRule.row) }
@@ -480,7 +486,7 @@ struct FieldAccountView: View {
                     .font(FieldType.body)
                     .padding(.horizontal, 14)
                     .frame(minHeight: 44)
-                    .background(WECanvas.cream.ink.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+                    .background(WECanvas.surface.ink.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
                     .onChange(of: name) { _, _ in didSaveName = false }
                     .accessibilityIdentifier("field.account.name")
                 Button(didSaveName ? "Saved" : "Save") {
@@ -616,6 +622,77 @@ struct FieldAccountView: View {
         }
     }
 
+    // MARK: Appearance
+
+    /// Paper, dark, or both by the clock. Per phone, not per couple: two
+    /// people can see the same Life in different light.
+    private var appearance: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldRuleLine()
+
+            FieldLabel("Appearance")
+                .padding(.top, 20)
+                .padding(.bottom, 18)
+
+            WEAppearancePicker()
+        }
+    }
+
+    // MARK: Two lights
+
+    /// The lights, explained once, and the setting that drives them. The
+    /// preview is the lights themselves: choosing a colour changes your
+    /// light live, so the setting explains the lights and the lights explain
+    /// the setting.
+    @State private var lightPreviewPulse = 0
+
+    private var twoLights: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldRuleLine()
+
+            FieldLabel("Two lights")
+                .padding(.top, 20)
+                .padding(.bottom, 14)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Yours, theirs, and what you share.")
+                    .font(FieldType.cardTitle)
+                    .foregroundStyle(.fieldInk(.headline))
+                Text("Your light is you. Theirs is \(store.partnerName). Where they overlap is what you share.")
+                Text("One light means it\u{2019}s only yours. Leaning in means one of you said yes. Meeting means you decided together.")
+            }
+            .font(FieldType.body)
+            .foregroundStyle(.fieldInk(.metadataProse))
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.bottom, 18)
+
+            ZStack {
+                WECanvas.surface.bg
+                WELights(
+                    identity: store.viewerIdentity,
+                    pose: .near,
+                    pulseMine: lightPreviewPulse
+                )
+            }
+            .frame(height: 140)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .strokeBorder(WECanvas.surface.ink.opacity(0.1), lineWidth: 1)
+            }
+            .accessibilityHidden(true)
+            .padding(.bottom, 18)
+
+            FieldSwatchRow(owner: store.speaker, identity: store.identity) { swatch in
+                withAnimation(.weCanvasCrossing) {
+                    store.choose(swatch, for: store.speaker)
+                }
+                lightPreviewPulse += 1
+            }
+        }
+        .accessibilityIdentifier("field.account.lights")
+    }
+
     // MARK: Only me
 
     /// What Only me means, said once, in one place anybody can find it.
@@ -749,7 +826,7 @@ struct FieldDeleteAccountView: View {
 
     var body: some View {
         ZStack {
-            WECanvas.cream.bg.ignoresSafeArea()
+            WECanvas.surface.bg.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -766,8 +843,8 @@ struct FieldDeleteAccountView: View {
                 .padding(.bottom, 60)
             }
         }
-        .preferredColorScheme(.light)
-        .environment(\.weCanvas, WECanvas.cream)
+        .preferredColorScheme(WETheme.shared.colorScheme)
+        .environment(\.weCanvas, WECanvas.surface)
         .accessibilityIdentifier("field.account.delete.screen")
         .confirmationDialog(
             "Delete your account and end this relationship?",

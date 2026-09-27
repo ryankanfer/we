@@ -72,7 +72,7 @@ struct ContentView: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(WECanvas.cream.ink)
+                    .foregroundStyle(WECanvas.surface.ink)
                     .accessibilityLabel("Open Profile")
                     .accessibilityHint("Account, archives, and privacy")
                     .accessibilityIdentifier("accountButton")
@@ -84,7 +84,9 @@ struct ContentView: View {
         // too. Its store holds only the two names; nothing is loaded or
         // written through it here.
         .fullScreenCover(isPresented: $showsProfile) {
-            FieldAccountView(onReplayPromise: onReplayPromise)
+            FieldAccountView(
+                onReplayPromise: WEFeatureFlags.promiseCeremonyEnabled ? onReplayPromise : nil
+            )
                 .environment(
                     FieldStore(
                         state: session.snapshot?.emptyFieldState
@@ -261,7 +263,7 @@ private struct PairingView: View {
             content: {
                 ProgressView()
                     .controlSize(.large)
-                    .tint(WECanvas.cream.ink)
+                    .tint(WECanvas.surface.ink)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityLabel("Joining")
             },
@@ -296,7 +298,7 @@ private struct PairingView: View {
                     FirstRunChoiceCard(
                         symbol: "paperplane",
                         title: "Invite them",
-                        detail: "WE makes a code. Send it any way you like.",
+                        detail: "You get a code. Send it any way you like.",
                         isWorking: session.isWorking && !showsJoinCode
                     ) {
                         Task { await createSharedSpace() }
@@ -420,6 +422,13 @@ private struct PairingView: View {
 
 private struct PartnerWaitingView: View {
     @EnvironmentObject private var session: AppSession
+    @EnvironmentObject private var pendingInvitation: PendingInvitation
+    /// "They already invited me": both people created a space before either
+    /// joined. Offered quietly, opened by a link, and confirmed before it
+    /// gives anything up.
+    @State private var showsJoinInstead = false
+    @State private var joinInsteadCode = ""
+    @State private var confirmsJoinInstead = false
     @State private var copied = false
     @State private var confirmsWithdrawal = false
     /// True once this person withdrew the invitation themselves, so they get
@@ -476,6 +485,10 @@ private struct PartnerWaitingView: View {
         FirstRunScreen(
             title: isLive ? WEGateCopy.invitationTitle(for: invitee) : closedTitle,
             subtitle: isLive ? WEGateCopy.invitationDetail(for: invitee) : closedDetail,
+            // Your light, alone, with a faint ring where theirs will be.
+            // It rises into place the moment they join.
+            lights: .alone,
+            showsTheirPlace: isLive,
             content: {
                 VStack(alignment: .leading, spacing: 18) {
                     if isLive {
@@ -501,6 +514,8 @@ private struct PartnerWaitingView: View {
                             .foregroundStyle(.fieldInk(.reasoning))
                             .fixedSize(horizontal: false, vertical: true)
                     }
+
+                    joinInstead
 
                     SessionMessageView()
                 }
@@ -559,7 +574,7 @@ private struct PartnerWaitingView: View {
             } label: {
                 if session.isWorking {
                     ProgressView()
-                        .tint(WECanvas.cream.bg)
+                        .tint(WECanvas.surface.bg)
                         .accessibilityLabel("Making a new invitation")
                 } else {
                     Text("Make a new invitation")
@@ -599,6 +614,71 @@ private struct PartnerWaitingView: View {
             } message: {
                 Text("The code stops working straight away, for everyone.")
             }
+    }
+
+    // MARK: Join instead
+
+    @ViewBuilder
+    private var joinInstead: some View {
+        if showsJoinInstead {
+            FirstRunCard {
+                VStack(alignment: .leading, spacing: 14) {
+                    FieldTextField(
+                        label: "The code they sent you",
+                        text: $joinInsteadCode,
+                        autocapitalization: .characters,
+                        identifier: "waiting.joinInstead.code"
+                    )
+                    .onChange(of: joinInsteadCode) { _, value in
+                        let normalized = PendingInvitation.normalized(value) ?? ""
+                        if normalized != value { joinInsteadCode = normalized }
+                    }
+                    Button("Join their space") { confirmsJoinInstead = true }
+                        .buttonStyle(FirstRunPrimaryButtonStyle())
+                        .disabled(joinInsteadCode.isEmpty || session.isWorking)
+                        .accessibilityIdentifier("waiting.joinInstead.join")
+                }
+            }
+            .confirmationDialog(
+                "Join their space instead?",
+                isPresented: $confirmsJoinInstead,
+                titleVisibility: .visible
+            ) {
+                Button("Join theirs") {
+                    let code = joinInsteadCode
+                    Task {
+                        await session.joinInstead(code: code)
+                        if session.errorMessage == nil {
+                            pendingInvitation.clear()
+                            inviteeName = ""
+                        }
+                    }
+                }
+                Button("Keep mine", role: .cancel) {}
+            } message: {
+                Text("Your invitation stops working, and anything you've added while waiting is removed.")
+            }
+        } else {
+            Button(joinInsteadLabel) {
+                joinInsteadCode = pendingInvitation.code ?? ""
+                withAnimation(.easeInOut(duration: 0.25)) { showsJoinInstead = true }
+            }
+            .buttonStyle(FirstRunLinkStyle())
+            .accessibilityIdentifier("waiting.joinInstead")
+            .onAppear {
+                // A code tapped while waiting alone is the collision itself:
+                // they invited this person too. Offer it straight away.
+                if let held = pendingInvitation.code {
+                    joinInsteadCode = held
+                    showsJoinInstead = true
+                }
+            }
+        }
+    }
+
+    private var joinInsteadLabel: String {
+        guard let invitee else { return "They already invited me" }
+        return "\(invitee) already invited me"
     }
 
     // The Field button styles uppercase, so each of these carries its sentence

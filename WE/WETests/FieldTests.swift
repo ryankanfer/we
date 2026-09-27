@@ -401,7 +401,7 @@ struct FieldTodayTests {
             Issue.record("expected the resolved state")
             return
         }
-        #expect(headline == "I'm still learning your week.")
+        #expect(headline == "A quiet start.")
         #expect(detail.contains("Say anything below"))
     }
 

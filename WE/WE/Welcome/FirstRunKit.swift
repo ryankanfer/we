@@ -27,6 +27,8 @@ import SwiftUI
 struct FirstRunScreen<Hero: View, Content: View, Actions: View>: View {
     var title: String
     var subtitle: String?
+    var lights: WELightsPose = .apart
+    var showsTheirPlace = false
     @ViewBuilder var hero: Hero
     @ViewBuilder var content: Content
     @ViewBuilder var actions: Actions
@@ -34,12 +36,16 @@ struct FirstRunScreen<Hero: View, Content: View, Actions: View>: View {
     init(
         title: String,
         subtitle: String? = nil,
+        lights: WELightsPose = .apart,
+        showsTheirPlace: Bool = false,
         @ViewBuilder hero: () -> Hero = { EmptyView() },
         @ViewBuilder content: () -> Content = { EmptyView() },
         @ViewBuilder actions: () -> Actions
     ) {
         self.title = title
         self.subtitle = subtitle
+        self.lights = lights
+        self.showsTheirPlace = showsTheirPlace
         self.hero = hero()
         self.content = content()
         self.actions = actions()
@@ -70,15 +76,30 @@ struct FirstRunScreen<Hero: View, Content: View, Actions: View>: View {
                 .frame(maxWidth: FirstRunMetrics.column)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, FirstRunMetrics.side)
-                .padding(.top, 12)
+                .padding(.top, 20)
                 .padding(.bottom, 8)
-                .background(WECanvas.cream.bg.opacity(0.96))
+                .background {
+                    LinearGradient(
+                        colors: [WECanvas.surface.bg.opacity(0), WECanvas.surface.bg.opacity(0.85)],
+                        startPoint: .top,
+                        endPoint: UnitPoint(x: 0.5, y: 0.35)
+                    )
+                    .ignoresSafeArea(edges: .bottom)
+                }
                 .modifier(FirstRunArrival(visible: arrived, delay: 0.16))
         }
-        .background(WECanvas.cream.bg.ignoresSafeArea())
+        // The two lights, apart: before there is a couple, there are two
+        // people at opposite corners of the same ground.
+        .background {
+            ZStack {
+                WECanvas.surface.bg
+                WELights(identity: .seed, pose: lights, showsTheirPlace: showsTheirPlace)
+            }
+            .ignoresSafeArea()
+        }
         .foregroundStyle(.fieldInk(.headline))
-        .environment(\.weCanvas, .cream)
-        .preferredColorScheme(.light)
+        .environment(\.weCanvas, .surface)
+        .preferredColorScheme(WETheme.shared.colorScheme)
         .onAppear {
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.5)) { arrived = true }
         }
@@ -97,17 +118,20 @@ struct FirstRunHeadline: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(FieldType.hero)
-                .tracking(-0.4)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.isHeader)
+            WEWordReveal(
+                text: title.replacingOccurrences(of: "\n", with: " "),
+                font: FieldType.hero,
+                tracking: -0.4,
+                lineSpacing: 2
+            )
+            .accessibilityAddTraits(.isHeader)
             if let subtitle {
                 Text(subtitle)
                     .font(FieldType.body)
                     .foregroundStyle(.fieldInk(.reasoning))
                     .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
+                    .weArrival(delay: 0.3)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -124,9 +148,10 @@ struct FirstRunPrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(.body, weight: .semibold))
-            .foregroundStyle(WECanvas.cream.bg)
-            .frame(maxWidth: .infinity, minHeight: 56)
-            .background(WECanvas.cream.ink, in: RoundedRectangle(cornerRadius: FirstRunMetrics.radius, style: .continuous))
+            .foregroundStyle(WECanvas.surface.bg)
+            .frame(maxWidth: .infinity, minHeight: 58)
+            .background(WECanvas.surface.ink, in: Capsule())
+            .shadow(color: .black.opacity(WECanvas.surface.isDark ? 0.35 : 0.12), radius: 16, y: 8)
             .opacity(isEnabled ? (configuration.isPressed ? 0.86 : 1) : 0.35)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: configuration.isPressed)
@@ -141,17 +166,10 @@ struct FirstRunSecondaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(.body, weight: .medium))
-            .foregroundStyle(WECanvas.cream.ink)
-            .frame(maxWidth: .infinity, minHeight: 56)
-            .background(
-                WECanvas.cream.ink.opacity(configuration.isPressed ? 0.06 : 0),
-                in: RoundedRectangle(cornerRadius: FirstRunMetrics.radius, style: .continuous)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: FirstRunMetrics.radius, style: .continuous)
-                    .strokeBorder(WECanvas.cream.ink.opacity(0.18), lineWidth: 1)
-            }
-            .opacity(isEnabled ? 1 : 0.4)
+            .foregroundStyle(WECanvas.surface.ink)
+            .frame(maxWidth: .infinity, minHeight: 58)
+            .weGlass(in: Capsule(), interactive: true)
+            .opacity(isEnabled ? (configuration.isPressed ? 0.86 : 1) : 0.4)
             .contentShape(Rectangle())
     }
 }
@@ -161,7 +179,7 @@ struct FirstRunLinkStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(.subheadline, weight: .medium))
-            .foregroundStyle(WECanvas.cream.ink.opacity(configuration.isPressed ? 0.5 : 0.78))
+            .foregroundStyle(WECanvas.surface.ink.opacity(configuration.isPressed ? 0.5 : 0.78))
             .frame(minHeight: 44)
             .contentShape(Rectangle())
     }
@@ -199,11 +217,7 @@ struct FirstRunCard<Content: View>: View {
         content
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(WECanvas.cream.bgElevated, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .strokeBorder(WECanvas.cream.ink.opacity(0.08), lineWidth: 1)
-            }
+            .weGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 }
 
@@ -222,7 +236,7 @@ struct FirstRunChoiceCard: View {
                     Image(systemName: symbol)
                         .font(.system(size: 19, weight: .regular))
                         .frame(width: 44, height: 44)
-                        .background(WECanvas.cream.ink.opacity(0.06), in: Circle())
+                        .background(WECanvas.surface.ink.opacity(0.06), in: Circle())
                     VStack(alignment: .leading, spacing: 5) {
                         Text(title)
                             .font(FieldType.listItemLarge)

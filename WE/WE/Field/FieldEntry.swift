@@ -88,7 +88,7 @@ struct FieldRoot: View {
             // performed it. A couple that predates the ceremony, or has
             // finished it, never sees this — and neither does anybody whose
             // first read has not come back yet. See `WECeremonyPhase`.
-            if let ceremonyBackend, let store {
+            if WEFeatureFlags.promiseCeremonyEnabled, let ceremonyBackend, let store {
                 WECeremonyHost(
                     backend: ceremonyBackend,
                     identity: store.identity
@@ -307,7 +307,7 @@ struct FieldGallery: View {
             FieldSeasonClosedView(season: FieldSampleData.closedSeason)
         case .stillness:
             WEStillness(
-                line: "WE is still until Dylan arrives.",
+                line: "Quiet until Dylan arrives.",
                 identity: store.identity,
                 withdrawal: "Withdraw the invitation",
                 onWithdraw: {}

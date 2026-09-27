@@ -19,13 +19,13 @@ struct WEStillnessTests {
     /// change this test exists to make somebody argue for.
     @Test func nothingTimeVaryingCanReachTheScreen() {
         let first = WEStillness(
-            line: "WE is still until Dylan arrives.",
+            line: "Quiet until Dylan arrives.",
             identity: .seed,
             withdrawal: "Withdraw the invitation",
             onWithdraw: {}
         )
         let thirtyDaysLater = WEStillness(
-            line: "WE is still until Dylan arrives.",
+            line: "Quiet until Dylan arrives.",
             identity: .seed,
             withdrawal: "Withdraw the invitation",
             onWithdraw: {}
@@ -37,7 +37,7 @@ struct WEStillnessTests {
 
     /// The line is one sentence and says nothing about how long.
     @Test func theLineCarriesNoDuration() {
-        let line = "WE is still until Dylan arrives."
+        let line = "Quiet until Dylan arrives."
         #expect(line.allSatisfy { !$0.isNumber })
         for word in ["waiting", "still waiting", "yet", "since", "ago",
                      "minutes", "hours", "days", "resend", "remind"] {
@@ -52,7 +52,7 @@ struct WEStillnessTests {
     /// the withdrawal is optional in the type but present in practice.
     @Test func theWithdrawalIsAvailable() {
         let withOut = WEStillness(
-            line: "WE is still until Dylan arrives.",
+            line: "Quiet until Dylan arrives.",
             identity: .seed,
             withdrawal: "Withdraw the invitation",
             onWithdraw: {}

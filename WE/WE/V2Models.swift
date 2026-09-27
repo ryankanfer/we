@@ -40,9 +40,9 @@ nonisolated enum PresenceMode: String, CaseIterable, Codable, Sendable {
     var detail: String {
         switch self {
         case .apart:
-            "WE can surface a shared moment."
+            "A shared moment can surface."
         case .together:
-            "WE goes quiet and holds everything for later."
+            "Everything goes quiet and waits for later."
         case .away:
             "Timing widens while one of you is away."
         }

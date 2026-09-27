@@ -186,13 +186,14 @@ struct FieldTodayZone: View {
             VStack(spacing: 26) {
 
                 VStack(spacing: 16) {
-                    Text(headline)
-                        .font(FieldType.hero)
-                        .tracking(FieldTracking.hero)
-                        .foregroundStyle(.fieldInk(.headline))
-                        .fieldLineHeight(1.12, size: 42)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
+                    WEWordReveal(
+                        text: headline,
+                        font: FieldType.hero,
+                        tracking: FieldTracking.hero,
+                        lineSpacing: 4,
+                        alignment: .center
+                    )
+                    .foregroundStyle(.fieldInk(.headline))
 
                     Text(detail)
                         .font(FieldType.body)
@@ -201,6 +202,7 @@ struct FieldTodayZone: View {
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 270)
                         .fixedSize(horizontal: false, vertical: true)
+                        .weArrival(delay: 0.45)
                 }
                 // The combine stops here rather than wrapping the mark with
                 // it. The mark used to be inside this element and
@@ -228,12 +230,12 @@ struct FieldTodayZone: View {
             // heading that does nothing.
             Group {
                 if store.heldTopics.isEmpty {
-                    FieldLabel("What I'm watching")
+                    FieldLabel("What's being watched")
                 } else {
                     Button {
                         showsDeferral = true
                     } label: {
-                        FieldLabel("What I'm watching")
+                        FieldLabel("What's being watched")
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -336,7 +338,7 @@ struct FieldMomentView: View {
 
     private var accentColor: Color {
         moment.accent == .shared
-            ? store.identity.personB.color(on: .cream)
+            ? store.identity.personB.color(on: .surface)
             : store.identity.color(for: moment.accent, on: .cream)
     }
 
@@ -358,13 +360,14 @@ struct FieldMomentView: View {
                     .padding(.bottom, 14)
             }
 
-            Text(moment.headline)
-                .font(FieldType.hero)
-                .tracking(FieldTracking.hero)
-                .foregroundStyle(.fieldInk(.headline))
-                .fieldLineHeight(1.12, size: 42)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, 22)
+            WEWordReveal(
+                text: moment.headline,
+                font: FieldType.hero,
+                tracking: FieldTracking.hero,
+                lineSpacing: 4
+            )
+            .foregroundStyle(.fieldInk(.headline))
+            .padding(.bottom, 22)
 
             if case .question(let question) = moment.shape {
                 Text(question.stakes)
@@ -464,7 +467,7 @@ struct FieldMomentView: View {
                                 .frame(minHeight: 44)
                         }
                             .buttonStyle(.glassProminent)
-                            .tint(WECanvas.cream.ink)
+                            .tint(WECanvas.surface.ink)
                             .accessibilityIdentifier(identifier(for: action))
                     } else {
                         Button(action.title) { perform(action) }

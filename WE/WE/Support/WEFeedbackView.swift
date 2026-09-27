@@ -55,7 +55,7 @@ struct WEFeedbackView: View {
 
     var body: some View {
         ZStack {
-            WECanvas.cream.bg.ignoresSafeArea()
+            WECanvas.surface.bg.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -75,10 +75,10 @@ struct WEFeedbackView: View {
                 .padding(.bottom, 60)
             }
         }
-        .preferredColorScheme(.light)
+        .preferredColorScheme(WETheme.shared.colorScheme)
         .accessibilityIdentifier("field.feedback")
         .overlay(alignment: .topTrailing) { closeButton }
-        .environment(\.weCanvas, WECanvas.cream)
+        .environment(\.weCanvas, WECanvas.surface)
         .task { diagnosticLines = Self.summaries(in: store) + Self.lostWriting() }
         .sheet(isPresented: $showsMail) {
             WEMailComposer(
@@ -149,7 +149,7 @@ struct WEFeedbackView: View {
             .frame(minHeight: 140, alignment: .topLeading)
             .padding(14)
             .background(
-                WECanvas.cream.ink.opacity(0.06),
+                WECanvas.surface.ink.opacity(0.06),
                 in: RoundedRectangle(
                     cornerRadius: FieldMetrics.cardRadius,
                     style: .continuous
@@ -475,7 +475,7 @@ private struct WEAttachmentPreview: View {
 
     var body: some View {
         ZStack {
-            WECanvas.cream.bg.ignoresSafeArea()
+            WECanvas.surface.bg.ignoresSafeArea()
 
             ScrollView {
                 Text(data.flatMap { String(data: $0, encoding: .utf8) }
@@ -487,7 +487,7 @@ private struct WEAttachmentPreview: View {
                     .padding(20)
             }
         }
-        .preferredColorScheme(.light)
+        .preferredColorScheme(WETheme.shared.colorScheme)
         .accessibilityIdentifier("field.feedback.attachment.preview")
     }
 }

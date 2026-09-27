@@ -39,7 +39,7 @@ struct FieldCalendarSurface: View {
 
     var body: some View {
         ZStack {
-            WECanvas.cream.bg.ignoresSafeArea()
+            WECanvas.surface.bg.ignoresSafeArea()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -61,7 +61,7 @@ struct FieldCalendarSurface: View {
                 footer
                     .padding(.horizontal, FieldMetrics.takeoverSide)
                     .padding(.vertical, 12)
-                    .background(WECanvas.cream.bg)
+                    .background(WECanvas.surface.bg)
             }
         }
         .animation(.fieldZone(reduceMotion), value: monthOffset)
@@ -138,6 +138,9 @@ struct FieldCalendarSurface: View {
         let inMonth = calendar.isDate(date, equalTo: shownMonth, toGranularity: .month)
         let isToday = calendar.isDate(date, inSameDayAs: store.now)
         let items = items(on: date)
+        // "Something shared is on this day." Binary and faint: never a count,
+        // never a streak, never brighter for a busier day.
+        let sharesSomething = inMonth && items.contains { $0.isSharedPresence && !$0.isDone }
         let isSelected = selectedDay.map {
             calendar.isDate($0, inSameDayAs: date)
         } ?? false
@@ -176,9 +179,24 @@ struct FieldCalendarSurface: View {
             .frame(maxWidth: .infinity)
             .background {
                 if isSelected {
-                    Rectangle().fill(WECanvas.cream.ink.opacity(0.07))
+                    Rectangle().fill(WECanvas.surface.ink.opacity(0.07))
                 } else if isToday {
-                    Rectangle().fill(WECanvas.cream.ink.opacity(0.04))
+                    Rectangle().fill(WECanvas.surface.ink.opacity(0.04))
+                }
+                if sharesSomething {
+                    RadialGradient(
+                        colors: [
+                            store.viewerIdentity.personA.color(on: WECanvas.surface)
+                                .opacity(WECanvas.surface.isDark ? 0.16 : 0.10),
+                            store.viewerIdentity.personB.color(on: WECanvas.surface)
+                                .opacity(WECanvas.surface.isDark ? 0.10 : 0.06),
+                            .clear,
+                        ],
+                        center: .bottom,
+                        startRadius: 0,
+                        endRadius: 34
+                    )
+                    .allowsHitTesting(false)
                 }
             }
             .contentShape(Rectangle())

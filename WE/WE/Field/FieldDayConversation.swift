@@ -154,11 +154,11 @@ enum FieldDayCopy {
 
     static func holding(count: Int) -> String {
         count == 1
-            ? "I'm holding one thing back for now."
-            : "I'm holding \(count.spelled) things back for now."
+            ? "One thing is held back for now."
+            : "\(count.spelled.capitalized) things are held back for now."
     }
 
-    static let nothingFound = "I couldn't find that in Life."
+    static let nothingFound = "That isn't in Life."
     static let found = "Here's what's in Life:"
     static let saveForUs = "Save it for us to talk about"
     static let lookupPrivacy = "Only you see this"

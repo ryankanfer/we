@@ -193,7 +193,7 @@ struct WEArtifactDetail: View {
                     }
                     Section {
                         Button("Review sharing") { sharing = true }.disabled(record.content.title.isEmpty)
-                        Text("The original stays Only me. Choose exactly what your partner can see.").font(.footnote)
+                        Text("The original stays Only me. Choose exactly what \(field.intelligencePartnerName) can see.").font(.footnote)
                         Button("Delete Everywhere", role: .destructive) { deleting = true }
                     }
                 }
@@ -210,7 +210,7 @@ struct WEArtifactDetail: View {
                 }
                 .confirmationDialog("Understand this link?", isPresented: $fetching, titleVisibility: .visible) {
                     Button("Understand this link") { intelligence.understand(id, fetchLink: true) }
-                } message: { Text("WE will contact this public website without your browser login and understand its text on this phone. Nothing is shared with your partner.") }
+                } message: { Text("This opens the public website without your browser login and reads its text on this phone. Nothing is shared with \(field.intelligencePartnerName).") }
                 .confirmationDialog("Delete Everywhere?", isPresented: $deleting, titleVisibility: .visible) {
                     Button("Delete Everywhere", role: .destructive) { Task { await intelligence.deleteEverywhere(id); if intelligence.ledger.records[id]?.deleted == true { field.hideDeletedImportRepresentations(); dismiss(); await field.retryLoad() } } }
                 } message: {
@@ -571,9 +571,9 @@ private struct WEIntelligenceSurfaceStyle: ViewModifier {
     func body(content: Content) -> some View {
         content
             .scrollContentBackground(.hidden)
-            .background(WECanvas.cream.bg)
-            .environment(\.weCanvas, .cream)
-            .preferredColorScheme(.light)
-            .tint(WECanvas.cream.ink)
+            .background(WECanvas.surface.bg)
+            .environment(\.weCanvas, .surface)
+            .preferredColorScheme(WETheme.shared.colorScheme)
+            .tint(WECanvas.surface.ink)
     }
 }

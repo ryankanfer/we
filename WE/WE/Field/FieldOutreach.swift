@@ -303,8 +303,8 @@ enum FieldOutreach {
         case .calendarDraft: "Putting it on the calendar"
         case .complete: "Marking it done"
         case .unresolved(_, let name):
-            name.map { "I don't have a number for \($0)." }
-                ?? "I don't know who to reach for this."
+            name.map { "No number saved for \($0)." }
+                ?? "It's not clear who to reach for this."
         }
     }
 }

@@ -362,6 +362,11 @@ final class AppSession: ObservableObject {
         await perform { try await self.repository.joinCouple(code: code) }
     }
 
+    /// Gives up a space this person is alone in and joins theirs instead.
+    func joinInstead(code: String) async {
+        await perform { try await self.repository.joinInstead(code: code) }
+    }
+
     // MARK: The device
 
     /// Takes whatever token the delegate is holding and writes it down.

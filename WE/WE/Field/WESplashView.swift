@@ -10,27 +10,25 @@ struct WESplashView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
 
+    /// The icon, coming alive: two lights at the corners drift together and
+    /// the app opens around them. Tapping the icon and arriving in Today are
+    /// meant to feel like one continuous move.
+    @State private var pose: WELightsPose = .apart
+
     var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                WECanvas.cream.bg
-                VStack(spacing: 28) {
-                    WelcomeBloom(
-                        diameter: 230,
-                        identity: identity,
-                        formation: appeared || reduceMotion ? 1 : 0
-                    )
-                    Text("WE")
-                        .font(FieldType.hero(42))
-                        .foregroundStyle(.fieldInk(.headline))
-                }
+        ZStack {
+            WECanvas.surface.bg
+            WELights(identity: identity ?? .seed, pose: pose)
+            Text("WE")
+                .font(FieldType.mark)
+                .tracking(FieldTracking.mark * 2)
+                .foregroundStyle(.fieldInk(.headline))
                 .opacity(appeared ? 1 : 0)
-                .position(x: geometry.size.width / 2, y: geometry.size.height / 2 - 24)
-            }
+                .blur(radius: appeared || reduceMotion ? 0 : 6)
         }
         .ignoresSafeArea()
-        .environment(\.weCanvas, WECanvas.cream)
-        .preferredColorScheme(.light)
+        .environment(\.weCanvas, WECanvas.surface)
+        .preferredColorScheme(WETheme.shared.colorScheme)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("WE")
         .task { await run() }
@@ -42,6 +40,7 @@ struct WESplashView: View {
             withAnimation(.easeOut(duration: reduceMotion ? 0.25 : 0.65)) {
                 appeared = true
             }
+            pose = .near
             try await Task.sleep(for: .milliseconds(reduceMotion ? 350 : 850))
             let deadline = ContinuousClock.now.advanced(by: WESplashGate.holdCeiling)
             while isWaiting(), ContinuousClock.now < deadline {

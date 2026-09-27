@@ -117,16 +117,23 @@ struct FieldLifeZone: View {
                             Button {
                                 openGoal = FieldItemReference(id: goal.id)
                             } label: {
-                                Text(goal.title.trimmingCharacters(in: CharacterSet(charactersIn: ", ")))
-                                    .font(.system(size: 17, design: .serif))
-                                    .foregroundStyle(.fieldInk(.headline))
-                                    .lineLimit(1)
+                                HStack(spacing: 8) {
+                                    WELightsMark(
+                                        identity: store.viewerIdentity,
+                                        reading: store.lightsReading(for: goal),
+                                        size: 9
+                                    )
+                                    Text(goal.title.trimmingCharacters(in: CharacterSet(charactersIn: ", ")))
+                                        .font(.system(size: 17, design: .serif))
+                                        .foregroundStyle(.fieldInk(.headline))
+                                        .lineLimit(1)
+                                }
                                     .padding(.horizontal, 16)
                                     .padding(.vertical, 10)
-                                    .background(WECanvas.cream.bgElevated, in: Capsule())
+                                    .background(WECanvas.surface.bgElevated, in: Capsule())
                                     .overlay {
                                         if goal.isPrimary {
-                                            Capsule().strokeBorder(WECanvas.cream.ink.opacity(0.35), lineWidth: 1)
+                                            Capsule().strokeBorder(WECanvas.surface.ink.opacity(0.35), lineWidth: 1)
                                         }
                                     }
                             }
@@ -193,8 +200,7 @@ struct FieldLifeZone: View {
                 }
                 .padding(.horizontal, 20)
                 .frame(minHeight: 56)
-                .background(WECanvas.cream.bgElevated, in: Capsule())
-                .overlay { Capsule().strokeBorder(WECanvas.cream.ink.opacity(0.28), lineWidth: 1) }
+                .weGlass(in: Capsule(), interactive: true)
                 .contentShape(Capsule())
             }
             .accessibilityLabel("Search Life")
@@ -208,7 +214,7 @@ struct FieldLifeZone: View {
                                 .font(.system(size: 14))
                                 .padding(.horizontal, 14)
                                 .frame(minHeight: 36)
-                                .overlay { Capsule().strokeBorder(WECanvas.cream.ink.opacity(0.18), lineWidth: 1) }
+                                .overlay { Capsule().strokeBorder(WECanvas.surface.ink.opacity(0.18), lineWidth: 1) }
                                 .contentShape(Capsule())
                         }
                         .accessibilityLabel("Search \(word)")
@@ -310,9 +316,9 @@ struct FieldLifeZone: View {
                 Image(systemName: category?.symbol ?? "sparkles")
                     .font(.system(size: 19, weight: .regular))
                     .frame(width: 54, height: 54)
-                    .background(selected ? WECanvas.cream.ink : WECanvas.cream.bgElevated, in: Circle())
-                    .foregroundStyle(selected ? WECanvas.cream.bgElevated : WECanvas.cream.ink)
-                    .overlay { Circle().strokeBorder(WECanvas.cream.ink.opacity(selected ? 0 : 0.14), lineWidth: 1) }
+                    .background(selected ? WECanvas.surface.ink : WECanvas.surface.bgElevated, in: Circle())
+                    .foregroundStyle(selected ? WECanvas.surface.bgElevated : WECanvas.surface.ink)
+                    .overlay { Circle().strokeBorder(WECanvas.surface.ink.opacity(selected ? 0 : 0.14), lineWidth: 1) }
                 Text(category?.word ?? "All")
                     .font(.system(size: 12, weight: selected ? .semibold : .regular))
                     .foregroundStyle(selected ? .fieldInk(.headline) : .fieldInk(.reasoning))
@@ -452,7 +458,7 @@ private struct FieldPutAwaySheet: View {
 
     var body: some View {
         ZStack {
-            WECanvas.cream.bgElevated.ignoresSafeArea()
+            WECanvas.surface.bgElevated.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -478,8 +484,8 @@ private struct FieldPutAwaySheet: View {
                 .padding(.bottom, 60)
             }
         }
-        .preferredColorScheme(.light)
-        .environment(\.weCanvas, WECanvas.cream)
+        .preferredColorScheme(WETheme.shared.colorScheme)
+        .environment(\.weCanvas, WECanvas.surface)
         // Closes itself once the last one is back, because the row that opens
         // it has gone by then and there would be nothing here to look at.
         .onChange(of: store.putAwayCategories.isEmpty) { _, isEmpty in
@@ -535,7 +541,7 @@ struct FieldOnlyMeSheet: View {
 
     var body: some View {
         ZStack {
-            WECanvas.cream.bgElevated.ignoresSafeArea()
+            WECanvas.surface.bgElevated.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -561,8 +567,8 @@ struct FieldOnlyMeSheet: View {
                 .padding(.bottom, 60)
             }
         }
-        .preferredColorScheme(.light)
-        .environment(\.weCanvas, WECanvas.cream)
+        .preferredColorScheme(WETheme.shared.colorScheme)
+        .environment(\.weCanvas, WECanvas.surface)
         .sheet(item: $openItem) { FieldItemSheet(itemID: $0.id).environment(store) }
         .confirmationDialog(
             "Share with \(store.partnerName)?",

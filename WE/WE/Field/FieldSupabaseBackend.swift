@@ -455,8 +455,8 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             return FieldDailyMoment(
                 sendMinute: 8 * 60 + 12,
                 queuedCount: 0,
-                hourRationale: "I haven't learned your hour yet, so I'm "
-                    + "starting in the morning and watching when you reply.",
+                hourRationale: "Your hour isn't learned yet, so this "
+                    + "starts in the morning and watches when you reply.",
                 replyRateBefore: 0,
                 replyRateAfter: 0,
                 lastSentOn: nil

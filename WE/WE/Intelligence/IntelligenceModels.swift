@@ -52,7 +52,7 @@ protocol WETimeProvider {
 
 extension LifeItem {
     var objectVisibility: WEObjectVisibility { visibility == .private ? .onlyMe : .shared }
-    var privacyLabel: String { objectVisibility == .onlyMe ? "Only me" : "Shared with your partner" }
+    var privacyLabel: String { objectVisibility == .onlyMe ? "Only me" : "Shared" }
     var objectTiming: WEObjectTiming? {
         if let timing { return timing }
         if let closesAt { return WEObjectTiming(precision: .time, kind: .deadline, start: closesAt, timeZoneID: TimeZone.current.identifier) }

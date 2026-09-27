@@ -29,7 +29,9 @@ final class WEUITests: XCTestCase {
         app.buttons["Done"].tap()
 
         app.textFields["Email"].tap()
-        app.textFields["Email"].typeText("ryan@example.com")
+        // One question per screen: return moves on to the password.
+        app.textFields["Email"].typeText("ryan@example.com\n")
+        XCTAssertTrue(app.secureTextFields["Password"].waitForExistence(timeout: 3))
         app.secureTextFields["Password"].tap()
         app.secureTextFields["Password"].typeText("password")
         app.buttons["accountSubmitButton"].tap()

@@ -164,7 +164,7 @@ struct SharedJourneyUsSurface: View {
                                 .fill(
                                     selectedChoice == option
                                         ? store.identity.personA.color
-                                        : WECanvas.cream.ink.opacity(0.16)
+                                        : WECanvas.surface.ink.opacity(0.16)
                                 )
                                 .frame(width: 8, height: 8)
                             Text(option)

@@ -138,6 +138,15 @@ final class SupabaseRepository: Repository {
             .execute()
     }
 
+    func joinInstead(code: String) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "join_instead",
+                params: JoinCoupleParameters(code: normalized(code))
+            )
+            .execute()
+    }
+
     func createInvitation() async throws {
         _ = try await configuredClient().rpc("create_invitation").execute()
     }

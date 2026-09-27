@@ -124,7 +124,7 @@ private struct FieldLookupReview: View {
 
     var body: some View {
         ZStack {
-            WECanvas.cream.bgElevated.ignoresSafeArea()
+            WECanvas.surface.bgElevated.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 fixedHeader
@@ -163,8 +163,8 @@ private struct FieldLookupReview: View {
                 .scrollDismissesKeyboard(.interactively)
             }
         }
-        .preferredColorScheme(.light)
-        .environment(\.weCanvas, WECanvas.cream)
+        .preferredColorScheme(WETheme.shared.colorScheme)
+        .environment(\.weCanvas, WECanvas.surface)
         .presentationDragIndicator(.visible)
         .accessibilityIdentifier("field.item.lookup.review")
     }
@@ -185,8 +185,8 @@ private struct FieldLookupReview: View {
         .frame(minHeight: 56)
         .background(
             reduceTransparency
-                ? WECanvas.cream.bgElevated
-                : WECanvas.cream.bgElevated.opacity(0.97)
+                ? WECanvas.surface.bgElevated
+                : WECanvas.surface.bgElevated.opacity(0.97)
         )
     }
 
@@ -201,7 +201,7 @@ private struct FieldLookupReview: View {
             // nothing to send.
             Text(
                 request.choice.destination == .source
-                    ? "WE will open the original link you saved. No new "
+                    ? "This opens the original link you saved. No new "
                         + "search query is created or sent by WE."
                     : "Only the words shown below leave WE."
             )

@@ -29,7 +29,10 @@ final class WEAccountSurfaceUITests: XCTestCase {
         let email = app.textFields["account.field.email"]
         email.tap(); email.typeText("alex@example.com")
         email.typeText("\n")
-        app.secureTextFields["account.field.password"].typeText("password")
+        let password = app.secureTextFields["account.field.password"]
+        XCTAssertTrue(password.waitForExistence(timeout: 3))
+        password.tap()
+        password.typeText("password")
         app.buttons["account.password.visibility"].tap()
         XCTAssertEqual(app.textFields["account.field.password"].value as? String, "password")
         app.buttons["account.password.visibility"].tap()

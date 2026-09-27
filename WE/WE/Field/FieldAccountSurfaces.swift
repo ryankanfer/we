@@ -5,21 +5,21 @@ import SwiftUI
 enum FieldAccountSurface: String, Identifiable, CaseIterable {
     case presence = "Presence"
     case moment = "One moment a day"
-    case deferral = "What I'm watching"
-    case corrections = "What I've changed"
+    case deferral = "What's being watched"
+    case corrections = "What's changed"
     case seasons = "Past seasons"
 
     var summary: String {
         switch self {
-        case .presence: "Shared away windows and what WE is holding."
+        case .presence: "Shared away windows and what's being held."
         case .moment: "Adjust the time, or skip today’s moment."
-        case .deferral: "Review topics WE is waiting to bring up."
+        case .deferral: "Review topics waiting to be brought up."
         case .corrections: "See how your corrections shape WE’s responses."
         case .seasons: "Revisit the seasons you’ve closed together."
         }
     }
 
-    var canvas: WECanvas { self == .moment ? .ground : .cream }
+    var canvas: WECanvas { self == .moment ? .ground : .surface }
 
     var id: String { rawValue }
     var accessibilityID: String {
@@ -44,7 +44,7 @@ struct FieldAccountSurfaceView: View {
                 switch surface {
                 case .presence: FieldPresenceView()
                 case .moment: FieldDailyMomentView()
-                case .deferral: FieldDeferralView(showsDoneButton: false, canvas: .cream)
+                case .deferral: FieldDeferralView(showsDoneButton: false, canvas: .surface)
                 case .corrections:
                     ScrollView {
                         FieldCorrectionSummary(showsEmptyState: true).padding(24)
@@ -83,7 +83,7 @@ struct FieldCorrectionSummary: View {
     var body: some View {
         if !store.behaviourChanges.isEmpty || showsEmptyState {
             VStack(alignment: .leading, spacing: 12) {
-                Text("What I've changed").font(FieldType.weLifeSection)
+                Text("What's changed").font(FieldType.weLifeSection)
                     .foregroundStyle(.fieldInk(.headline))
                     .accessibilityAddTraits(.isHeader)
                 if store.behaviourChanges.isEmpty {
@@ -137,7 +137,7 @@ struct FieldPastSeasonsView: View {
                     }
                 }
             }
-            .listRowBackground(WECanvas.cream.bgElevated)
+            .listRowBackground(WECanvas.surface.bgElevated)
         }
         .scrollContentBackground(.hidden)
         .accessibilityIdentifier("field.seasons")

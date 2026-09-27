@@ -100,7 +100,7 @@ struct WEInvitationArrival: View {
 
     var body: some View {
         ZStack {
-            WECanvas.cream.bg.ignoresSafeArea()
+            WECanvas.surface.bg.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 0) {
                 Spacer(minLength: 0)
@@ -154,7 +154,7 @@ struct WEInvitationArrival: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(WECanvas.cream.ink)
+                .foregroundStyle(WECanvas.surface.ink)
                 .accessibilityLabel("Close")
                 .accessibilityIdentifier("welcome.invitation.close")
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
@@ -163,8 +163,8 @@ struct WEInvitationArrival: View {
             }
         }
         .animation(.easeInOut(duration: 0.45), value: greeting)
-        .environment(\.weCanvas, .cream)
-        .preferredColorScheme(.light)
+        .environment(\.weCanvas, .surface)
+        .preferredColorScheme(WETheme.shared.colorScheme)
         .accessibilityElement(children: .contain)
         // A code held from a link is asked about immediately, so the sentence
         // is already the person's name by the time the screen settles.
@@ -199,7 +199,7 @@ struct WEInvitationArrival: View {
                 HStack(spacing: 10) {
                     if isLookingUp {
                         ProgressView()
-                            .tint(WECanvas.cream.bg)
+                            .tint(WECanvas.surface.bg)
                             .accessibilityHidden(true)
                     }
                     Text(isLookingUp ? "Checking the code…" : WEGateCopy.useCode)

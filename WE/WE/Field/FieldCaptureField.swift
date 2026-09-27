@@ -221,16 +221,16 @@ struct FieldCaptureField: View {
                 TextEditor(text: $store.captureDraft)
                     .font(FieldType.captureWriting)
                     .lineSpacing(5)
-                    .foregroundStyle(completion == nil ? FieldInk.headline.color(on: .cream) : Color.clear)
-                    .tint(WECanvas.cream.ink)
+                    .foregroundStyle(completion == nil ? FieldInk.headline.color(on: .surface) : Color.clear)
+                    .tint(WECanvas.surface.ink)
                     .scrollContentBackground(.hidden)
                     .frame(minHeight: compact ? 110 : 150, maxHeight: 220)
                     .focused($isFocused)
                     .accessibilityLabel("Say something")
                     .accessibilityIdentifier("field.capture.input")
                 if let completion {
-                    (Text(store.captureDraft).foregroundColor(FieldInk.headline.color(on: .cream)) +
-                     Text(String(completion.text.dropFirst(store.captureDraft.count))).italic().foregroundColor(FieldInk.reasoning.color(on: .cream)))
+                    (Text(store.captureDraft).foregroundColor(FieldInk.headline.color(on: .surface)) +
+                     Text(String(completion.text.dropFirst(store.captureDraft.count))).italic().foregroundColor(FieldInk.reasoning.color(on: .surface)))
                         .font(FieldType.captureWriting).lineSpacing(5)
                         .padding(.horizontal, 5).padding(.top, 8)
                         .allowsHitTesting(false).accessibilityHidden(true)
@@ -264,7 +264,7 @@ struct FieldCaptureField: View {
                 Button { submit() } label: {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 19, weight: .medium))
-                        .foregroundStyle(WECanvas.cream.ink)
+                        .foregroundStyle(WECanvas.surface.ink)
                         .frame(width: 48, height: 48)
                         .contentShape(Circle())
                 }
@@ -280,11 +280,11 @@ struct FieldCaptureField: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 28))
         .overlay {
             RoundedRectangle(cornerRadius: 28)
-                .strokeBorder(WECanvas.cream.ink.opacity(0.08), lineWidth: 0.5)
+                .strokeBorder(WECanvas.surface.ink.opacity(0.08), lineWidth: 0.5)
                 .accessibilityHidden(true)
         }
-        .shadow(color: WECanvas.cream.ink.opacity(0.06), radius: 20, x: 0, y: 8)
-        .environment(\.weCanvas, .cream)
+        .shadow(color: WECanvas.surface.ink.opacity(0.06), radius: 20, x: 0, y: 8)
+        .environment(\.weCanvas, .surface)
     }
 
     // MARK: The receipt
@@ -416,7 +416,7 @@ struct FieldCaptureField: View {
                     .frame(maxWidth: .infinity, minHeight: 44)
             }
             .buttonStyle(.glassProminent)
-            .tint(WECanvas.cream.ink)
+            .tint(WECanvas.surface.ink)
             .accessibilityIdentifier("field.receipt.send")
             .accessibilityHint(
                 store.lastReceipt?.isPrivate == true ? "Saves this just for you" : "Saves this where both of you can see it"

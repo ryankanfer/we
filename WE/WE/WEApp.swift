@@ -103,19 +103,20 @@ struct WEApp: App {
                 }
             }
             .environmentObject(walkthrough)
+            // Paper, dark, or following the iPhone. Read here so the whole
+            // scene redraws when it changes.
+            .weThemeRoot()
             // First run only after an account exists. The flag is written by
             // `AppSession.signUp`; this is the first moment it can be spent.
             .onChange(of: host.session.state, initial: true) { _, state in
                 guard FieldEntry.Mode.current == .live else { return }
                 walkthrough.presentIfPending(for: state)
-                // A held code is only ever spent at `.needsCouple`. Once this
-                // person is in a space of their own, an old one must not wait
-                // around to be redeemed the day they leave it.
-                switch state {
-                case .ready, .waitingForPartner:
+                // A held code is spent at `.needsCouple`, or offered as "join
+                // instead" while waiting alone. Once this person shares a
+                // space, an old one must not wait around to be redeemed the
+                // day they leave it.
+                if state == .ready {
                     pendingInvitation.clear()
-                default:
-                    break
                 }
             }
             .environment(
@@ -239,8 +240,16 @@ struct WEApp: App {
 
     /// The couple's own two colours, for the cross-tint. Before a couple
     /// exists there is nobody to be, and the collapse stays brand throughout.
+    /// The couple's colours as this phone's person sees them: `personA` is
+    /// always their own light. The member order is the server's A/B slot.
     private func fieldIdentity(_ snapshot: RelationshipSnapshot) -> FieldIdentity {
-        snapshot.emptyFieldState.identity
+        var identity = snapshot.emptyFieldState.identity
+        if let me = host.session.user?.id,
+           snapshot.members.firstIndex(where: { $0.id == me }) == 1 {
+            swap(&identity.personA, &identity.personB)
+            swap(&identity.nameA, &identity.nameB)
+        }
+        return identity
     }
 
     private var liveApp: some View {

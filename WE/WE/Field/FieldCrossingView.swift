@@ -111,8 +111,8 @@ struct FieldCrossingView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             Text("None of it has crossed. It won't unless you say so — and if "
-                 + "you'd rather keep it, that's a real answer and I won't ask "
-                 + "again.")
+                 + "you'd rather keep it, that's a real answer and it won't be "
+                 + "asked again.")
                 .font(FieldType.body)
                 .foregroundStyle(.fieldInk(.sectionSubtitle))
                 .fieldLineHeight(1.6, size: 14.5)
@@ -131,7 +131,7 @@ struct FieldCrossingView: View {
                 .padding(.bottom, 8)
 
             line("The things you filed, and what you typed to file them")
-            line("Corrections you made to how I sort things")
+            line("Corrections you made to how things are sorted")
             line("Rules you set, and what you asked me to hold back")
         }
     }
@@ -197,8 +197,8 @@ struct FieldCrossingView: View {
             .padding(.bottom, didNotCross ? 10 : 14)
 
             if didNotCross {
-                Text("That didn't cross — nothing moved, and I haven't taken "
-                     + "this as your answer. Try again when you're back on.")
+                Text("That didn't cross — nothing moved, and it hasn't been "
+                     + "taken as your answer. Try again when you're back on.")
                     .font(FieldType.reasoning)
                     .foregroundStyle(.fieldInk(.reasoning))
                     .fieldLineHeight(1.5, size: 13)
