@@ -154,10 +154,10 @@ struct WEPigmentTests {
     /// through the cut so that the call sites keep naming their ground; this
     /// is what stops that signature from quietly growing a second answer again
     /// without the cream canvas's contrast solve behind it.
-    @Test func everyGroundSelectsTheSoftTone() {
+    @Test func eachGroundSelectsItsLegiblePigmentVariant() {
         for swatch in FieldSwatch.allCases {
             for canvas in WECanvas.allCases {
-                #expect(swatch.color(on: canvas) == swatch.soft)
+                #expect(swatch.color(on: canvas) == (canvas == .cream ? swatch.deep : swatch.soft))
             }
             #expect(swatch.color == swatch.soft)
         }
@@ -180,75 +180,32 @@ struct WEPigmentTests {
         }
     }
 
-    /// The pairwise blend matrix, and the claim it makes.
-    ///
-    /// "Yours. Dylan's. Ours." only works if the third thing is a third
-    /// thing. Where the blend sits closer than CIEDE2000 8 to a parent it
-    /// reads as two colours rather than three — and `blendIsMuddy` must name
-    /// exactly those pairs, no more and no fewer. A hand-maintained list that
-    /// drifted from the maths would either nag people about fine pairs or
-    /// quietly ship the muddy ones.
-    @Test func theMuddyPairsAreExactlyTheMeasuredOnes() {
-        var measured: Set<Set<FieldSwatch>> = []
-        for a in FieldSwatch.allCases {
-            for b in FieldSwatch.allCases where a != b {
+    /// Why the families replace the similar pair rule. Every pair that
+    /// could ever be on screen together is one warm and one cool, and every
+    /// one of those blends into a third colour rather than reading as two.
+    @Test func everyWarmAndCoolPairBlendsCleanly() {
+        for a in FieldPersonPalette.warm.swatches {
+            for b in FieldPersonPalette.cool.swatches {
                 let ca = Self.components(a.soft)
                 let cb = Self.components(b.soft)
                 let mixed = Self.blend(ca, cb)
-                let nearest = min(
-                    Self.ciede2000(mixed, ca),
-                    Self.ciede2000(mixed, cb)
-                )
-                if nearest < 8 { measured.insert(Set([a, b])) }
+                let nearest = min(Self.ciede2000(mixed, ca), Self.ciede2000(mixed, cb))
+                #expect(nearest >= 8, "\(a.name) and \(b.name) blend muddily")
             }
         }
-        for pair in measured {
-            let two = Array(pair)
-            #expect(
-                FieldSwatch.blendIsMuddy(two[0], two[1]),
-                "\(two[0].name) and \(two[1].name) blend muddily and are not flagged"
-            )
-        }
-        for a in FieldSwatch.allCases {
-            for b in FieldSwatch.allCases where a != b {
-                if FieldSwatch.blendIsMuddy(a, b) {
-                    #expect(
-                        measured.contains(Set([a, b])),
-                        "\(a.name) and \(b.name) are flagged but blend fine"
-                    )
-                }
-            }
-        }
-        // Four of twenty eight. If this number moves a lot, the palette moved.
-        #expect(measured.count == 4, "\(measured.count) muddy pairs")
     }
 
-    /// The seeded pair is a fine pair, which it had better be.
-    @Test func theSeededPairBlendsCleanly() {
+    /// Assigned, not chosen: starter is warm, joiner is cool, and the seed
+    /// is the pair on the icon.
+    @Test func coloursAreAssignedByFamily() {
         #expect(FieldIdentity.seed.personA == .burgundy)
         #expect(FieldIdentity.seed.personB == .sage)
-        #expect(!FieldSwatch.blendIsMuddy(.burgundy, .sage))
-    }
-
-    /// What is offered when a pair is too close stays in the same family of
-    /// warmth. Answering a near collision by offering somebody the opposite
-    /// side of the wheel is the app overruling a choice rather than helping.
-    @Test func neighboursStayNearby() {
-        for swatch in FieldSwatch.allCases {
-            #expect(!swatch.neighbours.isEmpty)
-            #expect(!swatch.neighbours.contains(swatch))
-            for neighbour in swatch.neighbours {
-                #expect(
-                    neighbour.palette == swatch.palette,
-                    "\(swatch.name) is offered \(neighbour.name)"
-                )
-                #expect(
-                    !FieldSwatch.blendIsMuddy(swatch, neighbour)
-                        || swatch.neighbours.count > 1,
-                    "\(swatch.name) has no clean way out"
-                )
-            }
-        }
+        #expect(FieldSwatch.family(for: .a) == .warm)
+        #expect(FieldSwatch.family(for: .b) == .cool)
+        #expect(FieldSwatch.sage.inFamily(of: .a) == .burgundy)
+        #expect(FieldSwatch.rust.inFamily(of: .b) == .sage)
+        #expect(FieldSwatch.amber.inFamily(of: .a) == .amber)
+        #expect(FieldSwatch.teal.inFamily(of: .b) == .teal)
     }
 
     @Test func thereAreEightFamiliesInTwoGroups() {

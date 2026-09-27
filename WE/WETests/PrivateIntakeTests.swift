@@ -339,7 +339,7 @@ struct PrivateIntakeTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         let controller = ShareVaultController(
             defaults: defaults,
-            root: root
+            root: root, keychainNamespace: suite
         )
         defer {
             controller.purge(accountID: account)
@@ -388,7 +388,7 @@ struct PrivateIntakeTests {
             directoryHint: .isDirectory
         )
         let defaults = try #require(UserDefaults(suiteName: suite))
-        let before = ShareVaultController(defaults: defaults, root: root)
+        let before = ShareVaultController(defaults: defaults, root: root, keychainNamespace: suite)
         defer {
             before.purgeEveryAccount()
             defaults.removePersistentDomain(forName: suite)
@@ -421,7 +421,7 @@ struct PrivateIntakeTests {
         )
         let after = ShareVaultController(
             defaults: reinstalledDefaults,
-            root: reinstalledRoot
+            root: reinstalledRoot, keychainNamespace: suite
         )
         defer {
             after.purgeEveryAccount()
@@ -468,7 +468,7 @@ struct PrivateIntakeTests {
             directoryHint: .isDirectory
         )
         let defaults = try #require(UserDefaults(suiteName: suite))
-        let controller = ShareVaultController(defaults: defaults, root: root)
+        let controller = ShareVaultController(defaults: defaults, root: root, keychainNamespace: suite)
         defer {
             controller.purgeEveryAccount()
             defaults.removePersistentDomain(forName: suite)
@@ -602,7 +602,7 @@ struct PrivateIntakeTests {
     }
 
     @Test
-    func reviewFreezesARevisionAndDeletesOnlyAfterConfirmation() async throws {
+    func reviewFreezesARevisionAndPreservesOriginalAfterPublication() async throws {
         let suite = "we-review-\(UUID().uuidString)"
         let account = "review-account-\(UUID().uuidString)"
         let root = FileManager.default.temporaryDirectory.appending(
@@ -614,7 +614,7 @@ struct PrivateIntakeTests {
             directoryHint: .isDirectory
         )
         let defaults = try #require(UserDefaults(suiteName: suite))
-        let vault = ShareVaultController(defaults: defaults, root: root)
+        let vault = ShareVaultController(defaults: defaults, root: root, keychainNamespace: suite)
         let context = try vault.activate(
             accountID: account,
             hueToken: "burgundy"
@@ -681,12 +681,12 @@ struct PrivateIntakeTests {
 
         #expect(model.publishedItemID != nil)
         #expect(backend.snapshots.map(\.revision) == [1, 2])
-        #expect(try vault.store.readyDrafts(context: context).isEmpty)
+        #expect(try vault.store.readyDrafts(context: context).map(\.id) == [draft.manifest.id])
         #expect(
             try persistence.load(
                 draftID: draft.manifest.id,
                 vaultID: context.pointer.vaultID
-            ) == nil
+            ) != nil
         )
     }
 

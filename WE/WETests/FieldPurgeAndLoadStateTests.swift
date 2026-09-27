@@ -144,7 +144,7 @@ struct WELocalDataTests {
 
         subject.purge()
 
-        #expect(subject.outbox.load(stranger).isEmpty)
+        #expect(subject.outbox.load(stranger).entries.isEmpty)
     }
 
     /// A purge cannot stop at the first thing it fails to remove — that would

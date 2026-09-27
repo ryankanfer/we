@@ -35,59 +35,35 @@ import Foundation
 // receipt never names it, because nothing is ever sent there.
 
 enum FieldZone: Int, CaseIterable, Codable, Sendable, Identifiable {
-    case life = 0
-    /// Index 1, and the home. Cold launch always lands here.
-    case we = 1
-    case us = 2
+    /// Index 0, and the home. Cold launch always lands here. The day's
+    /// conversation: what matters now, and what either of you added today.
+    case today = 0
+    /// Everything the couple is carrying, goals included. The only zone that
+    /// holds anything; Us is no longer a place of its own.
+    case life = 1
 
     var id: Int { rawValue }
 
     var label: String {
         switch self {
+        case .today: "TODAY"
         case .life: "LIFE"
-        case .we: "TODAY"
-        case .us: "US"
         }
     }
 
-    /// The ground this zone stands on.
-    ///
-    /// All three zones stand on the same ground.
-    ///
-    /// Life used to take a cream canvas, on the argument that the ground was
-    /// a claim about what kind of material a zone holds. V2 §3 cuts that:
-    /// "an earlier light treatment for Life was cut so that geometry alone
-    /// carries differentiation." The zones are now told apart by their
-    /// structure — a read, strata, a field — and by which corner the glow
-    /// pools in, not by the colour of the page.
-    ///
-    /// Kept as a property rather than deleted because the deviations in
-    /// `WECanvas` are real and a zone is still the thing that answers this
-    /// question. It just answers it the same way three times.
-    var canvas: WECanvas { .ground }
+    /// Both zones read on the warm paper.
+    var canvas: WECanvas { .surface }
 
-    /// Which way the light falls here.
-    ///
-    /// With the ground constant across all three zones, this is what does the
-    /// orientation work — V2 §3 assigns each zone one corner and Today gets
-    /// both, because Today is the one that belongs to the two of you at once.
+    /// Today is lit from both sides, because it belongs to the two of you at
+    /// once; Life pools warm from the left.
     var glow: FieldGlowStatement {
         switch self {
+        case .today: .splitBottom
         case .life: .warmBottomLeft
-        case .we: .splitBottom
-        case .us: .coolBottomRight
         }
     }
 
-    /// The nav renders WE as a mark, not a word, so its nav label differs
-    /// from its zone label.
-    var navLabel: String {
-        switch self {
-        case .life: "LIFE"
-        case .we: "WE"
-        case .us: "US"
-        }
-    }
+    var navLabel: String { label }
 }
 
 // MARK: - Partners
@@ -324,6 +300,12 @@ enum FieldVisibility: String, Codable, Sendable {
 }
 
 struct LifeItem: Identifiable, Codable, Hashable, Sendable {
+    var publicationVersion: Int? = nil
+    var timing: WEObjectTiming? = nil
+    var connectedPlanID: String? = nil
+    var place: String? = nil
+    /// Keeps an explicitly created next step actionable without inventing a date.
+    var explicitTask: Bool? = nil
     let id: String
     var title: String
     var category: LifeCategory
@@ -343,11 +325,9 @@ struct LifeItem: Identifiable, Codable, Hashable, Sendable {
     var isDone: Bool
     /// The link this item arrived as, when it arrived from somewhere else.
     ///
-    /// Not a column. `field_life_resources` has stored the approved URLs of
-    /// every published share since private intake shipped, keyed to the item —
-    /// the app simply never read them back. This is that row, attached on
-    /// fetch, so the lookup policy can tell a thing somebody bought on Amazon
-    /// from a thing somebody wrote down.
+    /// Stored in `source_url` for captures and conversation links. Published
+    /// shares can also supply an approved URL through `field_life_resources`;
+    /// the backend falls back to that resource when the column is absent.
     ///
     /// Last in the list and optional on purpose: the memberwise initialiser
     /// keeps its default for every existing call site, and a cached item
@@ -360,6 +340,47 @@ struct LifeItem: Identifiable, Codable, Hashable, Sendable {
     /// directly so that absence resolves to the column default — `shared` —
     /// in exactly one place.
     var visibility: FieldVisibility?
+
+    /// When somebody confirmed they actually made the outward move.
+    ///
+    /// The one fact that separates *this is ours to do* from *someone else has
+    /// it now*, and the app is not allowed to invent it. It is written only
+    /// from a person's own answer to "you called them — is that one done?",
+    /// never from `openURL` succeeding: a dialler appearing on screen is not a
+    /// conversation. Nil means the next move is still ours, however the title
+    /// happens to be phrased.
+    ///
+    /// Nil-able and clearable on purpose — a person may take the action back.
+    /// Optional for the same reason `sourceURL` and `visibility` are: rows
+    /// written before the column existed decode without it.
+    var reachedOutAt: Date?
+
+    /// Whether anyone outside the couple currently owes a reply.
+    ///
+    /// Confirmed outreach plus not yet finished. There is no separate stored
+    /// "awaiting a response" fact because there is nothing a second column
+    /// could say: the moment the thing is done, nobody is owed anything.
+    var isAwaitingSomeoneElse: Bool { reachedOutAt != nil && !isDone }
+
+    /// "Hold until": the day an Only me item's author wanted to be asked
+    /// whether it is ready to share.
+    ///
+    /// Only me is framed as time, not a wall. A gift idea, a surprise, a thing
+    /// somebody is still working out how to say: private because it is not
+    /// ready yet. This is the "yet". WE never shares on its own; on the day,
+    /// it asks the author, and only the author, whether it is time.
+    ///
+    /// Meaningless once shared, and the database clears it on that crossing
+    /// (`20260927120000_hold_until.sql`), so a partner who can read the row
+    /// never learns when it was meant to arrive. Optional for the same reason
+    /// the columns above are.
+    var holdUntil: Date? = nil
+
+    /// Private, held, and the day has come.
+    func isReadyToOffer(on day: Date, calendar: Calendar = .gregorianUS) -> Bool {
+        guard visibility == .private, !isDone, let holdUntil else { return false }
+        return calendar.startOfDay(for: holdUntil) <= calendar.startOfDay(for: day)
+    }
 
     /// Whether this item may inform something both people will see.
     ///
@@ -494,6 +515,7 @@ struct FieldCluster: Identifiable, Codable, Hashable, Sendable {
 // MARK: - Us
 
 struct FieldHorizon: Identifiable, Codable, Hashable, Sendable {
+    var goalPlan: FieldGoalPlan? = nil
     let id: String
     /// "Japan," — the first line, largest type in the app.
     var title: String
@@ -752,7 +774,7 @@ struct FieldDailyMoment: Codable, Hashable, Sendable {
 
 /// What the app filed, where, and why. Produced by the classifier, corrected
 /// in one tap.
-struct FieldReceipt: Identifiable, Hashable, Sendable {
+struct FieldReceipt: Identifiable, Codable, Hashable, Sendable {
     let id: String
     /// Exactly what was typed. Kept verbatim: it is what the correction log
     /// learns from, and what the chip under the field shows back.
@@ -774,6 +796,11 @@ struct FieldReceipt: Identifiable, Hashable, Sendable {
     /// "Only me". Off unless the person turns it on, so the default stays
     /// what it has always been: filed things are shared.
     var isPrivate: Bool = false
+    /// "Hold until", chosen with Only me. Ignored when the receipt is shared.
+    var holdUntil: Date? = nil
+    /// A link handed over with the words, from the + card. It travels onto
+    /// the filed item, where the link is what gets opened.
+    var sourceURL: URL? = nil
 
     /// Shown under the destination when tidying actually changed something.
     /// Silent when the title is the input, so the receipt does not narrate a

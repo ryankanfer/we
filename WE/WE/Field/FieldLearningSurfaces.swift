@@ -29,17 +29,24 @@ struct FieldDeferralView: View {
     @Environment(FieldStore.self) private var store
     @Environment(\.dismiss) private var dismiss
 
+    var showsDoneButton = true
+    var canvas: WECanvas = .ground
+
     private var held: [FieldHeldTopic] { store.heldTopics }
 
     var body: some View {
         ZStack {
-            FieldPalette.bg.ignoresSafeArea()
+            canvas.bg.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
                     header
                         .padding(.bottom, FieldMetrics.sectionGap)
 
+                    if held.isEmpty {
+                        Text("Nothing is being held back right now.")
+                            .font(FieldType.body)
+                    }
                     VStack(spacing: 0) {
                         ForEach(held) { topic in
                             topicRow(topic)
@@ -49,13 +56,16 @@ struct FieldDeferralView: View {
 
                     standingRules
                 }
-                .padding(.top, FieldMetrics.screenTop)
+                .padding(.top, showsDoneButton ? FieldMetrics.screenTop : 24)
                 .padding(.horizontal, FieldMetrics.screenSide)
                 .padding(.bottom, 60)
             }
         }
-        .overlay(alignment: .topTrailing) { doneButton(dismiss) }
-        .preferredColorScheme(.dark)
+        .overlay(alignment: .topTrailing) {
+            if showsDoneButton { doneButton(dismiss) }
+        }
+        .environment(\.weCanvas, canvas)
+        .preferredColorScheme(canvas == .cream ? .light : .dark)
         .accessibilityIdentifier("field.deferral")
     }
 
@@ -78,7 +88,7 @@ struct FieldDeferralView: View {
                     .foregroundStyle(.fieldInk(.headerMeta))
             }
 
-            Text("Things I'm not bringing up yet.")
+            Text("Things held back for now.")
                 .font(FieldType.pageHeadline)
                 .foregroundStyle(.fieldInk(.headline))
                 .fieldLineHeight(1.16, size: 32)
@@ -87,8 +97,8 @@ struct FieldDeferralView: View {
             // The line that makes deferral feel like tact rather than
             // withholding.
             Text(
-                "Timing is most of tact. You can override any of these — I'd "
-                    + "rather be early than sneaky."
+                "Timing is most of tact. You can override any of these; "
+                    + "early beats sneaky."
             )
             .font(FieldType.body)
             .foregroundStyle(.fieldInk(.sectionSubtitle))

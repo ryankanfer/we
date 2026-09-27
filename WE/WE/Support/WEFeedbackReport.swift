@@ -148,6 +148,10 @@ nonisolated struct WEFeedbackReport: Sendable {
     static var supportAddress: String? {
         let value = Bundle.main.infoDictionary?["WESupportEmail"] as? String
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (trimmed?.isEmpty ?? true) ? nil : trimmed
+        return (trimmed?.isEmpty ?? true) ? fallbackSupportAddress : trimmed
     }
+
+    /// Used when the build does not set `WESupportEmail`. Apple expects a
+    /// privacy contact, so there is always one.
+    static let fallbackSupportAddress = "kanfer.ryan@gmail.com"
 }

@@ -73,11 +73,13 @@ struct WEApp: App {
                     .accessibilityHidden(walkthrough.isPresented)
                     .allowsHitTesting(!walkthrough.isPresented)
 
-                // Under the splash and over everything else. The collapse is
-                // an arrival and has to finish before anything explains
-                // itself; the walkthrough is the first thing after it.
+                // Under the splash and over everything else. It plays once,
+                // right after an account is created, and again only when
+                // somebody asks for it from Account.
                 if walkthrough.isPresented {
-                    WalkthroughView { walkthrough.finish() }
+                    WalkthroughView(setting: walkthroughSetting) {
+                        walkthrough.finish()
+                    }
                         .transition(.opacity)
                         .zIndex(20)
                 }
@@ -101,24 +103,26 @@ struct WEApp: App {
                 }
             }
             .environmentObject(walkthrough)
+            // Paper, dark, or following the iPhone. Read here so the whole
+            // scene redraws when it changes.
+            .weThemeRoot()
+            // First run only after an account exists. The flag is written by
+            // `AppSession.signUp`; this is the first moment it can be spent.
+            .onChange(of: host.session.state, initial: true) { _, state in
+                guard FieldEntry.Mode.current == .live else { return }
+                walkthrough.presentIfPending(for: state)
+                // A held code is spent at `.needsCouple`, or offered as "join
+                // instead" while waiting alone. Once this person shares a
+                // space, an old one must not wait around to be redeemed the
+                // day they leave it.
+                if state == .ready {
+                    pendingInvitation.clear()
+                }
+            }
             .environment(
                 \.dynamicTypeSize,
                 testConfiguration.dynamicTypeSize ?? dynamicTypeSize
             )
-            // Considered whenever the session settles, not once on appear: at
-            // launch the state is `.loading`, and "signed out" is a conclusion
-            // the session reaches a moment later. `consider` is idempotent, so
-            // a state that republishes cannot reopen what was dismissed.
-            .onChange(of: host.session.state, initial: true) { _, state in
-                guard !showsSplash else { return }
-                walkthrough.consider(isSignedOut: state == .signedOut)
-            }
-            .onChange(of: showsSplash) { _, shows in
-                guard !shows else { return }
-                walkthrough.consider(
-                    isSignedOut: host.session.state == .signedOut
-                )
-            }
             .animation(
                 .weSettle(duration: 0.40, reduceMotion: effectiveReduceMotion),
                 value: walkthrough.isPresented
@@ -149,11 +153,21 @@ struct WEApp: App {
                     .environmentObject(previewSession)
                     .task { await previewSession.restoreIfNeeded() }
             case .seeded:
+                #if DEBUG
+                if ProcessInfo.processInfo.environment["WE_INTELLIGENCE_PREVIEW"] == "1" {
+                    WEIntelligencePrototype()
+                } else {
+                    FieldZoneShell()
+                        .environmentObject(previewSession)
+                        .task { await previewSession.restoreIfNeeded() }
+                }
+                #else
                 FieldZoneShell()
                     .environmentObject(previewSession)
                     .task { await previewSession.restoreIfNeeded() }
+                #endif
             case .demo:
-                FieldZoneShell(store: FieldStore(state: .demo))
+                FieldZoneShell(store: FieldStore(state: .demo, now: FieldDemoData.today))
                     .environmentObject(previewSession)
                     .task { await previewSession.restoreIfNeeded() }
             case .sparse:
@@ -175,6 +189,39 @@ struct WEApp: App {
             }
     }
 
+    // MARK: The walkthrough
+
+    /// Who is being welcomed, and where the walkthrough hands them off.
+    private var walkthroughSetting: WalkthroughSetting {
+        let session = host.session
+        let snapshot = session.snapshot
+        let firstName = snapshot?.profile.name
+            .split(separator: " ")
+            .first
+            .map(String.init)
+        let userID = session.user?.id
+        let partner = snapshot?.members.first(where: { $0.id != userID })
+        let partnerName = partner?.name
+        let handoff: WalkthroughHandoff
+        if !walkthrough.isFirstRun {
+            handoff = .replay
+        } else {
+            switch session.state {
+            case .needsCouple: handoff = .invite
+            case .waitingForPartner: handoff = .waiting
+            case .ready: handoff = .open
+            default: handoff = .replay
+            }
+        }
+        return WalkthroughSetting(
+            firstName: firstName,
+            partnerName: partnerName,
+            identity: snapshot.map(fieldIdentity) ?? .seed,
+            handoff: handoff,
+            isFirstRun: walkthrough.isFirstRun
+        )
+    }
+
     // MARK: The collapse
 
     @AppStorage(WESplashGate.lastPlayedKey) private var splashLastPlayed = 0.0
@@ -193,8 +240,16 @@ struct WEApp: App {
 
     /// The couple's own two colours, for the cross-tint. Before a couple
     /// exists there is nobody to be, and the collapse stays brand throughout.
+    /// The couple's colours as this phone's person sees them: `personA` is
+    /// always their own light. The member order is the server's A/B slot.
     private func fieldIdentity(_ snapshot: RelationshipSnapshot) -> FieldIdentity {
-        snapshot.emptyFieldState.identity
+        var identity = snapshot.emptyFieldState.identity
+        if let me = host.session.user?.id,
+           snapshot.members.firstIndex(where: { $0.id == me }) == 1 {
+            swap(&identity.personA, &identity.personB)
+            swap(&identity.nameA, &identity.nameB)
+        }
+        return identity
     }
 
     private var liveApp: some View {

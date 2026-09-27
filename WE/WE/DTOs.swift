@@ -304,16 +304,6 @@ nonisolated struct ProfileUpdatePayload: Encodable, Sendable {
     let name: String
 }
 
-nonisolated struct HueUpdatePayload: Encodable, Sendable {
-    let hue: String
-    let hueChosenAt: String
-
-    enum CodingKeys: String, CodingKey {
-        case hue
-        case hueChosenAt = "hue_chosen_at"
-    }
-}
-
 nonisolated struct SharedItemStatusPayload: Encodable, Sendable {
     let status: String
 }

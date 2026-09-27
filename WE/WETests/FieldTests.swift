@@ -205,14 +205,16 @@ struct FieldPaletteTests {
 @MainActor
 struct FieldConstraintTests {
     @Test
-    func weIsIndexOneAndIsTheHome() {
-        #expect(FieldZone.we.rawValue == 1)
-        #expect(FieldStore().activeZone == .we)
+    func todayIsIndexZeroAndIsTheHome() {
+        #expect(FieldZone.today.rawValue == 0)
+        #expect(FieldStore().activeZone == .today)
     }
 
+    /// Two zones, and only two. Life is everything, Today is what matters,
+    /// and Us is not a place — a third zone is the taxonomy work this removed.
     @Test
     func zoneOrderIsFixed() {
-        #expect(FieldZone.allCases == [.life, .we, .us])
+        #expect(FieldZone.allCases == [.today, .life])
     }
 
     /// The domain has no place to put a score, and that is deliberate. If a
@@ -399,7 +401,7 @@ struct FieldTodayTests {
             Issue.record("expected the resolved state")
             return
         }
-        #expect(headline == "I'm still learning your week.")
+        #expect(headline == "A quiet start.")
         #expect(detail.contains("Say anything below"))
     }
 
@@ -626,6 +628,30 @@ struct FieldClassifierTests {
         #expect(receipt.category == .talk)
         #expect(receipt.dueOn == nil)
         #expect(receipt.category.carriesDates == false)
+    }
+
+    /// "weekend" as a thing does not make a question into a dated errand.
+    @Test
+    func aWeekendAwayIsAQuestionNotADate() {
+        let receipt = FieldClassifier.classify(
+            "what about a weekend away?",
+            context: context
+        )
+        #expect(receipt.category == .talk)
+        #expect(receipt.title == "What about a weekend away?")
+        #expect(receipt.dueOn == nil)
+    }
+
+    /// The same word as a time still carries the date.
+    @Test
+    func callMomThisWeekendKeepsItsDate() {
+        let receipt = FieldClassifier.classify(
+            "call mom this weekend",
+            context: context
+        )
+        #expect(receipt.category == .care)
+        #expect(receipt.title == "Call mom")
+        #expect(receipt.dueOn == FieldSampleData.date(2025, 8, 16))
     }
 
     /// Most people do not type the mark on a phone.
@@ -914,6 +940,85 @@ struct FieldClassifierTests {
         #expect(receipt.category.rawValue != "mark")
     }
 
+    // MARK: What people actually type
+    //
+    // Phase 2d: capture is upgraded through correction rather than through
+    // more fields, so what matters is that nothing is lost and nothing is
+    // asserted with confidence the input did not earn.
+
+    /// Shorthand is how people type on a phone. No verb, no full day name.
+    @Test
+    func shorthandStillReachesTheDay() {
+        let receipt = FieldClassifier.classify("dentist tues", context: context)
+        #expect(receipt.dueOn != nil, "\"tues\" is a day")
+        #expect(receipt.category.carriesDates)
+    }
+
+    /// A typo does not change what somebody meant, and the app should not act
+    /// as though it does.
+    @Test
+    func aTypoDoesNotDerailTheFiling() {
+        let clean = FieldClassifier.classify(
+            "call the plumber tomorrow",
+            context: context
+        )
+        let typo = FieldClassifier.classify(
+            "call the plumer tomorrow",
+            context: context
+        )
+        #expect(typo.category == clean.category)
+        #expect(typo.dueOn == clean.dueOn)
+    }
+
+    /// Two things in one sentence. The app files one item, which is a
+    /// judgement it is allowed to make — what it is not allowed to do is drop
+    /// half of what somebody said. The verbatim input is the guarantee.
+    @Test
+    func twoIntentionsInOneSentenceLoseNeither() {
+        let input = "book the vet and order the air filters"
+        let receipt = FieldClassifier.classify(input, context: context)
+
+        #expect(receipt.input == input)
+        #expect(receipt.title.localizedCaseInsensitiveContains("vet"))
+        #expect(receipt.title.localizedCaseInsensitiveContains("filter"))
+    }
+
+    /// Uncertain text is not given confidence it did not earn.
+    ///
+    /// Narrower than "it stays a note", deliberately, and the difference is a
+    /// real disagreement worth recording. WE grows a heading out of an
+    /// unplaceable subject rather than defaulting everything into one bucket —
+    /// see `anUnfamiliarObligationGrowsACategory` — and "the thing about the
+    /// blue one" does grow a heading called Blue. Forcing that branch to
+    /// `.notes` would also delete the right answer for every unplaceable
+    /// sentence that names something real, which is a worse trade than a
+    /// heading somebody can refile in one tap.
+    ///
+    /// What is *not* allowed is the app adding facts. A date nobody gave it,
+    /// or a heading made out of the words people use to write things down,
+    /// are both the app asserting something it was not told.
+    @Test
+    func textTheAppCannotPlaceIsNotGivenConfidenceItDidNotEarn() {
+        for input in [
+            "the thing about the blue one",
+            "ask him about it",
+            "that thing we said",
+        ] {
+            let receipt = FieldClassifier.classify(input, context: context)
+
+            #expect(receipt.dueOn == nil, "\"\(input)\" named no day")
+            #expect(
+                !FieldClassifier.uncategorisable.contains(
+                    receipt.category.rawValue
+                ),
+                "\"\(input)\" became a heading made of scaffolding"
+            )
+            // Whatever it was called, correcting it is one tap and the app
+            // remembers — which is the whole of 2d's answer to uncertainty.
+            #expect(receipt.input == input)
+        }
+    }
+
     /// Scaffolding is never a heading. Every one of these describes the act of
     /// writing something down rather than the subject of it.
     @Test
@@ -1019,6 +1124,62 @@ struct FieldPhrasingTests {
         let result = FieldPhrasing.tidy("reminder for tomorrow", now: now)
         #expect(!result.title.isEmpty)
         #expect(result.dueOn == FieldSampleData.date(2025, 8, 14))
+    }
+
+    /// A day that names when the thing happens is lifted into a date, the
+    /// "this" holding it included.
+    @Test
+    func aDayNamedForTheItemIsLifted() {
+        // 13 August 2025 is a Wednesday; the coming Saturday is the 16th.
+        let result = FieldPhrasing.tidy("call mom this weekend", now: now)
+        #expect(result.title == "Call mom")
+        #expect(result.dueOn == FieldSampleData.date(2025, 8, 16))
+    }
+
+    /// "a weekend" is a thing, not a time. Lifting it filed "What about a
+    /// away?" with a Saturday nobody named.
+    @Test
+    func aDayUsedAsAThingStaysInTheSentence() {
+        let result = FieldPhrasing.tidy("what about a weekend away?", now: now)
+        #expect(result.title == "What about a weekend away?")
+        #expect(result.dueOn == nil)
+
+        let sun = FieldPhrasing.tidy("sit in the sun", now: now)
+        #expect(sun.title == "Sit in the sun")
+        #expect(sun.dueOn == nil)
+    }
+
+    /// Recognising the noun must not cost the time said later in the same
+    /// sentence, or the time said as "over the weekend".
+    @Test
+    func theTimeIsStillFoundAroundTheThing() {
+        let both = FieldPhrasing.tidy("plan a weekend away this weekend", now: now)
+        #expect(both.title == "Plan a weekend away")
+        #expect(both.dueOn == FieldSampleData.date(2025, 8, 16))
+
+        let over = FieldPhrasing.tidy("fix the sink over the weekend", now: now)
+        #expect(over.title == "Fix the sink")
+        #expect(over.dueOn == FieldSampleData.date(2025, 8, 16))
+
+        let bare = FieldPhrasing.tidy("call the vet friday about miso", now: now)
+        #expect(bare.title == "Call the vet about miso")
+        #expect(bare.dueOn == FieldSampleData.date(2025, 8, 15))
+    }
+
+    /// The reported path end to end: typed, classified, sent, filed.
+    @Test
+    func aWeekendAwayIsFiledWhole() throws {
+        let store = FieldStore(
+            state: FieldState.empty(nameA: "Ryan", nameB: "Sam", now: now),
+            now: now
+        )
+        store.captureDraft = "what about a weekend away?"
+        store.submitCapture()
+        store.send()
+
+        let item = try #require(store.state.lifeItems.first)
+        #expect(item.title == "What about a weekend away?")
+        #expect(item.dueOn == nil)
     }
 }
 
@@ -1726,20 +1887,20 @@ struct FieldVerbTests {
     func theWordingDecidesTheVerbBeforeTheCategoryDoes() {
         #expect(
             FieldTodaySelector.primaryVerb(for: item("Call your mother", .care))
-                == "Make the call"
+                == "Find the contact"
         )
         #expect(
             FieldTodaySelector.primaryVerb(for: item("Book the vet", .care))
-                == "Book it"
+                == "Arrange booking"
         )
         #expect(
             FieldTodaySelector.primaryVerb(for: item("Rent", .money))
-                == "Pay it"
+                == "Find payment information"
         )
         #expect(
             FieldTodaySelector.primaryVerb(
                 for: item("Renew the registration", LifeCategory(rawValue: "car"))
-            ) == "Renew it"
+            ) == "Open plan"
         )
     }
 
@@ -1751,16 +1912,16 @@ struct FieldVerbTests {
         #expect(FieldTodaySelector.verbFromWording("Recital") == nil)
         #expect(
             FieldTodaySelector.primaryVerb(for: item("Batteries", .buys))
-                == "Mark it done"
+                == "Open plan"
         )
         #expect(
             FieldTodaySelector.primaryVerb(for: item("Groceries", .food))
-                == "Mark it done"
+                == "Open plan"
         )
         #expect(
             FieldTodaySelector.primaryVerb(
                 for: item("Recital", LifeCategory(rawValue: "notes"))
-            ) == "Mark it done"
+            ) == "Explore this"
         )
     }
 
@@ -1784,7 +1945,7 @@ struct FieldVerbTests {
                 "\(category.rawValue) invented an act from nothing"
             )
             #expect(
-                FieldTodaySelector.primaryVerb(for: quiet) == "Mark it done",
+                FieldTodaySelector.primaryVerb(for: quiet) == FieldItemPurpose.actionLabel(quiet),
                 "\(category.rawValue) put a verb on a button that does nothing"
             )
         }
@@ -2108,17 +2269,61 @@ struct FieldOutreachStoreTests {
         #expect(store.awaitingOutcome == nil)
     }
 
-    /// "Not yet" is an answer, and it is not asked again.
+    /// Only explicit outreach with an outstanding response creates Waiting.
     @Test
-    func notYetLeavesItAlone() async {
+    func explicitWaitingRecordsConfirmedOutreach() async {
         let store = store(finding: [])
         await store.begin(.call, for: "vet")
         store.outreachDidOpen(store.pendingOutreach!, target: nil)
 
-        store.resolveOutcome(store.awaitingOutcome!, done: false)
+        store.confirmWaitingForReply(store.awaitingOutcome!)
 
         #expect(store.awaitingOutcome == nil)
         #expect(store.state.lifeItems[0].isDone == false)
+        #expect(store.state.lifeItems[0].reachedOutAt != nil)
+        #expect(store.state.lifeItems[0].isAwaitingSomeoneElse)
+    }
+
+    @Test
+    func cancelledOutreachDoesNotCreateWaiting() async {
+        let store = store(finding: [])
+        await store.begin(.call, for: "vet")
+        store.outreachDidOpen(store.pendingOutreach!, target: nil)
+        store.resolveOutcome(store.awaitingOutcome!, done: false)
+        #expect(store.state.lifeItems[0].reachedOutAt == nil)
+        #expect(!store.state.lifeItems[0].isAwaitingSomeoneElse)
+        #expect(!store.state.lifeItems[0].isDone)
+    }
+
+    /// The dialler appearing is not a conversation. Only the person's own
+    /// answer writes the fact.
+    @Test
+    func openingSomethingDoesNotByItselfSayAnybodyReachedOut() async {
+        let store = store(finding: [])
+        await store.begin(.call, for: "vet")
+        store.outreachDidOpen(store.pendingOutreach!, target: nil)
+
+        #expect(store.state.lifeItems[0].reachedOutAt == nil)
+
+        // And backing out of the question leaves it exactly as it was.
+        store.dismissOutreach()
+        #expect(store.state.lifeItems[0].reachedOutAt == nil)
+    }
+
+    /// A voicemail nobody returned is not somebody else having the next move
+    /// for the rest of the year.
+    @Test
+    func theOutreachCanBeTakenBack() async {
+        let store = store(finding: [])
+        await store.begin(.call, for: "vet")
+        store.outreachDidOpen(store.pendingOutreach!, target: nil)
+        store.confirmWaitingForReply(store.awaitingOutcome!)
+
+        store.reclaimOutreach("vet")
+
+        #expect(store.state.lifeItems[0].reachedOutAt == nil)
+        #expect(store.state.lifeItems[0].isAwaitingSomeoneElse == false)
+        #expect(store.state.lifeItems[0].isDone == false, "taking it back is not finishing it")
     }
 
     /// Booking is a phone call when there is somebody to call, which is what
@@ -2150,13 +2355,14 @@ struct FieldOutreachStoreTests {
 
     /// Nothing outward to do, so the button does exactly what it always did.
     @Test
-    func anActWithNoOutwardMeaningJustCompletes() async {
+    func anActWithNoOutwardMeaningDoesNotComplete() async {
         let store = store(finding: [], title: "Pack for the hamptons")
 
         await store.begin(.none, for: "vet")
 
         #expect(store.pendingOutreach == nil)
-        #expect(store.state.lifeItems[0].isDone)
+        #expect(!store.state.lifeItems[0].isDone)
+        #expect(store.itemSaveError != nil)
     }
 
     /// Previews, the gallery, and every screenshot run must never reach out
@@ -2248,12 +2454,12 @@ struct FieldStoreTests {
     @Test
     func theMarkAlwaysReturnsHome() {
         let store = FieldStore()
-        store.go(to: .us)
+        store.go(to: .life)
         store.openCalendar()
 
         store.returnHome()
 
-        #expect(store.activeZone == .we)
+        #expect(store.activeZone == .today)
         #expect(store.calendarOpen == false)
     }
 

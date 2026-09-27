@@ -2,15 +2,7 @@
 //  FieldAccountView.swift
 //  WE
 //
-//  The account surface, reached by long-pressing the WE mark.
-//
-//  The handoff specifies eleven screens and none of them is settings — every
-//  surface it draws is the product. So this is new, and it is deliberately
-//  the smallest thing that is honest: who you are, what the app is allowed to
-//  notice, and how to leave. Anything else belongs in a zone.
-//
-//  It carries no navigation chrome of its own beyond a close action, because
-//  the handoff forbids a tab bar and this is not an exception to that.
+//  Account, privacy and response preferences, reached from each main zone.
 //
 
 import SwiftUI
@@ -20,23 +12,33 @@ struct FieldAccountView: View {
     @Environment(FieldStore.self) private var store
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var walkthrough: WalkthroughPresenter
+    @EnvironmentObject private var externalSurfaces: ExternalSurfaceController
     @Environment(\.dismiss) private var dismiss
 
+    /// Shown only where there is a Promise to replay from.
+    var onReplayPromise: (() -> Void)? = nil
+
+    @State private var surface: FieldAccountSurface?
     @State private var showsDelete = false
+    @State private var showsRecovery = false
     @State private var showsFeedback = false
     @State private var showsPrivacyPolicy = false
     @State private var copiedInvitationCode = false
+    @State private var name = ""
+    @State private var didSaveName = false
+    @State private var selectedArchive: RelationshipArchive?
+    @State private var selectedProposal: SavedPrivateProposal?
 
     var body: some View {
         ZStack {
-            FieldPalette.bg.ignoresSafeArea()
+            WECanvas.surface.bg.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
                     header
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
-                    identity
+                    yourName
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
                     if canInvitePartner {
@@ -47,25 +49,63 @@ struct FieldAccountView: View {
                     noticing
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
+                    decisionNotices
+                        .padding(.bottom, FieldMetrics.sectionGapLoose)
+
+                    responseSettings
+                        .padding(.bottom, FieldMetrics.sectionGapLoose)
+
                     privacy
+                        .padding(.bottom, FieldMetrics.sectionGapLoose)
+
+                    outsideWE
+                        .padding(.bottom, FieldMetrics.sectionGapLoose)
+
+                    if !session.archives.isEmpty || !session.privateProposals.isEmpty {
+                        records
+                            .padding(.bottom, FieldMetrics.sectionGapLoose)
+                    }
+
+                    appearance
+                        .padding(.bottom, FieldMetrics.sectionGapLoose)
+
+                    twoLights
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
                     understanding
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
+                    onlyMe
+                        .padding(.bottom, FieldMetrics.sectionGapLoose)
+
+                    if WEFeatureFlags.shareInboxEnabled {
+                        Button("Needs attention") { showsRecovery = true }
+                            .frame(minHeight: 44).padding(.bottom, FieldMetrics.sectionGapLoose)
+                    }
                     trouble
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
                     leaving
                 }
-                .padding(.top, FieldMetrics.screenTop)
+                .padding(.top, 20)
                 .padding(.horizontal, FieldMetrics.screenSide)
                 .padding(.bottom, 60)
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(WETheme.shared.colorScheme)
+        .foregroundStyle(.fieldInk(.headline))
+        .tint(store.identity.personA.color(on: .surface))
         .accessibilityIdentifier("field.account")
-        .overlay(alignment: .topTrailing) { closeButton }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HStack {
+                FieldLabel("Account")
+                Spacer()
+                closeButton
+            }
+            .padding(.leading, FieldMetrics.screenSide)
+            .background(WECanvas.surface.bg)
+        }
+        .environment(\.weCanvas, WECanvas.surface)
         .fullScreenCover(isPresented: $showsDelete) {
             FieldDeleteAccountView()
                 .environmentObject(session)
@@ -80,11 +120,56 @@ struct FieldAccountView: View {
             NavigationStack {
                 WEPrivacyPolicyView(showsCloseButton: true)
             }
-            .preferredColorScheme(.dark)
+            .preferredColorScheme(WETheme.shared.colorScheme)
+            .environment(\.weCanvas, WECanvas.surface)
         }
+        .sheet(isPresented: $showsRecovery) { WERecoveryCenter().environment(store) }
+        .sheet(item: $surface) { selection in
+            FieldAccountSurfaceView(surface: selection).environment(store)
+        }
+        .sheet(item: $selectedArchive) { RelationshipArchiveView(archive: $0) }
+        .sheet(item: $selectedProposal) { proposal in
+            NavigationStack { SavedPrivateProposalView(proposal: proposal) }
+        }
+        .onAppear { if name.isEmpty { name = session.snapshot?.profile.name ?? "" } }
         .onChange(of: liveInvitation?.code) { _, _ in
             copiedInvitationCode = false
         }
+    }
+
+    private var responseSettings: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldRuleLine()
+            FieldLabel("How WE responds")
+                .padding(.top, 20)
+                .padding(.bottom, 18)
+            ForEach(FieldAccountSurface.allCases) { selection in
+                Button { surface = selection } label: {
+                    HStack(spacing: 16) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(selection.rawValue)
+                                .font(FieldType.listItem)
+                                .foregroundStyle(.fieldInk(.headline))
+                            Text(selection.summary)
+                                .font(FieldType.body)
+                                .foregroundStyle(.fieldInk(.metadataProse))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.fieldInk(.recessive))
+                            .accessibilityHidden(true)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .padding(.vertical, 14)
+                    .contentShape(Rectangle())
+                }
+                .accessibilityIdentifier("field.account." + selection.accessibilityID)
+                FieldRuleLine(color: FieldRule.row)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private var closeButton: some View {
@@ -94,7 +179,7 @@ struct FieldAccountView: View {
             Text("Done")
                 .font(FieldType.subLabel)
                 .tracking(FieldTracking.subLabel)
-                .textCase(.uppercase)
+                .textCase(nil)
                 .foregroundStyle(.fieldInk(.recessive))
                 .padding(18)
                 .contentShape(Rectangle())
@@ -105,9 +190,13 @@ struct FieldAccountView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 16) {
-            FieldLabel("Account")
-
-            Text(store.identity.name(for: .shared))
+            // Just this person until there is a partner: "Ryan and Your
+            // partner" names somebody who does not exist yet.
+            Text(
+                (session.snapshot?.members.count ?? 2) < 2
+                    ? store.identity.name(for: store.speaker)
+                    : store.identity.name(for: .shared)
+            )
                 .font(FieldType.pageHeadline)
                 .foregroundStyle(.fieldInk(.headline))
                 .fieldLineHeight(1.16, size: 32)
@@ -129,7 +218,7 @@ struct FieldAccountView: View {
         VStack(alignment: .leading, spacing: 0) {
             FieldRuleLine()
 
-            FieldLabel("Partner connection")
+            Text("Invite your partner").font(FieldType.weLifeSection)
                 .padding(.top, 20)
                 .padding(.bottom, 6)
 
@@ -186,6 +275,12 @@ struct FieldAccountView: View {
             .buttonStyle(FieldOutlinedButtonStyle())
             .accessibilityIdentifier("field.account.invitation.copy")
 
+            Text("They’ll open the link, create their own account, and join you here. Your private writing stays yours.")
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.reasoning))
+
+            DisclosureGroup("Manage invitation") {
+                VStack(alignment: .leading, spacing: 14) {
             Button("Replace this invitation") {
                 Task { await session.createInvitation() }
             }
@@ -204,6 +299,11 @@ struct FieldAccountView: View {
             .buttonStyle(FieldQuietButtonStyle())
             .disabled(session.isWorking || !session.canMutate)
             .accessibilityIdentifier("field.account.invitation.revoke")
+                }
+                .padding(.top, 14)
+            }
+            .font(FieldType.body)
+            .foregroundStyle(.fieldInk(.headline))
         }
     }
 
@@ -227,38 +327,6 @@ struct FieldAccountView: View {
         }
     }
 
-    // MARK: Identity
-
-    private var identity: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            FieldRuleLine()
-
-            FieldLabel("Your colours")
-                .padding(.top, 20)
-                .padding(.bottom, 6)
-
-            Text(
-                "Anything of \(store.identity.nameA)'s is one colour, anything "
-                    + "of \(store.identity.nameB)'s is the other, and anything "
-                    + "you share is both."
-            )
-            .font(FieldType.body)
-            .foregroundStyle(.fieldInk(.sectionSubtitle))
-            .fieldLineHeight(1.6, size: 14.5)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.bottom, 22)
-
-            FieldSwatchRow(owner: .a, identity: store.identity) { swatch in
-                store.choose(swatch, for: .a)
-            }
-            .padding(.bottom, FieldMetrics.sectionGap)
-
-            FieldSwatchRow(owner: .b, identity: store.identity) { swatch in
-                store.choose(swatch, for: .b)
-            }
-        }
-    }
-
     // MARK: What the app is allowed to notice
 
     private var noticing: some View {
@@ -270,8 +338,8 @@ struct FieldAccountView: View {
                 .padding(.bottom, 6)
 
             Text(
-                "I only read what you both allow. Private reflection is "
-                    + "outside the intelligence entirely, and stays that way."
+                "Choose which shared signals may be noticed. Private writing "
+                    + "is never used to shape a response."
             )
             .font(FieldType.body)
             .foregroundStyle(.fieldInk(.sectionSubtitle))
@@ -280,8 +348,31 @@ struct FieldAccountView: View {
             .padding(.bottom, 8)
 
             ForEach(SignalKind.allCases, id: \.self) { signal in
-                signalToggle(signal)
+                if signal.isPermanentlyDisabled {
+                    Label {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("Private writing stays private")
+                                .font(FieldType.listItem)
+                                .foregroundStyle(.fieldInk(.legend))
+                            Text("Never used to shape WE’s responses. Always off.")
+                                .font(FieldType.body)
+                                .foregroundStyle(.fieldInk(.metadataProse))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    } icon: {
+                        Image(systemName: "lock")
+                            .foregroundStyle(.fieldInk(.metadataProse))
+                    }
+                    .padding(.vertical, 14)
+                    .overlay(alignment: .top) { FieldRuleLine(color: FieldRule.row) }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("field.account.signal.\(signal.rawValue)")
+                } else {
+                    signalToggle(signal)
+                }
             }
+
+            FieldSessionMessage()
         }
     }
 
@@ -306,16 +397,14 @@ struct FieldAccountView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .tint(store.identity.personA.color)
+        .tint(store.identity.personA.color(on: .surface))
         .disabled(signal.isPermanentlyDisabled || !session.canMutate)
         .padding(.vertical, 14)
         .overlay(alignment: .top) { FieldRuleLine(color: FieldRule.row) }
         .accessibilityIdentifier("field.account.signal.\(signal.rawValue)")
     }
 
-    /// Permanently-disabled signals read as off regardless of what is stored —
-    /// private reflection is never an input, and the control says so by being
-    /// off and untouchable rather than by a caveat underneath it.
+    /// Private reflection can never be enabled, regardless of stored consent.
     private func isEnabled(_ signal: SignalKind) -> Bool {
         guard !signal.isPermanentlyDisabled else { return false }
         return session.v2State.signalConsents.first {
@@ -349,6 +438,145 @@ struct FieldAccountView: View {
         }
     }
 
+    // MARK: Decisions
+
+    /// The one notice besides the arrival: your partner suggested deciding
+    /// on something. It says only that something is waiting, never what.
+    private var decisionNotices: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldRuleLine()
+
+            FieldLabel("Decisions")
+                .padding(.top, 20)
+                .padding(.bottom, 10)
+
+            Toggle(
+                "Tell me when \(store.partnerName) suggests a decision",
+                isOn: Binding(
+                    get: { store.decisionNoticesOn },
+                    set: { on in Task { await store.setDecisionNotices(on) } }
+                )
+            )
+            .font(FieldType.body)
+            .frame(minHeight: 44)
+            .accessibilityIdentifier("field.account.decisionNotices")
+
+            Text("The notice says something is waiting for you both, and nothing else.")
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.metadataProse))
+                .fieldLineHeight(1.5, size: 14.5)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 10)
+        }
+    }
+
+    // MARK: Your name
+
+    private var yourName: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldRuleLine()
+
+            FieldLabel("Your name")
+                .padding(.top, 20)
+                .padding(.bottom, 18)
+
+            HStack(spacing: 12) {
+                TextField("Your name", text: $name)
+                    .textContentType(.name)
+                    .font(FieldType.body)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 44)
+                    .background(WECanvas.surface.ink.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+                    .onChange(of: name) { _, _ in didSaveName = false }
+                    .accessibilityIdentifier("field.account.name")
+                Button(didSaveName ? "Saved" : "Save") {
+                    Task {
+                        await session.updateProfile(name: name)
+                        didSaveName = session.errorMessage == nil
+                    }
+                }
+                .buttonStyle(FieldOutlinedButtonStyle())
+                .disabled(
+                    name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || name == session.snapshot?.profile.name
+                        || !session.canMutate
+                )
+            }
+        }
+    }
+
+    // MARK: Outside WE
+
+    private var outsideWE: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldRuleLine()
+
+            FieldLabel("Outside WE")
+                .padding(.top, 20)
+                .padding(.bottom, 18)
+
+            Toggle(
+                "Show approved shared wording",
+                isOn: Binding(
+                    get: { externalSurfaces.specificWordingOptedIn },
+                    set: { externalSurfaces.setSpecificWordingOptIn($0) }
+                )
+            )
+            .font(FieldType.body)
+            .frame(minHeight: 44)
+
+            Text(
+                "Lock Screen, widgets, StandBy and Live Activities say "
+                    + "something generic unless this is on. Answers, names, "
+                    + "invitation details and read receipts never appear there."
+            )
+            .font(FieldType.body)
+            .foregroundStyle(.fieldInk(.metadataProse))
+            .fieldLineHeight(1.5, size: 14.5)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 10)
+        }
+    }
+
+    // MARK: What you can look back on
+
+    private var records: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldRuleLine()
+
+            FieldLabel("Looking back")
+                .padding(.top, 20)
+                .padding(.bottom, 10)
+
+            ForEach(session.privateProposals) { proposal in
+                Button { selectedProposal = proposal } label: {
+                    HStack {
+                        Label(proposal.title, systemImage: "lock")
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(.fieldInk(.reasoning))
+                    }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Only you can open this")
+            }
+            ForEach(session.archives) { archive in
+                Button { selectedArchive = archive } label: {
+                    HStack {
+                        Label("Relationship ended", systemImage: "archivebox")
+                        Spacer()
+                        Text(ArchiveDate.display(archive.endedAt)).foregroundStyle(.fieldInk(.reasoning))
+                    }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .font(FieldType.body)
+    }
+
     // MARK: Understanding
 
     /// The way back to the explanation, months after the one time it played.
@@ -377,13 +605,130 @@ struct FieldAccountView: View {
             .accessibilityIdentifier("field.account.walkthrough")
             .padding(.bottom, 14)
 
-            Text("Three short journeys through what WE notices, told with a "
-                + "real couple.")
+            if let onReplayPromise {
+                Button(WEGateCopy.replayPromise) {
+                    dismiss()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { onReplayPromise() }
+                }
+                .buttonStyle(FieldOutlinedButtonStyle())
+                .padding(.bottom, 14)
+            }
+
+            Text("A one minute tour: say something, watch where it lands, choose who sees it, and meet Today and Life. Nothing you type in it is saved.")
                 .font(FieldType.body)
                 .foregroundStyle(.fieldInk(.metadataProse))
                 .fieldLineHeight(1.5, size: 14.5)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    // MARK: Appearance
+
+    /// Paper, dark, or both by the clock. Per phone, not per couple: two
+    /// people can see the same Life in different light.
+    private var appearance: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldRuleLine()
+
+            FieldLabel("Appearance")
+                .padding(.top, 20)
+                .padding(.bottom, 18)
+
+            WEAppearancePicker()
+        }
+    }
+
+    // MARK: Two lights
+
+    /// The lights, explained once, and the setting that drives them. The
+    /// preview is the lights themselves: choosing a colour changes your
+    /// light live, so the setting explains the lights and the lights explain
+    /// the setting.
+    @State private var lightPreviewPulse = 0
+
+    private var twoLights: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldRuleLine()
+
+            FieldLabel("Two lights")
+                .padding(.top, 20)
+                .padding(.bottom, 14)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Yours, theirs, and what you share.")
+                    .font(FieldType.cardTitle)
+                    .foregroundStyle(.fieldInk(.headline))
+                Text("Your light is you. Theirs is \(store.partnerName). Where they overlap is what you share.")
+                Text("One light means it\u{2019}s only yours. Leaning in means one of you said yes. Meeting means you decided together.")
+                // Why the colours are assigned, said once and generally: the
+                // difference is the point, not the colour.
+                Text(store.speaker == .b
+                     ? "Yours is cool. \(store.partnerName)\u{2019}s is warm. They\u{2019}re never the same, so you always know who\u{2019}s who, and what you share becomes its own colour."
+                     : "Yours is warm. \(store.partnerName)\u{2019}s is cool. They\u{2019}re never the same, so you always know who\u{2019}s who, and what you share becomes its own colour.")
+                    .padding(.top, 6)
+                Text("Pick a shade of yours.")
+                    .foregroundStyle(.fieldInk(.sectionSubtitle))
+                    .padding(.top, 6)
+            }
+            .font(FieldType.body)
+            .foregroundStyle(.fieldInk(.metadataProse))
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.bottom, 18)
+
+            ZStack {
+                WECanvas.surface.bg
+                WELights(
+                    identity: store.viewerIdentity,
+                    pose: .near,
+                    pulseMine: lightPreviewPulse
+                )
+            }
+            .frame(height: 140)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .strokeBorder(WECanvas.surface.ink.opacity(0.1), lineWidth: 1)
+            }
+            .accessibilityHidden(true)
+            .padding(.bottom, 18)
+
+            FieldSwatchRow(owner: store.speaker, identity: store.identity) { swatch in
+                withAnimation(.weCanvasCrossing) {
+                    store.choose(swatch, for: store.speaker)
+                }
+                lightPreviewPulse += 1
+            }
+        }
+        .accessibilityIdentifier("field.account.lights")
+    }
+
+    // MARK: Only me
+
+    /// What Only me means, said once, in one place anybody can find it.
+    ///
+    /// Framed as time rather than a wall: private is for what is not ready
+    /// yet, and the way out of it (share it, or pick a day) is part of the
+    /// definition rather than a footnote to it.
+    private var onlyMe: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldRuleLine()
+
+            FieldLabel(WEOnlyMeCopy.accountLabel)
+                .padding(.top, 20)
+                .padding(.bottom, 18)
+
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(WEOnlyMeCopy.accountLines(partner: store.partnerName), id: \.self) { line in
+                    Text(line)
+                        .font(FieldType.body)
+                        .foregroundStyle(.fieldInk(.metadataProse))
+                        .fieldLineHeight(1.5, size: 14.5)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("field.account.onlyMe")
     }
 
     // MARK: When it breaks
@@ -395,7 +740,7 @@ struct FieldAccountView: View {
         VStack(alignment: .leading, spacing: 0) {
             FieldRuleLine()
 
-            FieldLabel("If something goes wrong")
+            FieldLabel("Help and feedback")
                 .padding(.top, 20)
                 .padding(.bottom, 18)
 
@@ -410,6 +755,11 @@ struct FieldAccountView: View {
                 .foregroundStyle(.fieldInk(.metadataProse))
                 .fieldLineHeight(1.5, size: 14.5)
                 .fixedSize(horizontal: false, vertical: true)
+            Link("Get support online", destination: WEPrivacyPolicyView.publicURL)
+                .font(FieldType.body)
+                .frame(minHeight: 44)
+                .padding(.top, 14)
+                .accessibilityIdentifier("field.account.support")
         }
     }
 
@@ -485,7 +835,7 @@ struct FieldDeleteAccountView: View {
 
     var body: some View {
         ZStack {
-            FieldPalette.bg.ignoresSafeArea()
+            WECanvas.surface.bg.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -502,7 +852,8 @@ struct FieldDeleteAccountView: View {
                 .padding(.bottom, 60)
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(WETheme.shared.colorScheme)
+        .environment(\.weCanvas, WECanvas.surface)
         .accessibilityIdentifier("field.account.delete.screen")
         .confirmationDialog(
             "Delete your account and end this relationship?",
@@ -517,11 +868,13 @@ struct FieldDeleteAccountView: View {
             // Not "there is no recovery". Same backup domain, same unproven
             // claim, and this screen was saying the stronger version of it.
             //
-            // Supabase keeps its root key outside the database so a restore
-            // can bring data back, which is excellent disaster recovery and
-            // the exact opposite of what deletion here needs. Until deletion
-            // routes through a key WE destroys and can prove it destroyed,
-            // this is the strongest true sentence available.
+            // `YoursCopy.deletionAssurance` carries the reasoning: Supabase
+            // keeps its root key outside the database so a restore can bring
+            // data back, which is excellent disaster recovery and the exact
+            // opposite of what deletion here needs. Until deletion routes
+            // through a key WE destroys and can prove it destroyed, this is
+            // the strongest true sentence available, and the two surfaces
+            // must not disagree about it.
             Text("Unrecoverable within 24 hours.")
         }
         .onChange(of: session.state) { _, state in

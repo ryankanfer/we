@@ -151,7 +151,7 @@ select ok(
   'clients cannot forge Seasons'
 );
 
-select like(
+select ialike(
   pg_get_functiondef(
     'public.confirm_contextual_suggestion(uuid,text,text,uuid,date)'
       ::regprocedure
@@ -159,7 +159,7 @@ select like(
   '%lock_relationship%',
   'suggestion confirmation takes the relationship lock'
 );
-select like(
+select ialike(
   pg_get_functiondef(
     'public.confirm_contextual_suggestion(uuid,text,text,uuid,date)'
       ::regprocedure
@@ -167,84 +167,84 @@ select like(
   '%for update%',
   'suggestion confirmation locks its suggestion row'
 );
-select unlike(
+select unialike(
   pg_get_functiondef(
     'public.refresh_contextual_suggestions(date)'::regprocedure
   ),
   '%reflections%',
   'suggestion generation cannot query private reflections'
 );
-select unlike(
+select unialike(
   pg_get_functiondef(
     'public.refresh_contextual_suggestions(date)'::regprocedure
   ),
   '%responses%',
   'suggestion generation cannot query unrevealed responses'
 );
-select like(
+select ialike(
   pg_get_functiondef(
     'public.create_ready_season()'::regprocedure
   ),
   '%interval ''6 weeks''%',
   'Season readiness enforces six weeks'
 );
-select like(
+select ialike(
   pg_get_functiondef(
     'public.create_ready_season()'::regprocedure
   ),
   '%v_count < 6%',
   'Season readiness enforces six events'
 );
-select like(
+select ialike(
   pg_get_functiondef(
     'public.create_ready_season()'::regprocedure
   ),
   '%v_types < 2%',
   'Season readiness enforces two event types'
 );
-select like(
+select ialike(
   pg_get_functiondef(
     'public.create_ready_season()'::regprocedure
   ),
   '%v_months < 2%',
   'Season readiness enforces two calendar months'
 );
-select unlike(
+select unialike(
   pg_get_functiondef(
     'private.enrich_v2_relationship_archive()'::regprocedure
   ),
   '%signal_consents%',
   'account archives exclude private signal choices'
 );
-select unlike(
+select unialike(
   pg_get_functiondef(
     'private.enrich_v2_relationship_archive()'::regprocedure
   ),
   '%contextual_suggestion_dismissals%',
   'account archives exclude private suggestion dismissals'
 );
-select unlike(
+select unialike(
   pg_get_functiondef(
     'private.enrich_v2_relationship_archive()'::regprocedure
   ),
   '%insight_grace%',
   'account archives exclude private decline grace'
 );
-select like(
+select ialike(
   pg_get_functiondef(
     'private.enrich_v2_relationship_archive()'::regprocedure
   ),
   '%revealed_at is not null%',
   'account archives include only revealed Approaches'
 );
-select like(
+select ialike(
   pg_get_functiondef(
     'private.enrich_v2_relationship_archive()'::regprocedure
   ),
   '%''responsibilities''%',
   'the reconciled archive includes responsibilities'
 );
-select like(
+select ialike(
   pg_get_functiondef(
     'private.enrich_v2_relationship_archive()'::regprocedure
   ),

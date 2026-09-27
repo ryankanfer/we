@@ -103,7 +103,7 @@ struct WEStillness: View {
 
 #Preview("Stillness") {
     WEStillness(
-        line: "WE is still until Dylan arrives.",
+        line: "Quiet until Dylan arrives.",
         identity: .seed,
         withdrawal: "Withdraw the invitation",
         onWithdraw: {}

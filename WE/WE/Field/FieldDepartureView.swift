@@ -28,14 +28,27 @@ import SwiftUI
 struct FieldDepartureView: View {
     @EnvironmentObject private var session: AppSession
     @Environment(\.dismiss) private var dismiss
+    /// The couple's colours, the reader's own first.
+    var identity: FieldIdentity = .seed
+
+    /// "Their light has gone out." The heaviest moment in the app is not an
+    /// empty dark screen: both lights are there when it opens, and theirs
+    /// dims and goes out, slowly, while yours stays.
+    @State private var parting: WELightsPose = .near
 
     var body: some View {
         ZStack {
             FieldPalette.bg.ignoresSafeArea()
+            WELights(identity: identity, pose: parting)
+                .environment(\.weCanvas, .ground)
+                .task {
+                    try? await Task.sleep(for: .milliseconds(900))
+                    parting = .parting
+                }
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    FieldLabel("Your space")
+                    FieldLabel("What stays")
                         .padding(.bottom, 18)
 
                     Text("This is yours now.")

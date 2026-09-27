@@ -57,6 +57,7 @@ struct WEInvitationArrival: View {
 
     @State private var code = ""
     @State private var greeting: InvitationGreeting?
+    @State private var isLookingUp = false
     @FocusState private var isFocused: Bool
 
     private var normalizedCode: String? {
@@ -90,7 +91,7 @@ struct WEInvitationArrival: View {
     private var identity: FieldIdentity {
         guard let greeting else { return .seed }
         return FieldIdentity(
-            personA: FieldSwatch(nearest: WEHue(greeting.hue)),
+            personA: FieldSwatch(nearest: WEHue(greeting.hue)).inFamily(of: .a),
             personB: FieldIdentity.seed.personB,
             nameA: greeting.name,
             nameB: FieldIdentity.seed.nameB
@@ -99,7 +100,7 @@ struct WEInvitationArrival: View {
 
     var body: some View {
         ZStack {
-            WECanvas.ground.bg.ignoresSafeArea()
+            WECanvas.surface.bg.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 0) {
                 Spacer(minLength: 0)
@@ -115,8 +116,9 @@ struct WEInvitationArrival: View {
                     // No second explanation. The next screen is an account,
                     // and saying so twice would be the app hedging the one
                     // sentence it just made.
-                    VStack(alignment: .leading, spacing: 20) {
-                        WEEditorialAction(WEGateCopy.begin, action: hold)
+                    VStack(spacing: 10) {
+                        Button(greeting.map { "Join \($0.name)" } ?? WEGateCopy.begin, action: hold)
+                            .buttonStyle(FirstRunPrimaryButtonStyle())
                             .accessibilityIdentifier("welcome.joinCode.continue")
 
                         // Saying no, in the same typeface and at the same
@@ -124,22 +126,45 @@ struct WEInvitationArrival: View {
                         // yes is a sales funnel, and a decline hidden behind a
                         // gesture or drawn three shades quieter is the same
                         // funnel being coy about it.
-                        WEEditorialAction(WEGateCopy.decline, action: decline)
+                        Button(WEGateCopy.decline, action: decline)
+                            .buttonStyle(FirstRunSecondaryButtonStyle())
                             .accessibilityIdentifier("welcome.invitation.decline")
                     }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, FieldMetrics.usSide)
+            .padding(.horizontal, FirstRunMetrics.side)
             .padding(.bottom, FieldMetrics.screenBottom(at: typeSize))
 
             WEColourField(state: .mine(.a), identity: identity, height: 168)
                 .frame(maxHeight: .infinity, alignment: .bottom)
                 .ignoresSafeArea(edges: .bottom)
+                .allowsHitTesting(false)
+
+            // A way out that is not an answer. Closing is not declining: no
+            // invitation is touched, and a held code stays held.
+            if asksForCode {
+                Button {
+                    isFocused = false
+                    onDecline()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 18, weight: .regular))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(WECanvas.surface.ink)
+                .accessibilityLabel("Close")
+                .accessibilityIdentifier("welcome.invitation.close")
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(.horizontal, FirstRunMetrics.side - 10)
+                .padding(.top, 12)
+            }
         }
         .animation(.easeInOut(duration: 0.45), value: greeting)
-        .environment(\.weCanvas, .ground)
-        .preferredColorScheme(.dark)
+        .environment(\.weCanvas, .surface)
+        .preferredColorScheme(WETheme.shared.colorScheme)
         .accessibilityElement(children: .contain)
         // A code held from a link is asked about immediately, so the sentence
         // is already the person's name by the time the screen settles.
@@ -168,10 +193,20 @@ struct WEInvitationArrival: View {
                 if normalized != value { code = normalized }
             }
 
-            WEEditorialAction(WEGateCopy.useCode) {
+            Button {
                 Task { await lookUp(normalizedCode) }
+            } label: {
+                HStack(spacing: 10) {
+                    if isLookingUp {
+                        ProgressView()
+                            .tint(WECanvas.surface.bg)
+                            .accessibilityHidden(true)
+                    }
+                    Text(isLookingUp ? "Checking the code…" : WEGateCopy.useCode)
+                }
             }
-            .disabled(normalizedCode == nil)
+            .buttonStyle(FirstRunPrimaryButtonStyle())
+            .disabled(normalizedCode == nil || isLookingUp)
             .accessibilityIdentifier("welcome.joinCode.continue")
         }
         .onAppear { isFocused = true }
@@ -184,10 +219,13 @@ struct WEInvitationArrival: View {
     /// place that knows the difference. Holding it here means they never have
     /// to find the invitation again.
     private func lookUp(_ candidate: String?) async {
-        guard let candidate else { return }
+        guard let candidate, !isLookingUp else { return }
         isFocused = false
+        isLookingUp = true
+        defer { isLookingUp = false }
         greeting = await session.invitationGreeting(for: candidate)
         pendingInvitation.hold(candidate)
+        pendingInvitation.remember(inviter: greeting?.name)
     }
 
     /// Closes the invitation, forgets the code, and leaves.

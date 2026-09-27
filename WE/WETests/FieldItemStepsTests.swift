@@ -79,6 +79,26 @@ struct FieldLookupPolicyTests {
         ).map(\.destination)
     }
 
+    @Test
+    func savedLinkRemainsAvailableAlongsideContactActions() {
+        let entry = item("Book the restaurant", .food, sourceURL: "https://example.com/reservations")
+        let choices = FieldLookupPolicy.choices(for: entry)
+        #expect(choices.map(\.id) == ["source.open"])
+    }
+
+    @Test
+    func sharedRecipeIsAReferenceUntilGivenADate() {
+        let entry = item("Lemon pasta", .food, sourceURL: "https://example.com/recipe")
+        #expect(FieldItemPurpose.resolve(entry) == .reference)
+        let scheduled = item("Lemon pasta", .food, dueOn: Date(), sourceURL: "https://example.com/recipe")
+        #expect(FieldItemPurpose.resolve(scheduled) == .task)
+    }
+
+    @Test
+    func shareTaskDoesNotOfferIrrelevantShoppingOrFoodSearches() {
+        #expect(FieldLookupPolicy.choices(for: item("Send grocery list", .food)).isEmpty)
+    }
+
     // MARK: Nothing at all
 
     /// Rows left by calendar builds that predate private intake stay inert

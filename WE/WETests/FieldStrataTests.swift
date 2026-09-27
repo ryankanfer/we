@@ -18,7 +18,9 @@ struct FieldStrataTests {
         category: LifeCategory = .care,
         dueOn: Date? = nil,
         closesAt: Date? = nil,
-        isDone: Bool = false
+        isTimeCritical: Bool = false,
+        isDone: Bool = false,
+        reachedOutAt: Date? = nil
     ) -> LifeItem {
         LifeItem(
             id: id,
@@ -30,8 +32,9 @@ struct FieldStrataTests {
             clusterID: nil,
             source: .captured,
             detail: nil,
-            isTimeCritical: false,
-            isDone: isDone
+            isTimeCritical: isTimeCritical,
+            isDone: isDone,
+            reachedOutAt: reachedOutAt
         )
     }
 
@@ -101,9 +104,15 @@ struct FieldStrataTests {
         #expect(band == .fading)
     }
 
-    /// The next move is in somebody else's hands.
+    /// Writing "call the plumber" down is not calling the plumber.
+    ///
+    /// This is the assertion that used to say the opposite. The band was
+    /// decided by the verb the title happened to contain, so a thing nobody
+    /// had done was reported back to the couple as something a third party was
+    /// already getting to — the app asserting a fact about the world that
+    /// nobody had given it.
     @Test
-    func anUndatedOutwardActWaitsOnSomeoneElse() {
+    func anUnsentOutwardActIsStillOursUntilSomebodySaysOtherwise() {
         for title in [
             "Call the vet",
             "Email the landlord",
@@ -114,15 +123,58 @@ struct FieldStrataTests {
                 now: Self.now
             )
             #expect(
-                band == .waitingOnSomeoneElse,
-                "\"\(title)\" puts the next move elsewhere"
+                band == .noHurry,
+                "\"\(title)\" is unsent, so it is still ours"
             )
         }
     }
 
-    /// Paying and ordering are ours to finish, so they are not waiting on
-    /// anyone. This mirrors `FieldLookupPolicy.leavesItToUs`, deliberately —
-    /// the two must not drift.
+    /// And this is what does put it there: a person's own confirmation.
+    @Test
+    func aConfirmedOutreachWaitsOnSomeoneElse() {
+        let band = FieldStrata.band(
+            for: Self.item(
+                "x",
+                title: "Call the vet",
+                reachedOutAt: Self.day(-1)
+            ),
+            now: Self.now
+        )
+        #expect(band == .waitingOnSomeoneElse)
+    }
+
+    /// It is the confirmation and not the wording. Something with no outward
+    /// verb in it at all still waits once somebody says they reached out, and
+    /// the reverse case above still does not.
+    @Test
+    func confirmedOutreachDoesNotDependOnTheWordsInTheTitle() {
+        let band = FieldStrata.band(
+            for: Self.item(
+                "x",
+                title: "The thing about the roof",
+                reachedOutAt: Self.day(-1)
+            ),
+            now: Self.now
+        )
+        #expect(band == .waitingOnSomeoneElse)
+    }
+
+    /// Taking it back returns it to wherever its date puts it. Nothing else
+    /// about the item changed, so nothing else about its filing may.
+    @Test
+    func takingTheOutreachBackReturnsItToUs() {
+        var item = Self.item(
+            "x",
+            title: "Call the vet",
+            reachedOutAt: Self.day(-1)
+        )
+        #expect(FieldStrata.band(for: item, now: Self.now) == .waitingOnSomeoneElse)
+
+        item.reachedOutAt = nil
+        #expect(FieldStrata.band(for: item, now: Self.now) == .noHurry)
+    }
+
+    /// Paying and ordering were never waiting on anyone, and still are not.
     @Test
     func aThingThatIsOursToDoIsNoHurryNotWaiting() {
         for title in ["Order the air filters", "Pay the water bill", "Steak"] {
@@ -147,6 +199,70 @@ struct FieldStrataTests {
             now: Self.now
         )
         #expect(band == .thisWeek)
+    }
+
+    /// A window that closed is not a window. The comparison here used to be
+    /// one-sided, so −500 satisfied it exactly as readily as 2 and a window
+    /// that shut a year ago presented itself as still open.
+    @Test
+    func aWindowThatClosedIsNotReportedAsStillOpen() {
+        let item = Self.item("x", closesAt: Self.day(-365))
+        #expect(FieldStrata.windowHasClosed(item, now: Self.now))
+        #expect(!FieldStrata.windowHasClosed(
+            Self.item("y", closesAt: Self.day(0)),
+            now: Self.now
+        ))
+    }
+
+    /// And it is not quietly reduced to a number either. Fading renders as a
+    /// bare count; a missed hard commitment counted rather than asked about is
+    /// the app deciding on somebody's behalf that it stopped mattering.
+    @Test
+    func aMissedHardCommitmentStaysInRowsRatherThanFading() {
+        for offset in [-1, -15, -365] {
+            let band = FieldStrata.band(
+                for: Self.item("x", closesAt: Self.day(offset)),
+                now: Self.now
+            )
+            #expect(band == .thisWeek, "a window \(offset) days gone needs a person")
+        }
+    }
+
+    /// Age alone cannot establish that something stopped mattering. The air
+    /// filter fades; a thing its owner marked time-critical does not.
+    @Test
+    func longOverdueFadesOnlyWhenItWasNeverFixed() {
+        #expect(
+            FieldStrata.band(
+                for: Self.item("upkeep", dueOn: Self.day(-60)),
+                now: Self.now
+            ) == .fading
+        )
+        #expect(
+            FieldStrata.band(
+                for: Self.item(
+                    "fixed",
+                    dueOn: Self.day(-60),
+                    isTimeCritical: true
+                ),
+                now: Self.now
+            ) == .thisWeek
+        )
+    }
+
+    /// Fading never means done. Whatever band a thing is in, it is still open
+    /// and still on the page.
+    @Test
+    func nothingIsMarkedFinishedByGettingOld() {
+        let sorted = FieldStrata.sort(
+            [
+                Self.item("old", dueOn: Self.day(-60)),
+                Self.item("closed", closesAt: Self.day(-90)),
+            ],
+            now: Self.now
+        )
+        #expect(sorted.total == 2)
+        #expect(sorted.all.allSatisfy { !$0.isDone })
     }
 
     // MARK: The sort as a whole

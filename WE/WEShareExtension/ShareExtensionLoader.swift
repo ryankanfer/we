@@ -11,7 +11,13 @@ enum ShareExtensionLoader {
 
         for (index, provider) in providers.enumerated() {
             let label = "Item \(index + 1)"
-            results.append(await candidate(from: provider, label: label))
+            let next = await candidate(from: provider, label: label)
+            let existingBytes = results.reduce(0) { total, candidate in
+                if case .image(let image, _) = candidate { return total + image.data.count }; return total
+            }
+            if case .image(let image, _) = next, existingBytes + image.data.count > WEShareConstants.maximumSourceBytes {
+                results.append(.omitted(.init(label: label, reason: "Images in one import must total 64 MB or less.")))
+            } else { results.append(next) }
         }
         return results
     }
@@ -130,7 +136,7 @@ enum ShareExtensionLoader {
     ) -> Result<NormalizedShareImage, Error> {
         autoreleasepool {
             Result {
-                try ShareImageNormalizer().normalize(fileAt: url)
+                try ShareImageNormalizer().preserve(fileAt: url)
             }
         }
     }

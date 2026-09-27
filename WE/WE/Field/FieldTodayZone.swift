@@ -25,72 +25,82 @@ struct FieldTodayZone: View {
 
     /// 6d, reached from "What I'm watching".
     @State private var showsDeferral = false
+    /// The shared question, opened from its line. Us is no longer a zone.
+    @State private var showsSharedQuestion = false
 
     /// The watched line somebody tapped, when that line is reading a filed
     /// thing back.
     @State private var openItem: FieldItemReference?
 
-    /// Whether the circle has ever been explained on this device.
-    ///
-    /// Local rather than a column, and per device rather than per account, for
-    /// the same reason `yours.gesture.hinted` is: what it records is that a
-    /// hand has been shown what a control does. A new phone is a new place to
-    /// learn it, and nothing about a person's relationship is stored here.
-    @AppStorage("field.circle.taught") private var hasTaughtCircle = false
-
-    @State private var showsCircleTeaching = false
-
     var body: some View {
         FieldZoneScaffold(
-            zone: .we,
-            headerMeta: DateFormatter.fieldDayMonth
-                .string(from: store.now)
-                .uppercased()
+            zone: .today,
+            showsZoneLabel: false
         ) {
             VStack(alignment: .leading, spacing: 0) {
-                // One hairline under the Today header, purely as a signal that
-                // the space is jointly held. This is a sanctioned use of the
-                // blend — it is not decoration and it appears nowhere else on
-                // this screen.
-                Rectangle()
-                    .fill(store.identity.blend())
-                    .frame(height: 1)
-                    .opacity(0.55)
-                    .padding(.bottom, 30)
-                    .accessibilityHidden(true)
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Today").font(FieldType.pageHeadline)
+                        Spacer()
+                        todayDate
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Today").font(FieldType.pageHeadline)
+                        todayDate
+                    }
+                }
+                .foregroundStyle(.fieldInk(.headline))
+                .padding(.bottom, 24)
 
-                // The hero, then the way in. Capture sits directly under
-                // whatever the app has to say, because saying something back
-                // is the reply to it — everything else on this screen is
-                // context and belongs below.
-                switch store.todaySelection {
-                case .resolved(let headline, let detail, _):
-                    resolvedHero(headline, detail)
-                case .needsYou(let moment):
-                    FieldMomentView(moment: moment)
+                if let error = store.itemSaveError {
+                    Text(error).font(FieldType.body)
+                        .foregroundStyle(.fieldInk(.headline))
+                        .padding(.bottom, 20)
+                        .accessibilityIdentifier("field.today.saveError")
+                }
+                FieldDayConversationView(
+                    part: .opening,
+                    openItem: $openItem,
+                    showsDeferral: $showsDeferral
+                )
+                .padding(.bottom, 8)
+
+                Group {
+                    switch store.todaySelection {
+                    case .resolved(let headline, let detail, _):
+                        resolvedHero(headline, detail)
+                    case .needsYou(let moment):
+                        FieldMomentView(moment: moment)
+                    }
+                }
+                .padding(.vertical, 12)
+
+                // Only me, on the day its author picked. Only ever on the
+                // author's phone: a private row reaches nobody else.
+                ForEach(store.heldItemsReadyToOffer) { item in
+                    FieldHeldReadyCard(item: item, openItem: $openItem)
+                        .padding(.vertical, 12)
                 }
 
-                FieldCaptureField()
-                    .padding(.top, FieldMetrics.sectionGapLoose)
-
+                if WEFeatureFlags.shareInboxEnabled {
+                    WEPrivateTimeItems().environment(store).padding(.vertical, 12)
+                    WESharedTimeItems().environment(store).padding(.vertical, 12)
+                }
                 if sharedQuestionIsReady {
                     sharedJourneyHandoff
                         .padding(.top, FieldMetrics.sectionGapLoose)
                 }
 
-                if case .resolved(_, _, let watching) = store.todaySelection {
-                    // The heading is a claim, and with nothing under it the
-                    // claim was false: a label, two rules and a gap, on the
-                    // one screen that is supposed to read as resolved. A
-                    // couple with no open question, no horizon and nothing
-                    // held is not being watched over — so the app says
-                    // nothing rather than drawing an empty frame around it.
-                    if !watching.isEmpty {
-                        watchingBlock(watching)
-                            .padding(.top, FieldMetrics.sectionGapLoose)
-                            .padding(.bottom, FieldMetrics.sectionGap)
-                    }
-                }
+                // The day's conversation: what either of you added today, WE's
+                // replies, decisions, and this person's private look-ups. It
+                // replaces the watching list and the separate chat.
+                FieldDayConversationView(
+                    part: .thread,
+                    openItem: $openItem,
+                    showsDeferral: $showsDeferral
+                )
+                .padding(.top, FieldMetrics.sectionGap)
+                .padding(.bottom, FieldMetrics.sectionGap)
             }
         }
         .sheet(item: $openItem) { reference in
@@ -100,11 +110,24 @@ struct FieldTodayZone: View {
             FieldDeferralView()
                 .environment(store)
         }
-        .sheet(isPresented: $showsCircleTeaching) {
-            FieldCircleTeachingSheet(identity: store.identity) {
-                showsCircleTeaching = false
-            }
+        // Proposals shown here are seen; see `FieldStore.markDecisionsSeen`.
+        .task(id: "\(store.activeZone == .today):\(store.chatMessages.count)") {
+            guard store.activeZone == .today else { return }
+            await store.markDecisionsSeen()
         }
+        .sheet(isPresented: $showsSharedQuestion) {
+            SharedJourneyUsSurface()
+                .environment(store)
+                .environmentObject(session)
+        }
+
+    }
+
+    private var todayDate: some View {
+        Text(store.now, format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
+            .font(FieldType.body)
+            .foregroundStyle(.fieldInk(.reasoning))
+            .fixedSize()
     }
 
     private var sharedQuestionIsReady: Bool {
@@ -122,14 +145,14 @@ struct FieldTodayZone: View {
 
     private var sharedJourneyHandoff: some View {
         Button {
-            store.go(to: .us)
+            showsSharedQuestion = true
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text("One shared question is ready.")
                     .font(FieldType.listItem)
                     .foregroundStyle(.fieldInk(.headline))
                 Spacer(minLength: 0)
-                Text("OPEN US")
+                Text("OPEN")
                     .font(FieldType.dateCount)
                     .tracking(FieldTracking.dateCount)
                     .foregroundStyle(.fieldInk(.dateCount))
@@ -161,24 +184,25 @@ struct FieldTodayZone: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(spacing: 26) {
-                circleMark
 
                 VStack(spacing: 16) {
-                    Text(headline)
-                        .font(FieldType.hero)
-                        .tracking(FieldTracking.hero)
-                        .foregroundStyle(.fieldInk(.headline))
-                        .fieldLineHeight(1.12, size: 42)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
+                    WEWordReveal(
+                        text: headline,
+                        font: FieldType.hero,
+                        tracking: FieldTracking.hero,
+                        lineSpacing: 4,
+                        alignment: .center
+                    )
+                    .foregroundStyle(.fieldInk(.headline))
 
                     Text(detail)
-                        .font(.system(size: 15, design: .serif))
+                        .font(FieldType.body)
                         .foregroundStyle(.fieldInk(.sectionSubtitle))
                         .fieldLineHeight(1.6, size: 15)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 270)
                         .fixedSize(horizontal: false, vertical: true)
+                        .weArrival(delay: 0.45)
                 }
                 // The combine stops here rather than wrapping the mark with
                 // it. The mark used to be inside this element and
@@ -190,72 +214,6 @@ struct FieldTodayZone: View {
                 .accessibilityLabel("\(headline) \(detail)")
             }
             .frame(maxWidth: .infinity)
-        }
-    }
-
-    // MARK: The circle
-    //
-    // The mark above "Today is clear." is the app's avatar for itself, and it
-    // is now the one place a person can say they are open to a moment
-    // together. See `FieldReadiness` and `FieldCircleSurfaces`.
-
-    /// A control where there is somebody to be open to, and the same quiet
-    /// drawing everywhere else.
-    ///
-    /// Nothing here reveals anything about the partner: the only states it can
-    /// draw are "you have not marked" and "you have", both of which this device
-    /// already knew. The bloom is not drawn here at all — it takes the whole
-    /// screen, from the shell.
-    @ViewBuilder
-    private var circleMark: some View {
-        if store.isCircleAvailable {
-            VStack(spacing: 10) {
-                Button {
-                    // The mark lands first, then the explanation. Teaching
-                    // *before* the first tap would be a modal nobody asked for
-                    // on somebody's first quiet morning in the app; teaching
-                    // at the moment of the tap answers the question the tap
-                    // just raised, which is the only moment it is genuinely
-                    // wanted. The tap is not spent — it counts.
-                    Task { await store.markReady() }
-                    if !hasTaughtCircle {
-                        hasTaughtCircle = true
-                        showsCircleTeaching = true
-                    }
-                } label: {
-                    FieldIntelligenceMark(
-                        identity: store.identity,
-                        diameter: 28,
-                        ringDiameter: 70
-                    )
-                    .frame(width: 70, height: 70)
-                    // The ring, not the 28pt disc. Anything smaller is a
-                    // target nobody can hit; anything larger starts stealing
-                    // taps from the headline underneath.
-                    .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(FieldCircleCopy.markLabel)
-                .accessibilityIdentifier("field.circle.mark")
-
-                // For the person who marked, and only for them. The partner's
-                // screen is unchanged either way — this says what *you* did,
-                // never what is being waited for.
-                if store.circle.state == .you {
-                    Text(FieldCircleCopy.marked)
-                        .font(FieldType.reasoning)
-                        .foregroundStyle(.fieldInk(.legend))
-                        .transition(.opacity)
-                }
-            }
-            .animation(.easeInOut(duration: 0.4), value: store.circle.state)
-        } else {
-            FieldIntelligenceMark(
-                identity: store.identity,
-                diameter: 28,
-                ringDiameter: 70
-            )
-            .frame(height: 70)
         }
     }
 
@@ -272,12 +230,12 @@ struct FieldTodayZone: View {
             // heading that does nothing.
             Group {
                 if store.heldTopics.isEmpty {
-                    FieldLabel("What I'm watching")
+                    FieldLabel("What's being watched")
                 } else {
                     Button {
                         showsDeferral = true
                     } label: {
-                        FieldLabel("What I'm watching")
+                        FieldLabel("What's being watched")
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -375,16 +333,20 @@ struct FieldTodayZone: View {
 
 struct FieldMomentView: View {
     @Environment(FieldStore.self) private var store
+    @State private var actionItem: FieldItemReference?
     let moment: FieldMoment
 
     private var accentColor: Color {
         moment.accent == .shared
-            ? store.identity.personB.color
-            : store.identity.color(for: moment.accent)
+            ? store.identity.personB.color(on: .surface)
+            : store.identity.color(for: moment.accent, on: .cream)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if let item = store.state.lifeItems.first(where: { $0.id == moment.id }) {
+                WEPrivacyLabel(text: store.privacyLabel(for: item)).padding(.bottom, 8)
+            }
             FieldLabel(moment.source)
                 .padding(.bottom, 22)
 
@@ -394,29 +356,35 @@ struct FieldMomentView: View {
                 Text("FOR \(store.identity.name(for: addressee).uppercased()), ALONE")
                     .font(FieldType.dateCount)
                     .tracking(FieldTracking.dateCount)
-                    .foregroundStyle(store.identity.color(for: addressee))
+                    .foregroundStyle(store.identity.color(for: addressee, on: .cream))
                     .padding(.bottom, 14)
             }
 
-            Text(moment.headline)
-                .font(FieldType.hero)
-                .tracking(FieldTracking.hero)
-                .foregroundStyle(.fieldInk(.headline))
-                .fieldLineHeight(1.12, size: 42)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, 22)
+            WEWordReveal(
+                text: moment.headline,
+                font: FieldType.hero,
+                tracking: FieldTracking.hero,
+                lineSpacing: 4
+            )
+            .foregroundStyle(.fieldInk(.headline))
+            .padding(.bottom, 22)
 
             if case .question(let question) = moment.shape {
                 Text(question.stakes)
-                    .font(.system(size: 15, design: .serif))
+                    .font(FieldType.body)
                     .foregroundStyle(.fieldInk(.sectionSubtitle))
                     .fieldLineHeight(1.6, size: 15)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.bottom, 20)
             }
 
-            FieldReasoning(text: moment.reasoning, accent: accentColor)
-                .padding(.bottom, 30)
+            DisclosureGroup("Why this?") {
+                FieldReasoning(text: moment.reasoning, accent: accentColor)
+                    .padding(.top, 12)
+            }
+            .font(FieldType.body)
+            .foregroundStyle(.fieldInk(.headline))
+            .padding(.bottom, 24)
 
             // The app opened the phone and does not know how it went. Asked
             // once, above the usual actions, and never asked again today.
@@ -427,31 +395,17 @@ struct FieldMomentView: View {
 
             actions
 
-            if let remainder = moment.remainder {
-                Text(remainder)
-                    .font(.system(size: 13.5, design: .serif))
-                    .foregroundStyle(.fieldInk(.metadataProse))
-                    .fieldLineHeight(1.6, size: 13.5)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 30)
-            }
+
         }
         .accessibilityIdentifier("field.today.moment")
         // Where anything outward gets confirmed. It is a sheet rather than an
         // inline card because it is the one screen in the app that stands
         // between a tap and something happening in the world, and it should
         // take the whole of somebody's attention for the second it needs.
-        .sheet(item: outreachBinding) { request in
-            FieldOutreachConfirmation(request: request)
+        .sheet(item: $actionItem) { reference in
+            FieldItemSheet(itemID: reference.id)
                 .environment(store)
         }
-    }
-
-    private var outreachBinding: Binding<FieldOutreachRequest?> {
-        Binding(
-            get: { store.pendingOutreach },
-            set: { if $0 == nil { store.dismissOutreach() } }
-        )
     }
 
     /// "You called the vet. Is that one done?"
@@ -463,12 +417,16 @@ struct FieldMomentView: View {
                     .foregroundStyle(.fieldInk(.headline))
                     .fixedSize(horizontal: false, vertical: true)
 
-                HStack(spacing: 11) {
-                    Button("Done") { store.resolveOutcome(outcome, done: true) }
+                VStack(alignment: .leading, spacing: 8) {
+                    Button("It's done") { store.resolveOutcome(outcome, done: true) }
                         .buttonStyle(FieldFilledButtonStyle())
                         .accessibilityIdentifier("field.outcome.done")
-
-                    Button("Not yet") { store.resolveOutcome(outcome, done: false) }
+                    Button("I reached out and am waiting for a reply") {
+                        store.confirmWaitingForReply(outcome)
+                    }
+                    .buttonStyle(FieldOutlinedButtonStyle())
+                    .accessibilityIdentifier("field.outcome.waiting")
+                    Button("Still on me") { store.resolveOutcome(outcome, done: false) }
                         .buttonStyle(FieldQuietButtonStyle())
                         .accessibilityIdentifier("field.outcome.notYet")
                 }
@@ -489,7 +447,7 @@ struct FieldMomentView: View {
                         .buttonStyle(
                             FieldOutlinedButtonStyle(
                                 tint: action.tint.map {
-                                    store.identity.color(for: $0)
+                                    store.identity.color(for: $0, on: .cream)
                                 }
                             )
                         )
@@ -502,8 +460,14 @@ struct FieldMomentView: View {
                 // and these are two.
                 ForEach(moment.actions.filter { $0.weight != .quiet }) { action in
                     if action.weight == .filled {
-                        Button(action.title) { perform(action) }
-                            .buttonStyle(FieldFilledButtonStyle())
+                        Button { perform(action) } label: {
+                            Text(action.title)
+                                .font(FieldType.button)
+                                .padding(.horizontal, 12)
+                                .frame(minHeight: 44)
+                        }
+                            .buttonStyle(.glassProminent)
+                            .tint(WECanvas.surface.ink)
                             .accessibilityIdentifier(identifier(for: action))
                     } else {
                         Button(action.title) { perform(action) }
@@ -572,30 +536,81 @@ struct FieldMomentView: View {
     /// it can and then stops, because the last decision before something
     /// leaves the phone is never the app's.
     private func begin(_ act: FieldAct) {
-        guard store.state.lifeItems.contains(where: {
-            $0.id == moment.id
-        }) else {
-            store.complete(moment.id)
-            return
+        guard store.state.lifeItems.contains(where: { $0.id == moment.id }) else { return }
+        actionItem = FieldItemReference(id: moment.id)
+    }
+}
+
+
+// MARK: - Hold until, on the day
+
+/// "You held this for today." The one moment Only me asks anything of
+/// anyone, and it asks its author. Two equal answers: share it, or keep it.
+/// Keeping it clears the day rather than snoozing, because a question asked
+/// twice about the same private thing starts to feel like pressure.
+private struct FieldHeldReadyCard: View {
+    @Environment(FieldStore.self) private var store
+    @Environment(\.weCanvas) private var canvas
+    let item: LifeItem
+    @Binding var openItem: FieldItemReference?
+    @State private var confirmsShare = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                FieldDot(owner: item.owner, isPrivate: true, identity: store.identity)
+                FieldLabel(WEOnlyMeCopy.readyLabel)
+            }
+
+            Button {
+                openItem = FieldItemReference(id: item.id)
+            } label: {
+                Text(item.title)
+                    .font(FieldType.listItemLarge)
+                    .foregroundStyle(.fieldInk(.headline))
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .buttonStyle(.plain)
+
+            Text(WEOnlyMeCopy.readyLine)
+                .font(FieldType.reasoning)
+                .foregroundStyle(.fieldInk(.reasoning))
+
+            HStack(spacing: 12) {
+                Button(WEOnlyMeCopy.readyShare(partner: store.partnerName)) {
+                    confirmsShare = true
+                }
+                .buttonStyle(FieldFilledButtonStyle())
+                .accessibilityIdentifier("field.today.held.share")
+
+                Button(WEOnlyMeCopy.readyKeep) {
+                    store.setHold(item.id, until: nil)
+                }
+                .buttonStyle(FieldOutlinedButtonStyle())
+                .accessibilityIdentifier("field.today.held.keep")
+            }
         }
-
-        switch act {
-        case .call, .message, .email, .book:
-            // Booking is a phone call when there is somebody to call — that
-            // is what booking a vet actually is. The store finds what it can
-            // and then stops.
-            Task { await store.begin(act, for: moment.id) }
-
-        case .schedule:
-            // LIFE's own calendar already holds the date. External calendar
-            // accounts are deliberately outside this release.
-            store.complete(moment.id)
-
-        case .pay, .order, .none:
-            // Real acts with no honest destination on this phone. Paying a
-            // bill means somebody's banking app and the app has no idea
-            // which; opening the wrong one is worse than opening nothing.
-            store.complete(moment.id)
+        .padding(FieldMetrics.cardPadding + 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(
+            RoundedRectangle(cornerRadius: FieldMetrics.cardRadius)
+                .strokeBorder(
+                    canvas.ink.opacity(0.3),
+                    style: StrokeStyle(lineWidth: 1, dash: [5, 4])
+                )
+        )
+        .confirmationDialog(
+            "Share with \(store.partnerName)?",
+            isPresented: $confirmsShare,
+            titleVisibility: .visible
+        ) {
+            Button("Share it") { store.share(item.id) }
+            Button("Not yet", role: .cancel) {}
+        } message: {
+            Text("\(store.partnerName) will be able to see it from now on. It can't be made private again.")
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("field.today.held")
     }
 }

@@ -81,6 +81,14 @@ final class SupabaseRepository: Repository {
         )
     }
 
+    func resendVerification(email: String) async throws {
+        try await configuredClient().auth.resend(
+            email: normalized(email),
+            type: .signup,
+            emailRedirectTo: Self.emailConfirmationURL
+        )
+    }
+
     func handleAuthCallback(_ url: URL) async throws
         -> AuthCallbackResult
     {
@@ -125,6 +133,15 @@ final class SupabaseRepository: Repository {
         _ = try await configuredClient()
             .rpc(
                 "join_couple",
+                params: JoinCoupleParameters(code: normalized(code))
+            )
+            .execute()
+    }
+
+    func joinInstead(code: String) async throws {
+        _ = try await configuredClient()
+            .rpc(
+                "join_instead",
                 params: JoinCoupleParameters(code: normalized(code))
             )
             .execute()
@@ -200,23 +217,6 @@ final class SupabaseRepository: Repository {
             .from("profiles")
             .update(ProfileUpdatePayload(name: normalized(name)))
             .eq("id", value: userID)
-            .execute()
-    }
-
-    func updateHue(
-        _ hue: MemberHue,
-        membership: Membership
-    ) async throws {
-        _ = try await configuredClient()
-            .from("couple_members")
-            .update(
-                HueUpdatePayload(
-                    hue: hue.rawValue,
-                    hueChosenAt: Self.timestamp(Date())
-                )
-            )
-            .eq("couple_id", value: membership.coupleID)
-            .eq("profile_id", value: membership.profileID)
             .execute()
     }
 

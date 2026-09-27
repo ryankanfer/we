@@ -3,6 +3,12 @@ import SwiftUI
 import UIKit
 
 enum WEFeatureFlags {
+    /// The live Promise ceremony on both phones at arrival. Retired: its
+    /// three beats now live as one page in the walkthrough, which everyone
+    /// meets once, right after making an account. The code and the server
+    /// records stay, so turning this back on is a one line change.
+    static let promiseCeremonyEnabled = false
+
     static var shareInboxEnabled: Bool {
         let value = Bundle.main.object(
             forInfoDictionaryKey: "WEShareInboxEnabled"
@@ -24,8 +30,15 @@ enum WEFeatureFlags {
         if let string = value as? String, !string.isEmpty {
             return ["1", "true", "yes"].contains(string.lowercased())
         }
-        // Seeded modes are explicit product fixtures. Live remains off until
-        // the deployment has the migration, worker secret, and ZDR project.
+        // Reached only where no Info.plist is configured — a unit-test host
+        // or an extension. The app itself is decided by
+        // `WE_SHARED_JOURNEYS_ENABLED`, YES in Debug and in Release, because
+        // a Release archive that fell through to this returned false and
+        // showed testers `LegacyFieldUsZone()` instead of the Us field.
+        // The preconditions that made this cautious are met: the migrations
+        // are applied, and `refresh_shared_journey_question`, `insights`,
+        // `insight_consent`, `responses` and `shared_directions` are all
+        // present in the deployed schema.
         return FieldEntry.Mode.current != .live
     }
 }
@@ -44,10 +57,6 @@ final class ShareInboxModel {
         message = nil
         do {
             let context = try vault.activeContext()
-            vault.store.expireReady(
-                context: context,
-                olderThan: Date().addingTimeInterval(-30 * 86_400)
-            )
             drafts = try vault.store.readyDrafts(context: context)
             isLoading = false
         } catch {
@@ -67,6 +76,25 @@ final class ShareReviewModel {
     private(set) var previewData: [UUID: Data] = [:]
     private(set) var isPublishing = false
     private(set) var publishedItemID: UUID?
+    private var derivatives: [UUID: NormalizedShareImage] = [:]
+    private var intelligenceDetails: Data?
+    private var configuredContentRevision: Int?
+
+    func configure(content: WEArtifactContent, audience: String?, sharedVersion: Int?, privateVersion: Int? = nil) {
+        configuredContentRevision = content.revision
+        setTitle(content.title); setBody(content.body); setCategory(LifeCategory(rawValue: content.category))
+        mutate { $0.revision = max($0.revision, (content.publishedRevision ?? 0) + 1) }
+        var fields: [String: Any] = ["place": content.place, "expectedPublishedRevision": content.publishedRevision ?? 0, "expectedLifeVersion": sharedVersion ?? 0]
+        if let privateVersion { fields["expectedPrivateVersion"] = privateVersion }
+        if let audience { fields["audience"] = audience.lowercased() }
+        if let target = content.connectedPlanID { fields["connectedPlanID"] = target.lowercased() }
+        if let timing = content.timing, let data = try? JSONEncoder.share.encode(timing),
+           let json = try? JSONSerialization.jsonObject(with: data) { fields["timing"] = json }
+        let details = try? JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys])
+        if details != record.frozen?.intelligenceDetails, record.frozen != nil { mutate { $0.revision += 1 } }
+        intelligenceDetails = details
+    }
+
     var message: String?
 
     private let context: ShareVaultContext
@@ -186,14 +214,16 @@ final class ShareReviewModel {
     func loadPreviews() async {
         var loaded: [UUID: Data] = [:]
         for resource in imageResources {
-            if let data = try? vault.store.loadResource(
-                resource,
-                manifest: manifest,
-                context: context
-            ) {
-                loaded[resource.id] = data
-            }
-            await Task.yield()
+            do {
+                let bytes = try vault.store.loadResource(resource, manifest: manifest, context: context)
+                if resource.isOriginal == true {
+                    let file = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+                    try bytes.write(to: file, options: [.atomic, .completeFileProtection])
+                    defer { try? FileManager.default.removeItem(at: file) }
+                    let derivative = try ShareImageNormalizer().normalize(fileAt: file)
+                    derivatives[resource.id] = derivative; loaded[resource.id] = derivative.data
+                } else { loaded[resource.id] = bytes }
+            } catch { message = "An image could not be prepared. The private original remains saved." }
         }
         previewData = loaded
     }
@@ -279,6 +309,12 @@ final class ShareReviewModel {
         }
     }
 
+    private func validateSource() throws {
+        guard let configuredContentRevision else { return }
+        guard let current = WEIntelligenceStore.shared.ledger.records[manifest.id], !current.deleted,
+              current.content.revision == configuredContentRevision else { throw SharePublicationError.invalidReview }
+    }
+
     func publish() async {
         guard canPublish else {
             message = SharePublicationError.invalidReview.localizedDescription
@@ -288,6 +324,8 @@ final class ShareReviewModel {
         message = nil
 
         do {
+            guard try vault.activeContext().pointer.vaultID == context.pointer.vaultID else { throw ShareVaultError.signedOut }
+            try validateSource()
             let frozen = try freeze()
             let session: SharePublicationSession
             if let existing = record.session {
@@ -332,42 +370,41 @@ final class ShareReviewModel {
                 throw SharePublicationError.privateResourceChanged
             }
 
+            guard try vault.activeContext().pointer.vaultID == context.pointer.vaultID else { throw ShareVaultError.signedOut }
             for descriptor in session.uploads {
                 guard let resource = manifest.resources.first(where: {
-                    $0.id == descriptor.resourceID
+                    $0.id == (approved[descriptor.resourceID]?.sourceResourceID ?? descriptor.resourceID)
                 }) else {
                     throw SharePublicationError.privateResourceChanged
                 }
-                let data = try vault.store.loadResource(
-                    resource,
-                    manifest: manifest,
-                    context: context
-                )
+                let data: Data
+                if resource.isOriginal == true {
+                    guard let derivative = derivatives[resource.id] else { throw SharePublicationError.privateResourceChanged }
+                    data = derivative.data
+                } else {
+                    data = try vault.store.loadResource(resource, manifest: manifest, context: context)
+                }
                 try await backend.upload(data, descriptor: descriptor)
             }
 
+            guard try vault.activeContext().pointer.vaultID == context.pointer.vaultID else { throw ShareVaultError.signedOut }
+            try validateSource()
             let itemID = try await backend.finalize(sessionID: session.id)
-            vault.store.remove(manifest, context: context)
-            persistence.remove(
-                draftID: manifest.id,
-                vaultID: manifest.vaultID
-            )
+            guard try vault.activeContext().pointer.vaultID == context.pointer.vaultID else { throw ShareVaultError.signedOut }
+            WEIntelligenceStore.shared.edit(manifest.id) {
+                $0.title = revision.title; $0.body = revision.body
+                $0.publishedItemID = itemID.uuidString; $0.publishedRevision = revision.revision
+            }
             publishedItemID = itemID
         } catch {
             message = error.localizedDescription
+            WEIntelligenceStore.shared.recordFailure(manifest.id, message: "Sharing needs attention. Open the item to review and retry; the original remains Only me.")
         }
         isPublishing = false
     }
 
     func discard() async {
-        if let sessionID = record.session?.id ?? record.frozen?.id {
-            await backend.retire(sessionID: sessionID)
-        }
-        vault.store.remove(manifest, context: context)
-        persistence.remove(
-            draftID: manifest.id,
-            vaultID: manifest.vaultID
-        )
+        await WEIntelligenceStore.shared.deleteEverywhere(manifest.id)
     }
 
     private func freeze() throws -> FrozenPublicationSnapshot {
@@ -387,7 +424,7 @@ final class ShareReviewModel {
             guard revision.includedURLRepresentationIDs.contains(
                 representation.id
             ), let url = representation.url else { return nil }
-            return FrozenPublicationURL(id: representation.id, url: url)
+            return FrozenPublicationURL(id: intelligenceDetails == nil ? representation.id : UUID(), url: url)
         }
         let resources: [FrozenPublicationResource] =
             imageResources.compactMap {
@@ -396,13 +433,15 @@ final class ShareReviewModel {
                 return nil
             }
             return FrozenPublicationResource(
-                id: resource.id,
-                sha256: resource.sha256,
-                contentType: resource.contentType,
-                byteCount: resource.byteCount
+                sourceResourceID: resource.id,
+                id: intelligenceDetails == nil ? resource.id : UUID(),
+                sha256: derivatives[resource.id]?.sha256 ?? resource.sha256,
+                contentType: derivatives[resource.id].map { $0.contentType == "public.png" ? "image/png" : "image/jpeg" } ?? resource.contentType,
+                byteCount: derivatives[resource.id]?.data.count ?? resource.byteCount
             )
         }
-        let frozen = FrozenPublicationSnapshot(
+        guard imageResources.filter({ revision.includedResourceIDs.contains($0.id) && $0.isOriginal == true }).allSatisfy({ derivatives[$0.id] != nil }) else { throw SharePublicationError.privateResourceChanged }
+        var frozen = FrozenPublicationSnapshot(
             draftID: manifest.id,
             revision: revision.revision,
             title: title,
@@ -412,6 +451,7 @@ final class ShareReviewModel {
             resources: resources,
             createdAt: Date()
         )
+        frozen.intelligenceDetails = intelligenceDetails
         record.frozen = frozen
         try persistence.save(record, vaultID: manifest.vaultID)
         return frozen
@@ -422,6 +462,7 @@ final class ShareReviewModel {
     ) {
         var mutable = MutableShareRevision(revision)
         update(&mutable)
+        guard mutable.revision != revision.revision || mutable.title != revision.title || mutable.body != revision.body || mutable.category != revision.category || mutable.includedURLRepresentationIDs != revision.includedURLRepresentationIDs || mutable.includedResourceIDs != revision.includedResourceIDs else { return }
 
         if record.frozen != nil {
             let oldSession = record.session?.id ?? record.frozen?.id
@@ -485,7 +526,7 @@ struct ShareInboxView: View {
 
     var body: some View {
         ZStack {
-            FieldPalette.bgElevated.ignoresSafeArea()
+            WECanvas.surface.bgElevated.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 header
@@ -497,9 +538,8 @@ struct ShareInboxView: View {
                             .foregroundStyle(.fieldInk(.headline))
 
                         Text(
-                            "Private drafts from the Share Sheet. Nothing "
-                                + "enters your shared LIFE until you release "
-                                + "the exact version together."
+                            "An article, a recipe, somewhere to go. Save it from another app, "
+                                + "then review what you want to share in Life."
                         )
                         .font(FieldType.body)
                         .foregroundStyle(.fieldInk(.sectionSubtitle))
@@ -516,7 +556,8 @@ struct ShareInboxView: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(WETheme.shared.colorScheme)
+        .environment(\.weCanvas, .surface)
         .task { model.load() }
         .sheet(item: $selected, onDismiss: model.load) { manifest in
             ShareReviewView(manifest: manifest) {
@@ -529,9 +570,9 @@ struct ShareInboxView: View {
 
     private var header: some View {
         HStack {
-            FieldLabel("Private intake")
+            FieldLabel("Your incoming links")
             Spacer(minLength: 12)
-            Button("DONE ✕") { dismiss() }
+            Button("Done") { dismiss() }
                 .font(FieldType.button)
                 .tracking(FieldTracking.button)
                 .foregroundStyle(.fieldInk(.legend))
@@ -541,14 +582,14 @@ struct ShareInboxView: View {
         }
         .padding(.horizontal, FieldMetrics.screenSide)
         .frame(minHeight: 56)
-        .background(FieldPalette.bgElevated.opacity(0.98))
+        .background(WECanvas.surface.bgElevated.opacity(0.98))
     }
 
     @ViewBuilder
     private var content: some View {
         if model.isLoading {
             ProgressView()
-                .tint(FieldInk.headline.color(on: .ground))
+                .tint(FieldInk.headline.color(on: .surface))
                 .frame(maxWidth: .infinity, minHeight: 180)
                 .accessibilityLabel("Opening private drafts")
         } else if let message = model.message {
@@ -556,11 +597,11 @@ struct ShareInboxView: View {
         } else if model.drafts.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 FieldRuleLine()
-                Text("Nothing waiting.")
+                Text("Saw something they’d love?")
                     .font(FieldType.listItemLarge)
                     .foregroundStyle(.fieldInk(.headline))
                     .padding(.top, 18)
-                Text("Use “Send to WE” from another app to keep something here.")
+                Text("In Safari or another app, tap Share, then Send to WE. Your link waits here privately until you choose to share it. Find shared links in Life → Saved.")
                     .font(FieldType.body)
                     .foregroundStyle(.fieldInk(.reasoning))
                     .fixedSize(horizontal: false, vertical: true)
@@ -603,7 +644,8 @@ struct ShareInboxView: View {
     }
 }
 
-private struct ShareReviewView: View {
+struct ShareReviewView: View {
+    @EnvironmentObject private var session: AppSession
     @Environment(\.dismiss) private var dismiss
     @Environment(FieldStore.self) private var store
 
@@ -651,7 +693,15 @@ private struct ShareReviewView: View {
         .task {
             guard model == nil else { return }
             do {
-                let newModel = try ShareReviewModel(manifest: manifest)
+                let newModel: ShareReviewModel
+                if WEIntelligenceCapabilities.isPreview {
+                    newModel = try ShareReviewModel(manifest: manifest, vault: .shared, persistence: .init(), backend: WEPreviewPublicationBackend.shared)
+                } else { newModel = try ShareReviewModel(manifest: manifest) }
+                if let content = WEIntelligenceStore.shared.ledger.records[manifest.id]?.content {
+                    newModel.configure(content: content, audience: session.snapshot?.membership?.coupleID,
+                        sharedVersion: store.state.lifeItems.first { $0.id == content.publishedItemID }?.publicationVersion,
+                        privateVersion: WEIntelligenceStore.shared.ledger.records[manifest.id]?.serverVersion)
+                }
                 model = newModel
                 await newModel.loadPreviews()
             } catch {
@@ -667,6 +717,13 @@ private struct ShareReviewView: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 28) {
+                    WEPrivacyLabel(text: "Original: Only me")
+                    Text("Reviewed version will be shared with \(session.partnerName).").font(.footnote)
+                    if let content = WEIntelligenceStore.shared.ledger.records[manifest.id]?.content {
+                        if !content.place.isEmpty { Text("Place: \(content.place)") }
+                        if let reason = content.timing?.explanation { Text(reason) }
+                        if let target = content.connectedPlanID { Text("Plan: " + (store.state.lifeItems.first { $0.id == target }?.title ?? "Unavailable — choose another plan")) }
+                    }
                     privateSource(model)
                     sharedDraft(model)
                     resources(model)
@@ -681,7 +738,7 @@ private struct ShareReviewView: View {
 
                     if model.publishedItemID != nil {
                         FieldReasoning(
-                            text: "Released to LIFE. The private draft is gone.",
+                            text: "Released to Life. The original remains Only me.",
                             accent: store.identity.personA.color
                         )
                     }
@@ -712,11 +769,11 @@ private struct ShareReviewView: View {
             Text("Only the fields listed under Exact shared version will cross.")
         }
         .confirmationDialog(
-            "Discard this private draft?",
+            "Delete Everywhere?",
             isPresented: $showDiscardConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Discard draft", role: .destructive) {
+            Button("Delete Everywhere", role: .destructive) {
                 Task {
                     await model.discard()
                     dismiss()
@@ -724,7 +781,7 @@ private struct ShareReviewView: View {
             }
             Button("Keep it", role: .cancel) {}
         } message: {
-            Text("This removes the private draft and cannot be undone.")
+            Text("Removes the original, synced data, and published import from both WE views. The containing plan and independently authored content survive. Offline devices clear on reconnect; external exports and retained backups cannot be erased immediately.")
         }
     }
 

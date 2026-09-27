@@ -120,14 +120,8 @@ private struct ShareKeychainStore {
 final class ShareVaultController: @unchecked Sendable {
     static let shared = ShareVaultController()
 
-    private let accountKeys = ShareKeychainStore(
-        service: "com.ryankanfer.WE.share-vault.accounts",
-        accessGroup: nil
-    )
-    private let activeKey = ShareKeychainStore(
-        service: "com.ryankanfer.WE.share-vault.active",
-        accessGroup: WEShareConstants.keychainGroup
-    )
+    private let accountKeys: ShareKeychainStore
+    private let activeKey: ShareKeychainStore
     private let defaults: UserDefaults?
     let store: ShareVaultStore
 
@@ -137,8 +131,11 @@ final class ShareVaultController: @unchecked Sendable {
         ),
         root: URL? = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: WEShareConstants.appGroup
-        )?.appending(path: "PrivateIntake", directoryHint: .isDirectory)
+        )?.appending(path: "PrivateIntake", directoryHint: .isDirectory),
+        keychainNamespace: String = "com.ryankanfer.WE.share-vault"
     ) {
+        accountKeys = ShareKeychainStore(service: keychainNamespace + ".accounts", accessGroup: nil)
+        activeKey = ShareKeychainStore(service: keychainNamespace + ".active", accessGroup: WEShareConstants.keychainGroup)
         self.defaults = defaults
         self.store = ShareVaultStore(root: root)
     }
@@ -302,20 +299,14 @@ struct ShareVaultStore: Sendable {
                             == "\(resource.id.uuidString.lowercased()).sealed"
                     else { throw ShareVaultError.invalidDraft }
 
-                    let sealed = try ShareCrypto.sealResource(
-                        plaintext,
-                        keyData: context.keyData,
-                        authenticatedBy: resourceAAD(
-                            manifest: draft.manifest,
-                            resource: resource
-                        )
-                    )
-                    try protectedWrite(
-                        sealed,
-                        to: resourcesDirectory.appending(
-                            path: resource.sealedFilename
-                        )
-                    )
+                    let target = resourcesDirectory.appending(path: resource.sealedFilename)
+                    let aad = resourceAAD(manifest: draft.manifest, resource: resource)
+                    if resource.isOriginal == true {
+                        try writeOriginal(plaintext, to: target, key: context.keyData, aad: aad)
+                    } else {
+                        let sealed = try ShareCrypto.sealResource(plaintext, keyData: context.keyData, authenticatedBy: aad)
+                        try protectedWrite(sealed, to: target)
+                    }
                 }
 
                 let manifestData = try JSONEncoder.share.encode(draft.manifest)
@@ -380,20 +371,26 @@ struct ShareVaultStore: Sendable {
             let url = readyURL(manifest).appending(
                 path: "resources/\(resource.sealedFilename)"
             )
-            let sealed = try Data(contentsOf: url)
-            let plaintext = try ShareCrypto.openResource(
-                sealed,
-                keyData: context.keyData,
-                authenticatedBy: resourceAAD(
-                    manifest: manifest,
-                    resource: resource
-                )
-            )
+            let plaintext: Data
+            let aad = resourceAAD(manifest: manifest, resource: resource)
+            if resource.isOriginal == true {
+                plaintext = try readOriginal(url, expectedBytes: resource.byteCount, key: context.keyData, aad: aad)
+            } else {
+                plaintext = try ShareCrypto.openResource(Data(contentsOf: url), keyData: context.keyData, authenticatedBy: aad)
+            }
             guard plaintext.count == resource.byteCount,
                   ShareCrypto.sha256(plaintext) == resource.sha256 else {
                 throw ShareVaultError.invalidDraft
             }
             return plaintext
+        }
+    }
+
+    func removePreserved(_ manifest: IncomingShareManifest, context: ShareVaultContext) throws {
+        try validate(manifest, context: context)
+        try withLock {
+            let url = readyURL(manifest)
+            if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
         }
     }
 
@@ -546,8 +543,7 @@ struct ShareVaultStore: Sendable {
            let height = resource.pixelHeight {
             validDimensions = width > 0
                 && height > 0
-                && max(width, height)
-                    <= WEShareConstants.maximumOutputDimension
+                && (resource.isOriginal == true || max(width, height) <= WEShareConstants.maximumOutputDimension)
         } else {
             validDimensions = false
         }
@@ -555,10 +551,10 @@ struct ShareVaultStore: Sendable {
         return resource.kind == .image
             && resource.sealedFilename
                 == "\(resource.id.uuidString.lowercased()).sealed"
-            && ["image/jpeg", "image/png"].contains(resource.contentType)
+            && (resource.isOriginal == true ? ["image/jpeg", "image/png", "image/heic", "image/heif", "image/gif", "image/webp"].contains(resource.contentType) : ["image/jpeg", "image/png"].contains(resource.contentType))
             && validHash
             && resource.byteCount > 0
-            && resource.byteCount <= WEShareConstants.maximumOutputBytes
+            && resource.byteCount <= (resource.isOriginal == true ? WEShareConstants.maximumSourceBytes : WEShareConstants.maximumOutputBytes)
             && validDimensions
     }
 
@@ -609,6 +605,40 @@ struct ShareVaultStore: Sendable {
             true,
             forKey: .isExcludedFromBackupKey
         )
+    }
+
+    /// Chunk authentication avoids a second full-image allocation in the extension.
+    private func writeOriginal(_ data: Data, to url: URL, key: Data, aad: Data) throws {
+        try Data("WEORIG01".utf8).write(to: url, options: [.atomic, .completeFileProtection])
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        try handle.seekToEnd()
+        let chunkSize = 1_048_576
+        for (part, offset) in stride(from: 0, to: data.count, by: chunkSize).enumerated() {
+            let chunk = data.subdata(in: offset..<min(offset + chunkSize, data.count))
+            let sealed = try ShareCrypto.sealResource(chunk, keyData: key, authenticatedBy: aad + Data("|part:\(part)".utf8))
+            var length = UInt32(sealed.count).bigEndian
+            try withUnsafeBytes(of: &length) { try handle.write(contentsOf: Data($0)) }
+            try handle.write(contentsOf: sealed)
+        }
+        try handle.synchronize()
+    }
+    private func readOriginal(_ url: URL, expectedBytes: Int, key: Data, aad: Data) throws -> Data {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        guard try handle.read(upToCount: 8) == Data("WEORIG01".utf8) else { throw ShareVaultError.invalidDraft }
+        var output = Data(); var part = 0
+        while let prefix = try handle.read(upToCount: 4), !prefix.isEmpty {
+            guard prefix.count == 4 else { throw ShareVaultError.invalidDraft }
+            let length = prefix.reduce(0) { ($0 << 8) | Int($1) }
+            guard length > 28, length <= 1_048_576 + 28,
+                  let sealed = try handle.read(upToCount: length), sealed.count == length else { throw ShareVaultError.invalidDraft }
+            let chunk = try ShareCrypto.openResource(sealed, keyData: key, authenticatedBy: aad + Data("|part:\(part)".utf8))
+            guard output.count + chunk.count <= expectedBytes else { throw ShareVaultError.invalidDraft }
+            output.append(chunk); part += 1
+        }
+        guard output.count == expectedBytes else { throw ShareVaultError.invalidDraft }
+        return output
     }
 
     private func protectedWrite(_ data: Data, to url: URL) throws {

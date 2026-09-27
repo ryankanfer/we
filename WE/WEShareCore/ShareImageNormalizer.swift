@@ -13,6 +13,20 @@ struct ShareImageNormalizer: Sendable {
         UTType.webP.identifier,
     ]
 
+    /// Preserve the representation iOS supplied. No resize or metadata rewrite.
+    func preserve(fileAt url: URL) throws -> NormalizedShareImage {
+        let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        guard size > 0, size <= WEShareConstants.maximumSourceBytes else { throw IncomingShareError.imageTooLarge }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let type = CGImageSourceGetType(source) as String?, acceptedTypes.contains(type),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = props[kCGImagePropertyPixelWidth] as? Int,
+              let height = props[kCGImagePropertyPixelHeight] as? Int else { throw IncomingShareError.corruptImage }
+        let data = try Data(contentsOf: url, options: .mappedIfSafe)
+        return NormalizedShareImage(data: data, contentType: UTType(type)?.preferredMIMEType ?? "application/octet-stream",
+            pixelWidth: width, pixelHeight: height, sha256: ShareCrypto.sha256(data), isOriginal: true)
+    }
+
     func normalize(fileAt url: URL) throws -> NormalizedShareImage {
         let values = try url.resourceValues(forKeys: [.fileSizeKey])
         guard let sourceBytes = values.fileSize,

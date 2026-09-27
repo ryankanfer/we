@@ -203,3 +203,25 @@ func relationshipPartnerHue(_ session: AppSession) -> WEHue {
     return WEHue(partner.hue)
 }
 
+extension FieldSwatch {
+    /// The family nearest an older `WEHue`.
+    ///
+    /// Lossy in one direction on purpose: ten hues map onto eight families,
+    /// and the two vocabularies were never in correspondence. What matters is
+    /// that a person's existing colour opens on something recognisably theirs
+    /// rather than on a default.
+    init(nearest hue: WEHue) {
+        self = switch hue {
+        case .burgundy: .burgundy
+        case .blush: .rose
+        case .ember: .rust
+        case .clay: .rust
+        case .plum: .indigo
+        case .tide: .teal
+        case .mist: .indigo
+        case .pearl: .sage
+        case .sage: .sage
+        case .celadon: .moss
+        }
+    }
+}

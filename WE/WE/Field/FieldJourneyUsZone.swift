@@ -1,18 +1,8 @@
 import SwiftUI
 
-/// Us is a shared decision room, not a report of Life. The old horizon report
-/// remains behind the rollout flag for a safe binary rollback.
-struct FieldUsZone: View {
-    var body: some View {
-        if WEFeatureFlags.sharedJourneysEnabled {
-            SharedJourneyUsSurface()
-        } else {
-            LegacyFieldUsZone()
-        }
-    }
-}
-
-private struct SharedJourneyUsSurface: View {
+/// The shared question, opened from Today. Us is no longer a zone; this is
+/// the room a decision for the two of you opens into.
+struct SharedJourneyUsSurface: View {
     @EnvironmentObject private var session: AppSession
     @Environment(FieldStore.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -38,12 +28,14 @@ private struct SharedJourneyUsSurface: View {
 
     var body: some View {
         FieldZoneScaffold(
-            zone: .us,
-            horizontalPadding: FieldMetrics.usSide,
-            background: AnyView(glow),
+            zone: .today,
+            horizontalPadding: FieldMetrics.screenSide,
             showsZoneLabel: false
         ) {
-            Group {
+            VStack(alignment: .leading, spacing: 24) {
+                Text("A question for you both").font(FieldType.hero).foregroundStyle(.fieldInk(.headline))
+                    .accessibilityAddTraits(.isHeader)
+                Group {
                 switch presentation {
                 case .empty:
                     empty
@@ -56,6 +48,7 @@ private struct SharedJourneyUsSurface: View {
                 case .active(let journeys):
                     active(journeys)
                 }
+            }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .transition(.opacity.combined(with: .offset(y: 8)))
@@ -89,25 +82,6 @@ private struct SharedJourneyUsSurface: View {
         }
     }
 
-    private var glow: some View {
-        ZStack {
-            RadialGradient(
-                colors: [store.identity.personA.color.opacity(0.09), Color.clear],
-                center: UnitPoint(x: 0.4, y: 0.14),
-                startRadius: 0,
-                endRadius: 390
-            )
-            RadialGradient(
-                colors: [store.identity.personB.color.opacity(0.09), Color.clear],
-                center: UnitPoint(x: 0.6, y: 0.14),
-                startRadius: 0,
-                endRadius: 390
-            )
-        }
-        .ignoresSafeArea()
-        .allowsHitTesting(false)
-    }
-
     /// Us at rest.
     ///
     /// "Empty" names the *journey* state, not the screen: no question is
@@ -122,7 +96,6 @@ private struct SharedJourneyUsSurface: View {
             nothingYet
         } else {
             FieldUsFieldSurface()
-                .padding(.top, 34)
         }
     }
 
@@ -133,7 +106,7 @@ private struct SharedJourneyUsSurface: View {
                 .padding(.top, 34)
                 .padding(.bottom, 40)
 
-            Text("This room changes only when something real asks for a shared direction.")
+            Text("What matters to both of you.")
                 .font(FieldType.pageHeadline)
                 .foregroundStyle(.fieldInk(.headline))
                 .fieldLineHeight(1.18, size: 32)
@@ -142,7 +115,7 @@ private struct SharedJourneyUsSurface: View {
                 .accessibilityIdentifier("field.us.journey.empty")
 
             Text(
-                "WE may bring one question from a plan, a repeated hope, or a rhythm that needs a new shape. You each answer privately. Nothing becomes part of Life until you both choose the direction it creates."
+                "Your shared hopes, everyday rhythms, and the choices you want to make together live here. When a question comes up, you each answer privately. A proposed direction enters Life only when you both choose it."
             )
             .font(FieldType.body)
             .foregroundStyle(.fieldInk(.sectionSubtitle))
@@ -176,6 +149,11 @@ private struct SharedJourneyUsSurface: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.bottom, 24)
 
+            Text("Your answer is private. A shared direction is a separate proposal for both of you to review.")
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.headline))
+                .padding(.bottom, 20)
+
             VStack(spacing: 10) {
                 ForEach(Array(record.insight.options.prefix(4)), id: \.self) { option in
                     Button {
@@ -186,7 +164,7 @@ private struct SharedJourneyUsSurface: View {
                                 .fill(
                                     selectedChoice == option
                                         ? store.identity.personA.color
-                                        : FieldPalette.ink.opacity(0.16)
+                                        : WECanvas.surface.ink.opacity(0.16)
                                 )
                                 .frame(width: 8, height: 8)
                             Text(option)
@@ -219,7 +197,10 @@ private struct SharedJourneyUsSurface: View {
                     .buttonStyle(FieldQuietButtonStyle())
             }
 
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Before processing your answer")
+                    .font(FieldType.body)
+                    .foregroundStyle(.fieldInk(.headline))
                 Text(
                     "To look for a shared direction, WE sends your selected "
                         + "answer, this question and its available choices, "
@@ -251,7 +232,7 @@ private struct SharedJourneyUsSurface: View {
             }
             .padding(.vertical, 22)
 
-            Button("Hold my answer") {
+            Button("Save my private answer") {
                 guard let selectedChoice else { return }
                 Task {
                     await session.submitResponse(
@@ -279,6 +260,7 @@ private struct SharedJourneyUsSurface: View {
             .padding(.top, 8)
             .accessibilityIdentifier("field.us.pass")
         }
+        .onChange(of: selectedChoice) { _, _ in allowsAIProcessing = false }
         .onChange(of: record.id) { _, _ in resetAnswer() }
         .task(id: record.id) {
             await session.recordJourneyQuestionShown(insightID: record.id)
@@ -330,6 +312,11 @@ private struct SharedJourneyUsSurface: View {
                 .frame(maxWidth: .infinity)
                 .padding(.top, 24)
                 .padding(.bottom, 32)
+
+            Text("Proposed direction")
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.headline))
+                .padding(.bottom, 12)
 
             WEDisplayText(direction.displaySummary, role: .majorQuestion)
                 .padding(.bottom, 18)
@@ -403,6 +390,11 @@ private struct SharedJourneyUsSurface: View {
                 .padding(.top, 30)
                 .padding(.bottom, 34)
 
+            Text("Agreed direction")
+                .font(FieldType.body)
+                .foregroundStyle(.fieldInk(.headline))
+                .padding(.bottom, 12)
+
             WEDisplayText(journey.title, role: .hero)
                 .padding(.bottom, 18)
                 .accessibilityIdentifier("field.us.journey.active")
@@ -435,13 +427,11 @@ private struct SharedJourneyUsSurface: View {
                     .padding(.top, 26)
             }
 
-            Button("Enter this journey") {
+            Button("Open our direction") {
                 store.teach(FieldTeaching.journeyOpened)
                 openJourney = journey
             }
-            .buttonStyle(.plain)
-            .font(FieldType.reasoning)
-            .foregroundStyle(.fieldInk(.legend))
+            .buttonStyle(FieldFilledButtonStyle())
             .padding(.top, 26)
             .accessibilityIdentifier("field.us.journey.enter")
 

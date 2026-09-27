@@ -1,532 +1,444 @@
-//
-//  FieldLifeZone.swift
-//  WE
-//
-//  Life — strata. Options 15b and 16a.
-//
-//  The page used to open on eight category words, which is a filing cabinet
-//  with the drawers labelled. V2 §2 forbids that outright — "never subject
-//  categories as the top-level sort" — and replaces it with four bands that
-//  answer a different question: not *what kind of thing is this* but *how much
-//  is it asking of us right now*.
-//
-//  The bands are fixed and their order never changes. What changes is how much
-//  of each is on screen, because **each band is a different kind of object**:
-//  rows in full, then rows tightened, then a run of subject words, then a bare
-//  count. That progression is the page's whole argument. A thing does not get
-//  quieter here by being written in fainter ink — it gets quieter by being
-//  described in less detail, until at the bottom the app will tell you how
-//  many there are and nothing else.
-//
-//  It has to work that way. §3 asked for the bands to separate by ink as well
-//  — 100 / 72 / 40 / 24 — and on the near-black ground those bottom two score
-//  3.35:1 and 1.91:1, both under WCAG AA, in 9pt labels where the large-text
-//  allowance does not apply. `FieldInk` now floors at AA, so the ink barely
-//  moves across the bottom half of this page and the structure carries it
-//  instead. See `FieldStrata` for the sorting rule and the measurements.
-//
-//  Under about five open items the bands disappear altogether and the page
-//  becomes a plain list at 30px — §16a's "main adaptive behaviour", driven by
-//  count rather than by any screen size. A couple with four things to do
-//  should not be handed a filing system with four drawers, three of them
-//  empty.
-//
-//  Two rooms still sit behind the page and neither is a band. The calendar is
-//  every dated thing at once; search is everything written down at all. Both
-//  say so in words, for the reason the way into Yours already taught: a room
-//  reachable only by a gesture is a room most people never open.
-//
-
 import SwiftUI
 
 struct FieldLifeZone: View {
     @Environment(FieldStore.self) private var store
-    @State private var isAtTop = true
-    /// Which category room is open. Local `@State`, not store state: a
-    /// hand-built `Binding` over an `@Observable` property does not drive
-    /// `.sheet(item:)` reliably, and this is ephemeral to the screen anyway.
-    @State private var openCategory: LifeCategory?
-    /// Which item is open, to move it or take it off.
+    @EnvironmentObject private var session: AppSession
+    /// The icon bar's choice. Nil is All: what's coming up.
+    @State private var group: LifeCategory?
+    /// Goals, which used to live in Us. Life is everything now.
+    @State private var goalsAreOpen = false
+    @State private var openGoal: FieldItemReference?
     @State private var openItem: FieldItemReference?
-    /// Whether the list of groups the couple has set down is open.
     @State private var putAwayIsOpen = false
-    /// Private Share Sheet drafts. Feature-gated until the full local and
-    /// server release path has passed together.
     @State private var shareInboxIsOpen = false
+    @State private var recoveryIsOpen = false
+    @State private var onlyMeIsOpen = false
+    @State private var intelligence = WEIntelligenceStore.shared
+
+    private var items: [LifeItem] { store.lifeStrata.all }
+    private var decisions: [LifeItem] {
+        items.filter { FieldItemPurpose.resolve($0) == .decision && !$0.isAwaitingSomeoneElse }
+    }
+    /// The groups there is anything in, in Life's own order, custom ones
+    /// after the built-in ones.
+    private var groups: [LifeCategory] {
+        let present = Set(items.filter { !$0.isDone }.map(\.category))
+        let builtIn = LifeCategory.builtIn.filter(present.contains)
+        let rest = present.subtracting(builtIn).sorted { $0.word < $1.word }
+        return builtIn + rest
+    }
+    private var tasks: [LifeItem] {
+        items.filter { FieldItemPurpose.resolve($0) == .task && !$0.isAwaitingSomeoneElse }
+    }
+    private var upcoming: [LifeItem] {
+        let ids = Set(store.lifeStrata.thisWeek.map(\.id))
+        return tasks.filter { ids.contains($0.id) }
+    }
+    private var later: [LifeItem] {
+        let ids = Set(upcoming.map(\.id))
+        return tasks.filter { !ids.contains($0.id) }
+    }
 
     var body: some View {
-        let strata = store.lifeStrata
-
-        FieldZoneScaffold(zone: .life) {
-            VStack(alignment: .leading, spacing: 0) {
-                if strata.isEmpty {
-                    emptyState
-                } else if strata.isCollapsed {
-                    sparseList(strata)
+        FieldZoneScaffold(zone: .life, showsZoneLabel: false) {
+            VStack(alignment: .leading, spacing: 28) {
+                header
+                searchHero
+                whereWereHeaded
+                if !store.onlyMeItems.isEmpty { onlyMeRow }
+                if WEFeatureFlags.shareInboxEnabled {
+                    if elsewhereWaiting > 0 { fromElsewhere }
+                    if !intelligence.issues.isEmpty || store.deliveryStates.values.contains(.needsAttention) {
+                        Button("Needs attention", systemImage: "exclamationmark.circle") { recoveryIsOpen = true }
+                            .font(.subheadline).frame(minHeight: 44)
+                            .accessibilityIdentifier("intelligence.recovery")
+                    }
+                }
+                iconBar
+                if items.isEmpty {
+                    Text("A place for the plans, choices and ideas you want to keep.")
+                        .font(FieldType.pageHeadline)
+                        .foregroundStyle(.fieldInk(.reasoning))
                 } else {
-                    bands(strata)
+                    contents
                 }
-
-                fromElsewhere
-                    .padding(.top, FieldMetrics.sectionGapLoose)
-
-                putAwayRow
-            }
-        }
-        .overlay(alignment: .top) {
-            pullAffordance
-                .padding(.top, FieldMetrics.screenTop)
-                .padding(.trailing, FieldMetrics.screenSide)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .allowsHitTesting(true)
-        }
-        .onScrollGeometryChange(for: Bool.self) { geometry in
-            geometry.contentOffset.y <= geometry.contentInsets.top + 1
-        } action: { _, atTop in
-            isAtTop = atTop
-        }
-        // Pull down anywhere on Life. Simultaneous so it never fights the
-        // vertical scroll, and a drag of 24pt or more is not a tap, so it
-        // cannot fire together with a row.
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 24)
-                .onEnded { value in
-                    guard isAtTop,
-                          value.translation.height > 90,
-                          abs(value.translation.width) < 60
-                    else { return }
-                    openSearch()
-                }
-        )
-        .sheet(item: $openCategory) { category in
-            FieldCategoryRoom(category: category)
-                .environment(store)
-        }
-        .sheet(item: $openItem) { reference in
-            FieldItemSheet(itemID: reference.id)
-                .environment(store)
-        }
-        .sheet(isPresented: $putAwayIsOpen) {
-            FieldPutAwaySheet()
-                .environment(store)
-        }
-        .fullScreenCover(isPresented: $shareInboxIsOpen) {
-            ShareInboxView()
-                .environment(store)
-        }
-        // Keyed on the items, not on appearance: revisiting Life should not
-        // re-run the model, and adding something should.
-        .task(id: store.subtitleRefreshKey) {
-            await store.refreshSubtitles()
-        }
-    }
-
-    // MARK: - Nothing at all
-    //
-    // A real state, not a failure — and the app does not suggest filling it.
-
-    private var emptyState: some View {
-        Text("Nothing is asking for you.")
-            .font(FieldType.pageHeadline)
-            .foregroundStyle(.fieldInk(.headline))
-            .fieldLineHeight(1.16, size: 32)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.top, FieldMetrics.sectionGap)
-    }
-
-    // MARK: - The sparse page (16a)
-    //
-    // Five things or fewer and the page stops organising itself. No headings,
-    // no bands, no rules between the rows — just the things, large, with air
-    // around them. The 38pt gap is most of what makes this read as calm rather
-    // than as a page that failed to load.
-
-    private func sparseList(_ strata: FieldStrata.Result) -> some View {
-        VStack(alignment: .leading, spacing: 38) {
-            ForEach(strata.all) { item in
-                Button {
-                    openItem = FieldItemReference(id: item.id)
-                } label: {
-                    HStack(alignment: .top, spacing: 14) {
-                        FieldDot(
-                            owner: item.owner,
-                            isPrivate: item.visibility == .private,
-                            identity: store.identity,
-                            size: FieldDotSize.prominentList,
-                            baselineNudge: 13
-                        )
-
-                        Text(item.title)
-                            .font(FieldType.listItemSparse)
-                            .foregroundStyle(.fieldInk(.headline))
-                            .fieldLineHeight(1.12, size: 30)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        Spacer(minLength: 0)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(item.title)
-                .accessibilityHint("Opens this, to move it or take it off")
-                .accessibilityIdentifier("field.life.item")
-            }
-        }
-        .padding(.top, FieldMetrics.sectionGap)
-    }
-
-    // MARK: - The four bands (15b)
-
-    @ViewBuilder
-    private func bands(_ strata: FieldStrata.Result) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(FieldStrata.Band.allCases, id: \.self) { band in
-                let items = strata.items(in: band)
-
-                // A heading over an empty band is the app talking to fill the
-                // silence. Absent bands are simply absent.
-                if !items.isEmpty {
-                    bandHeader(band)
-
-                    switch band {
-                    case .thisWeek:
-                        rows(items, prominent: true)
-                    case .waitingOnSomeoneElse:
-                        rows(items, prominent: false)
-                    case .noHurry:
-                        subjectRun(items)
-                    case .fading:
-                        fadingCount(items)
-                    }
-                }
-            }
-        }
-    }
-
-    private func bandHeader(_ band: FieldStrata.Band) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            FieldRuleLine(color: rule(for: band))
-
-            FieldLabel(band.heading, ink: ink(for: band))
-                .padding(.top, 18)
-                .padding(.bottom, 16)
-        }
-        .padding(.top, band == .thisWeek ? 0 : FieldMetrics.sectionGapLoose)
-    }
-
-    /// The rule thins with each band — half of what separates them now that
-    /// the ink cannot.
-    private func rule(for band: FieldStrata.Band) -> FieldRuleStyle {
-        switch band {
-        case .thisWeek: FieldRule.strataThisWeek
-        case .waitingOnSomeoneElse: FieldRule.strataWaiting
-        case .noHurry: FieldRule.strataNoHurry
-        case .fading: FieldRule.strataFading
-        }
-    }
-
-    /// What is left of §3's ink ramp after the AA floor. The top two bands
-    /// still separate; the bottom two are within a few thousandths and lean on
-    /// structure instead.
-    private func ink(for band: FieldStrata.Band) -> FieldInk {
-        switch band {
-        case .thisWeek: .headline
-        case .waitingOnSomeoneElse: .legend
-        case .noHurry: .metadataProse
-        case .fading: .recessive
-        }
-    }
-
-    // MARK: Bands one and two — rows
-
-    private func rows(
-        _ items: [LifeItem],
-        prominent: Bool
-    ) -> some View {
-        VStack(alignment: .leading, spacing: prominent ? 15 : 11) {
-            ForEach(items) { item in
-                Button {
-                    openItem = FieldItemReference(id: item.id)
-                } label: {
-                    HStack(alignment: .top, spacing: 11) {
-                        FieldDot(
-                            owner: item.owner,
-                            isPrivate: item.visibility == .private,
-                            identity: store.identity,
-                            size: FieldDotSize.list,
-                            baselineNudge: prominent ? 7 : 6
-                        )
-
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(item.title)
-                                .font(
-                                    prominent
-                                        ? FieldType.listItemLarge
-                                        : FieldType.listItem
-                                )
-                                .foregroundStyle(
-                                    .fieldInk(
-                                        prominent ? .headline : .legend
-                                    )
-                                )
-                                .fieldLineHeight(1.25, size: prominent ? 18 : 15.5)
-                                .fixedSize(horizontal: false, vertical: true)
-
-                            // Only the top band explains itself. Repeating a
-                            // reason down every row turns the page into an
-                            // argument, and the lower bands are not arguing.
-                            if prominent, let detail = item.detail {
-                                Text(detail)
-                                    .font(FieldType.reasoning)
-                                    .foregroundStyle(.fieldInk(.reasoning))
-                                    .fixedSize(
-                                        horizontal: false,
-                                        vertical: true
-                                    )
-                            }
-                        }
-
-                        Spacer(minLength: 8)
-
-                        if let dueOn = item.dueOn {
-                            Text(dayLabel(dueOn))
-                                .font(FieldType.dateCount)
-                                .tracking(FieldTracking.dateCount)
-                                .foregroundStyle(.fieldInk(.dateCount))
-                        }
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                // Not `.accessibilityElement(children: .combine)`. A Button is
-                // already an accessibility element, and combining after
-                // `.buttonStyle` wraps it in a second one — a button inside a
-                // button, read twice. See `FieldCategoryRoom` for the same
-                // note and the tree that showed it.
-                .accessibilityLabel(
-                    [item.title, prominent ? item.detail : nil]
-                        .compactMap { $0 }
-                        .joined(separator: ". ")
-                )
-                .accessibilityHint("Opens this, to move it or take it off")
-                .accessibilityIdentifier("field.life.item")
-            }
-        }
-        .padding(.bottom, 20)
-    }
-
-    // MARK: Band three — a run of subjects
-    //
-    // Not rows. The things in this band are not asking for anything, so
-    // listing them one per line would give each the same weight as something
-    // that is. What the page says instead is which *subjects* have quiet
-    // things in them, run together as a line of words.
-    //
-    // This is also the one place a category still appears on Life, and it is
-    // deliberately inside a band rather than above one: a subject is how you
-    // reach a room, not how the page is sorted.
-
-    private func subjectRun(_ items: [LifeItem]) -> some View {
-        let subjects = FieldStrata.subjects(in: items)
-
-        return FieldFlowLayout(spacing: 0, lineSpacing: 8) {
-            ForEach(Array(subjects.enumerated()), id: \.element) { index, subject in
-                Button {
-                    openCategory = subject
-                } label: {
-                    (
-                        Text(subject.word)
-                            .foregroundStyle(.fieldInk(.metadataProse))
-                            + Text(
-                                index == subjects.count - 1 ? "" : "  ·  "
-                            )
-                            .foregroundStyle(.fieldInk(.recessive))
-                    )
-                    .font(FieldType.listItem)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(subject.word)
-                .accessibilityHint("Opens \(subject.word)")
-                .accessibilityIdentifier("field.life.\(subject.rawValue)")
-            }
-        }
-        .padding(.bottom, 20)
-    }
-
-    // MARK: Band four — a count, and nothing else
-    //
-    // No titles. Naming them would be the app pointing at things it has just
-    // finished deciding not to ask about, which is the shape of a guilt list.
-    // The count is honest and the sentence stops there.
-
-    private func fadingCount(_ items: [LifeItem]) -> some View {
-        Text(
-            items.count == 1
-                ? "One thing has gone quiet."
-                : "\(items.count.spelled.capitalized) things have gone quiet."
-        )
-        .font(FieldType.body)
-        .foregroundStyle(.fieldInk(.recessive))
-        .fieldLineHeight(1.5, size: 14.5)
-        .fixedSize(horizontal: false, vertical: true)
-        .padding(.bottom, 20)
-        .accessibilityIdentifier("field.life.fading")
-    }
-
-    // MARK: - The rest of the page
-
-    @ViewBuilder
-    private var fromElsewhere: some View {
-        if WEFeatureFlags.shareInboxEnabled {
-            Button {
-                shareInboxIsOpen = true
-            } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text("From elsewhere")
-                        .font(FieldType.listItemLarge)
-                        .foregroundStyle(.fieldInk(.headline))
-
-                    Text("PRIVATE")
-                        .font(FieldType.dateCount)
-                        .tracking(FieldTracking.dateCount)
-                        .foregroundStyle(.fieldInk(.dateCount))
-
-                    Spacer(minLength: 0)
-                }
-                .frame(minHeight: 56)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .overlay(alignment: .top) {
-                FieldRuleLine(color: FieldRule.row)
-            }
-            .accessibilityHint(
-                "Opens private drafts kept from the Share Sheet"
-            )
-            .accessibilityIdentifier("field.life.fromElsewhere")
-        }
-    }
-
-    /// One name for the two routes in — the control above and the pull — so
-    /// that anything either of them ever has to do is written once.
-    private func openSearch() {
-        store.openSearch()
-    }
-
-    /// "TODAY", "TOMORROW", then the weekday, then the date. Nothing in the
-    /// banded rows is more than ten days out, so it never needs a year.
-    private func dayLabel(_ date: Date) -> String {
-        let calendar = Calendar.gregorianUS
-        let days = calendar.dateComponents(
-            [.day],
-            from: calendar.startOfDay(for: store.now),
-            to: calendar.startOfDay(for: date)
-        ).day ?? 0
-
-        switch days {
-        case ..<0: return "OVERDUE"
-        case 0: return "TODAY"
-        case 1: return "TOMORROW"
-        case 2...6: return DateFormatter.fieldWeekday
-            .string(from: date).uppercased()
-        default: return DateFormatter.fieldDayMonth
-            .string(from: date).uppercased()
-        }
-    }
-
-    // MARK: What has been set down
-    //
-    // Renders nothing at all until something is put away, which is almost
-    // always. A permanent "0 groups put away" would be a heading over nothing.
-    //
-    // It exists so that nothing on this page is ever simply gone. A group the
-    // couple set down is still theirs and still findable.
-
-    @ViewBuilder
-    private var putAwayRow: some View {
-        let away = store.putAwayCategories
-
-        if !away.isEmpty {
-            Button {
-                putAwayIsOpen = true
-            } label: {
-                HStack(spacing: 8) {
-                    Text(
-                        away.count == 1
-                            ? "1 group put away"
-                            : "\(away.count) groups put away"
-                    )
-                    .font(FieldType.body)
-                    .foregroundStyle(.fieldInk(.recessive))
-
-                    Text("›")
+                if !store.putAwayCategories.isEmpty {
+                    Button("Put-away collections · \(store.putAwayCategories.count)") { putAwayIsOpen = true }
                         .font(FieldType.body)
-                        .foregroundStyle(.fieldInk(.label))
-
-                    Spacer(minLength: 0)
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("field.life.putAway")
                 }
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .padding(.top, FieldMetrics.sectionGapLoose)
-            .overlay(alignment: .top) { FieldRuleLine(color: FieldRule.row) }
-            .accessibilityLabel(
-                away.count == 1
-                    ? "1 group put away"
-                    : "\(away.count) groups put away"
-            )
-            .accessibilityHint("Opens them, to bring any of them back")
-            .accessibilityIdentifier("field.life.putAway")
+            .foregroundStyle(.fieldInk(.headline))
         }
+        .sheet(item: $openItem) { FieldItemSheet(itemID: $0.id).environment(store) }
+        .sheet(isPresented: $recoveryIsOpen) { WERecoveryCenter().environment(store) }
+        .sheet(isPresented: $putAwayIsOpen) { FieldPutAwaySheet().environment(store) }
+        .sheet(isPresented: $onlyMeIsOpen) { FieldOnlyMeSheet().environment(store) }
+        .sheet(isPresented: $goalsAreOpen) {
+            FieldGoalsSurface().environment(store).environmentObject(session)
+        }
+        .sheet(item: $openGoal) {
+            FieldGoalRoom(goalID: $0.id).environment(store).environmentObject(session)
+        }
+        .fullScreenCover(isPresented: $shareInboxIsOpen) { WEArtifactsView().environment(store) }
+        .onAppear { if WEFeatureFlags.shareInboxEnabled { intelligence.reload() } }
     }
 
-    // MARK: The entry affordances
-    //
-    // Two rooms behind this screen, and both say so in words. The pull is an
-    // accelerator for the hand that knows it, and neither room depends on
-    // anybody having learned one.
-
-    private var pullAffordance: some View {
-        HStack(spacing: 18) {
-            affordance(
-                "SEARCH",
-                hint: "Finds anything either of you has written down",
-                id: "field.life.search"
-            ) {
-                openSearch()
+    /// Goals — the long view — at the top of Life, above this week's plans,
+    /// so everything below reads in its light. A line of goals rather than a
+    /// card at the bottom of a long list, where it was found last if at all.
+    /// Each goal opens itself; "See all" opens the full goals room, where a
+    /// new one can be made.
+    private var whereWereHeaded: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Where we're headed")
+                    .font(.system(size: 15, design: .serif))
+                    .foregroundStyle(.fieldInk(.reasoning))
+                    .accessibilityAddTraits(.isHeader)
+                Spacer()
+                Button("See all") { goalsAreOpen = true }
+                    .font(.system(.subheadline))
+                    .foregroundStyle(.fieldInk(.headline))
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("field.life.goals")
             }
 
-            affordance(
-                "CALENDAR",
-                hint: "Opens the month, and everything with a date on it",
-                id: "field.life.calendar"
-            ) {
-                store.openCalendar()
+            if store.state.horizons.isEmpty {
+                Text("Goals you both choose will live here.")
+                    .font(.system(size: 17, design: .serif))
+                    .foregroundStyle(.fieldInk(.legend))
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(goals) { goal in
+                            Button {
+                                openGoal = FieldItemReference(id: goal.id)
+                            } label: {
+                                HStack(spacing: 8) {
+                                    WELightsMark(
+                                        identity: store.viewerIdentity,
+                                        reading: store.lightsReading(for: goal),
+                                        size: 9
+                                    )
+                                    Text(goal.title.trimmingCharacters(in: CharacterSet(charactersIn: ", ")))
+                                        .font(.system(size: 17, design: .serif))
+                                        .foregroundStyle(.fieldInk(.headline))
+                                        .lineLimit(1)
+                                }
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 10)
+                                    .background(WECanvas.surface.bgElevated, in: Capsule())
+                                    .overlay {
+                                        if goal.isPrimary {
+                                            Capsule().strokeBorder(WECanvas.surface.ink.opacity(0.35), lineWidth: 1)
+                                        }
+                                    }
+                            }
+                            .accessibilityHint("Opens this goal")
+                            .accessibilityIdentifier("field.life.goal")
+                        }
+                    }
+                }
+                .scrollClipDisabled()
             }
         }
     }
 
-    private func affordance(
-        _ word: String,
-        hint: String,
-        id: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Text(word)
-                .font(FieldType.subLabel)
-                .tracking(FieldTracking.dateCount)
-                .foregroundStyle(.fieldInk(.recessive))
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(word.capitalized)
-        .accessibilityHint(hint)
-        .accessibilityIdentifier(id)
+    /// The primary goal first, then the rest in the order they were made.
+    private var goals: [FieldHorizon] {
+        store.state.horizons.filter(\.isPrimary) + store.state.horizons.filter { !$0.isPrimary }
     }
+
+    /// Things shared into WE from other apps that are still Only me. The
+    /// row only appears while there is something there; saving from here is
+    /// the + card's job now.
+    private var elsewhereWaiting: Int {
+        intelligence.records.filter { $0.content.publishedItemID == nil }.count
+    }
+
+    private var fromElsewhere: some View {
+        Button { shareInboxIsOpen = true } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "square.and.arrow.down").font(.system(size: 17, weight: .regular))
+                Text(elsewhereWaiting == 1 ? "One thing from elsewhere" : "\(elsewhereWaiting.spelled.capitalized) things from elsewhere")
+                    .font(.system(size: 16, design: .serif))
+                Text("Only me").font(.system(size: 12)).foregroundStyle(.fieldInk(.reasoning))
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.fieldInk(.reasoning))
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .accessibilityHint("Review what you saved from other apps")
+        .accessibilityIdentifier("field.life.fromElsewhere")
+    }
+
+    // MARK: Search, in the middle
+
+    /// Life opens on a question. Most of the time somebody comes to Life to
+    /// find one thing (the wine for Dad, the passport date), so the box for
+    /// that comes first. It used to be centred in 62% of the viewport, which
+    /// pushed everything Life actually holds below the fold; now it sits
+    /// under the title and the rest of the page follows straight after.
+    private var searchHero: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("What are you looking for?")
+                .font(.system(size: 22, design: .serif))
+                .foregroundStyle(.fieldInk(.headline))
+                .accessibilityAddTraits(.isHeader)
+
+            Button { store.openSearch() } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 17))
+                    FieldSearchHint(examples: searchExamples)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 20)
+                .frame(minHeight: 56)
+                .weGlass(in: Capsule(), interactive: true)
+                .contentShape(Capsule())
+            }
+            .accessibilityLabel("Search Life")
+            .accessibilityIdentifier("field.life.search")
+
+            if !searchSuggestions.isEmpty {
+                HStack(spacing: 8) {
+                    ForEach(searchSuggestions, id: \.self) { word in
+                        Button { store.openSearch(word) } label: {
+                            Text(word)
+                                .font(.system(size: 14))
+                                .padding(.horizontal, 14)
+                                .frame(minHeight: 36)
+                                .overlay { Capsule().strokeBorder(WECanvas.surface.ink.opacity(0.18), lineWidth: 1) }
+                                .contentShape(Capsule())
+                        }
+                        .accessibilityLabel("Search \(word)")
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, 8)
+    }
+
+    // MARK: Only me
+
+    /// Your side of the notebook, gathered. Only there while there is
+    /// something in it, and only ever on its author's phone.
+    private var onlyMeRow: some View {
+        let count = store.onlyMeItems.count
+        let ready = store.heldItemsReadyToOffer.count
+        return Button { onlyMeIsOpen = true } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "lock")
+                    .font(.system(size: 16, weight: .regular))
+                    .accessibilityHidden(true)
+                Text("Only me")
+                    .font(.system(size: 16, design: .serif))
+                Text(ready > 0 ? "\(count) · \(ready) ready to share" : "\(count)")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.fieldInk(.reasoning))
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.fieldInk(.reasoning))
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel(
+            ready > 0
+                ? "Only me, \(count) things, \(ready) ready to share"
+                : "Only me, \(count) things"
+        )
+        .accessibilityHint("Things only you can see, and when to share them")
+        .accessibilityIdentifier("field.life.onlyMe")
+    }
+
+    /// Real things from Life, cycled in the empty box, so it shows what it
+    /// can find rather than saying "Search".
+    private var searchExamples: [String] {
+        let titles = items.filter { !$0.isDone }.prefix(6).map { $0.title.lowercased() }
+        return titles.isEmpty ? ["the wine for dad"] : Array(titles)
+    }
+
+    /// The groups you actually have things in, most first.
+    private var searchSuggestions: [String] {
+        Dictionary(grouping: items.filter { !$0.isDone }, by: \.category)
+            .sorted { $0.value.count > $1.value.count }
+            .prefix(3)
+            .map { $0.key.word }
+    }
+
+    private var header: some View {
+        HStack(alignment: .center) {
+            Text("Life").font(FieldType.hero)
+            Spacer()
+            Button { store.openCalendar() } label: {
+                Image(systemName: "calendar").frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("Calendar")
+            .accessibilityIdentifier("field.life.calendar")
+        }
+        .font(.system(size: 20, weight: .regular))
+    }
+
+    // MARK: The icon bar
+
+    /// Every group as an icon, All first. Tapping one shows just that group;
+    /// tapping it again, or All, goes back to what's coming up.
+    private var iconBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .top, spacing: 14) {
+                groupIcon(nil)
+                ForEach(groups) { groupIcon($0) }
+            }
+            .padding(.vertical, 4)
+        }
+        .scrollClipDisabled()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Groups")
+    }
+
+    private func groupIcon(_ category: LifeCategory?) -> some View {
+        let selected = group == category
+        let count = category.map { c in items.filter { $0.category == c && !$0.isDone }.count }
+        return Button {
+            withAnimation(.snappy(duration: 0.25)) {
+                group = (selected && category != nil) ? nil : category
+            }
+        } label: {
+            VStack(spacing: 7) {
+                Image(systemName: category?.symbol ?? "sparkles")
+                    .font(.system(size: 19, weight: .regular))
+                    .frame(width: 54, height: 54)
+                    .background(selected ? WECanvas.surface.ink : WECanvas.surface.bgElevated, in: Circle())
+                    .foregroundStyle(selected ? WECanvas.surface.bgElevated : WECanvas.surface.ink)
+                    .overlay { Circle().strokeBorder(WECanvas.surface.ink.opacity(selected ? 0 : 0.14), lineWidth: 1) }
+                Text(category?.word ?? "All")
+                    .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? .fieldInk(.headline) : .fieldInk(.reasoning))
+                    .lineLimit(1)
+            }
+            .frame(minWidth: 60)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel(category.map { "\($0.word), \(count ?? 0)" } ?? "All, coming up")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier("field.life.group.\(category?.rawValue ?? "all")")
+    }
+
+    @ViewBuilder private var contents: some View {
+        if let group {
+            let inGroup = items.filter { $0.category == group && !$0.isDone }
+                .sorted { ($0.dueOn ?? .distantFuture) < ($1.dueOn ?? .distantFuture) }
+            if inGroup.isEmpty { emptyFilter("Nothing in \(group.word) right now.") }
+            section(group.word, subtitle: nil, items: inGroup)
+        } else {
+            if decisions.isEmpty && tasks.isEmpty && !items.contains(where: \.isAwaitingSomeoneElse) {
+                emptyFilter("Nothing needs a next step right now.")
+            }
+            section("Needs a decision", subtitle: "Turn an open question into a plan.", items: decisions)
+            section("Coming up", subtitle: nil, items: upcoming)
+            section("Waiting", subtitle: "A reply or someone else’s next move.", items: items.filter(\.isAwaitingSomeoneElse))
+            section("Later", subtitle: nil, items: later)
+        }
+    }
+
+    private func emptyFilter(_ text: String) -> some View {
+        Text(text).font(FieldType.captureWriting).foregroundStyle(.fieldInk(.reasoning)).padding(.vertical, 24)
+    }
+
+    @ViewBuilder private func section(_ title: String, subtitle: String?, items: [LifeItem]) -> some View {
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(title).font(FieldType.weLifeSection)
+                    Spacer()
+                    Text("\(items.count)").font(.system(.subheadline)).foregroundStyle(.fieldInk(.reasoning))
+                }
+                if let subtitle {
+                    Text(subtitle).font(.system(.subheadline)).foregroundStyle(.fieldInk(.reasoning))
+                }
+                VStack(spacing: 0) {
+                    ForEach(items) { item in
+                        row(item)
+                        if item.id != items.last?.id { FieldRuleLine(color: FieldRule.watching) }
+                    }
+                }
+            }
+        }
+    }
+
+    private func row(_ item: LifeItem) -> some View {
+        Button { openItem = FieldItemReference(id: item.id) } label: {
+            HStack(alignment: .center, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    WEPrivacyLabel(text: store.privacyLabel(for: item))
+                    Text(item.title)
+                        .font(.system(.body, weight: .medium))
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 7) {
+                        FieldDot(owner: item.owner, identity: store.identity, size: 6, baselineNudge: 0)
+                        if let place = rowPlace(item) { Text(place); Text("·") }
+                        Text(FieldItemPurpose.resolve(item) == .decision ? "Choose a direction" : store.identity.name(for: item.owner))
+                    }
+                    .font(.system(.caption))
+                    .foregroundStyle(.fieldInk(.reasoning))
+                }
+                Spacer(minLength: 0)
+                Image(systemName: item.sourceURL != nil ? "link" : "arrow.up.right")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(.fieldInk(.reasoning))
+            }
+            .padding(.vertical, 18)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel(item.title)
+        .accessibilityHint(FieldItemPurpose.actionLabel(item))
+        .accessibilityIdentifier("field.life.item")
+    }
+
+    /// The date, or the site, or the group — except the group when you are
+    /// already looking at it.
+    private func rowPlace(_ item: LifeItem) -> String? {
+        if let due = item.dueOn { return dateLabel(due) }
+        if let host = item.sourceURL?.host() { return host }
+        return group == nil ? item.category.word : nil
+    }
+
+    private func dateLabel(_ date: Date) -> String {
+        let calendar = Calendar.gregorianUS
+        if calendar.isDate(date, inSameDayAs: store.now) { return "Today" }
+        if let tomorrow = calendar.date(byAdding: .day, value: 1, to: store.now), calendar.isDate(date, inSameDayAs: tomorrow) { return "Tomorrow" }
+        return DateFormatter.fieldDayMonth.string(from: date)
+    }
+}
+
+extension LifeCategory {
+    /// The icon on Life's icon bar.
+    var symbol: String {
+        switch self {
+        case .care: "heart"
+        case .food: "fork.knife"
+        case .trips: "airplane"
+        case .watchlist: "film"
+        case .buys: "bag"
+        case .money: "creditcard"
+        case .home: "house"
+        case .notes: "note.text"
+        case .talk: "bubble.left.and.bubble.right"
+        default: "square.grid.2x2"
+        }
+    }
+}
+
+extension FieldType {
+    static var weLifeSection: Font { .system(.title3, design: .serif, weight: .regular) }
 }
 
 // MARK: - The groups that were set down
@@ -546,7 +458,7 @@ private struct FieldPutAwaySheet: View {
 
     var body: some View {
         ZStack {
-            FieldPalette.bgElevated.ignoresSafeArea()
+            WECanvas.surface.bgElevated.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -572,7 +484,8 @@ private struct FieldPutAwaySheet: View {
                 .padding(.bottom, 60)
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(WETheme.shared.colorScheme)
+        .environment(\.weCanvas, WECanvas.surface)
         // Closes itself once the last one is back, because the row that opens
         // it has gone by then and there would be nothing here to look at.
         .onChange(of: store.putAwayCategories.isEmpty) { _, isEmpty in
@@ -598,6 +511,182 @@ private struct FieldPutAwaySheet: View {
     }
 }
 
+// MARK: - Only me
+
+/// Everything you have kept to yourself, for now, in one place.
+///
+/// Held things first, soonest day first, then the ones with no day yet.
+/// Every row carries its way out: share it now, or pick the day WE asks.
+/// Nothing here shares anything on its own.
+struct FieldOnlyMeSheet: View {
+    @Environment(FieldStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @State private var sharing: LifeItem?
+    @State private var openItem: FieldItemReference?
+
+    private var held: [LifeItem] {
+        store.onlyMeItems
+            .filter { $0.holdUntil != nil }
+            .sorted { ($0.holdUntil ?? .distantFuture) < ($1.holdUntil ?? .distantFuture) }
+    }
+
+    private var waiting: [LifeItem] {
+        store.onlyMeItems.filter { $0.holdUntil == nil }
+    }
+
+    private var tomorrow: Date {
+        let calendar = Calendar.gregorianUS
+        return calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: store.now)) ?? store.now
+    }
+
+    var body: some View {
+        ZStack {
+            WECanvas.surface.bgElevated.ignoresSafeArea()
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    FieldLabel(WEOnlyMeCopy.accountLabel)
+
+                    Text(WEOnlyMeCopy.sheetIntro(partner: store.partnerName))
+                        .font(FieldType.body)
+                        .foregroundStyle(.fieldInk(.sectionSubtitle))
+                        .fieldLineHeight(1.6, size: 14.5)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 14)
+                        .padding(.bottom, FieldMetrics.sectionGap)
+
+                    if !held.isEmpty {
+                        section(WEOnlyMeCopy.heldSection, held)
+                    }
+                    if !waiting.isEmpty {
+                        section(WEOnlyMeCopy.waitingSection, waiting)
+                    }
+                }
+                .padding(.top, 48)
+                .padding(.horizontal, FieldMetrics.screenSide)
+                .padding(.bottom, 60)
+            }
+        }
+        .preferredColorScheme(WETheme.shared.colorScheme)
+        .environment(\.weCanvas, WECanvas.surface)
+        .sheet(item: $openItem) { FieldItemSheet(itemID: $0.id).environment(store) }
+        .confirmationDialog(
+            "Share with \(store.partnerName)?",
+            isPresented: Binding(get: { sharing != nil }, set: { if !$0 { sharing = nil } }),
+            titleVisibility: .visible,
+            presenting: sharing
+        ) { item in
+            Button("Share it") { store.share(item.id) }
+            Button("Not yet", role: .cancel) {}
+        } message: { _ in
+            Text("\(store.partnerName) will be able to see it from now on. It can't be made private again.")
+        }
+        // Closes itself once the last one is shared, like Put away.
+        .onChange(of: store.onlyMeItems.isEmpty) { _, isEmpty in
+            if isEmpty { dismiss() }
+        }
+    }
+
+    private func section(_ title: String, _ items: [LifeItem]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title)
+                .font(.system(size: 15, design: .serif))
+                .foregroundStyle(.fieldInk(.reasoning))
+                .accessibilityAddTraits(.isHeader)
+                .padding(.bottom, 6)
+            ForEach(items) { item in
+                row(item)
+            }
+        }
+        .padding(.bottom, FieldMetrics.sectionGap)
+    }
+
+    private func row(_ item: LifeItem) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button { openItem = FieldItemReference(id: item.id) } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    FieldDot(owner: item.owner, isPrivate: true, identity: store.identity)
+                    Text(item.title)
+                        .font(FieldType.listItemLarge)
+                        .foregroundStyle(.fieldInk(.headline))
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    Text(item.category.word.uppercased())
+                        .font(FieldType.dateCount)
+                        .tracking(FieldTracking.dateCount)
+                        .foregroundStyle(.fieldInk(.dateCount))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if let day = item.holdUntil {
+                HStack(spacing: 10) {
+                    if item.isReadyToOffer(on: store.now) {
+                        Text(WEOnlyMeCopy.readyLine)
+                            .font(FieldType.reasoning)
+                            .foregroundStyle(.fieldInk(.headline))
+                    } else {
+                        DatePicker(
+                            "Ask me on",
+                            selection: Binding(get: { day }, set: { store.setHold(item.id, until: $0) }),
+                            in: tomorrow...,
+                            displayedComponents: .date
+                        )
+                        .datePickerStyle(.compact)
+                        .font(FieldType.reasoning)
+                    }
+                    Button("Clear") { store.setHold(item.id, until: nil) }
+                        .buttonStyle(FieldQuietButtonStyle())
+                        .accessibilityLabel("Clear the day for \(item.title)")
+                }
+            }
+
+            HStack(spacing: 18) {
+                Button(WEOnlyMeCopy.readyShare(partner: store.partnerName)) { sharing = item }
+                    .buttonStyle(FieldQuietButtonStyle())
+                    .accessibilityIdentifier("field.onlyMe.share")
+                if item.holdUntil == nil {
+                    Button {
+                        store.setHold(item.id, until: Calendar.gregorianUS.date(byAdding: .day, value: 7, to: tomorrow))
+                    } label: {
+                        Label(WEOnlyMeCopy.holdPrompt, systemImage: "calendar.badge.clock")
+                    }
+                    .buttonStyle(FieldQuietButtonStyle())
+                    .accessibilityIdentifier("field.onlyMe.hold")
+                }
+            }
+        }
+        .padding(.vertical, 14)
+        .overlay(alignment: .top) { FieldRuleLine(color: FieldRule.row) }
+    }
+}
+
 #Preview {
     FieldZoneShell(store: FieldStore())
+}
+
+/// The placeholder in Life's search box: one real thing at a time, changing
+/// every few seconds. Still under Reduce Motion, which gets the first one.
+private struct FieldSearchHint: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let examples: [String]
+    @State private var index = 0
+
+    var body: some View {
+        Text("\(examples[index % max(examples.count, 1)])…")
+            .font(.system(size: 17, design: .serif))
+            .foregroundStyle(.fieldInk(.legend))
+            .lineLimit(1)
+            .id(index)
+            .transition(.opacity.combined(with: .offset(y: 6)))
+            .task(id: examples) {
+                guard !reduceMotion, examples.count > 1 else { return }
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(3))
+                    withAnimation(.easeInOut(duration: 0.4)) { index += 1 }
+                }
+            }
+    }
 }

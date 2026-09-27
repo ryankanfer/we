@@ -487,28 +487,10 @@ enum FieldTodaySelector {
         )
     }
 
-    /// The verb on the button under a moment.
-    ///
-    /// The wording, or nothing. There used to be a second tier here: when the
-    /// sentence gave no verb away, the *category* supplied one — Food said
-    /// "Send it", Care said "Book it", Buys said "Order it".
-    ///
-    /// Those were lies, and provably so. The category tier was reachable only
-    /// when `match(_:)` returned nil, which is exactly the condition under
-    /// which `primaryAct(for:)` returns `.none` — and `.none` is marked done
-    /// and nothing else (`FieldTodayZone.begin(_:)`). So the button under a bag
-    /// of groceries said SEND IT, sent nothing, and ticked the item off. The
-    /// word was chosen by the one part of the app that had been told it must
-    /// not choose: the comment on `primaryAct` below says a category "knows the
-    /// difference no better than it ever did", and then the verb was taken from
-    /// it anyway.
-    ///
-    /// Removing the tier costs Today its variety — a screen of MARK IT DONE
-    /// reads flatter than a screen of verbs. That flatness is the true picture
-    /// of what those items are, and a button that overstates what it will do
-    /// spends trust the app cannot re-earn by looking livelier.
+    /// Today opens the item's workspace. Its label describes the useful
+    /// next step rather than claiming the work has already happened.
     static func primaryVerb(for item: LifeItem) -> String {
-        verbFromWording(item.title) ?? "Mark it done"
+        FieldItemPurpose.actionLabel(item)
     }
 
     /// What the sentence itself asks for. Ordered most specific first, because
@@ -602,7 +584,7 @@ enum FieldTodaySelector {
         if candidate.reachability < 0.5,
            let away = context.partners.first(where: { $0.isAway(on: context.now) }) {
             return "\(away.name) is \(away.awayWindow(on: context.now)?.reason ?? "away"), "
-                + "so I'm bringing this to you rather than to both of you."
+                + "so this comes to you rather than to both of you."
         }
         if let dueOn = item.dueOn {
             let days = context.calendar.dateComponents(
@@ -635,7 +617,7 @@ enum FieldTodaySelector {
                 + "then that needs a decision."
         }
         return "Nothing else is pressing, and this has been sitting long "
-            + "enough that I'd rather raise it than keep holding it."
+            + "enough that it's worth raising now."
     }
 
     /// "Three other things are waiting. None of them are urgent."
@@ -675,8 +657,8 @@ enum FieldTodaySelector {
            context.horizons.isEmpty,
            context.clusters.isEmpty {
             return (
-                "I'm still learning your week.",
-                "Say anything below and I'll start sorting it. Today shows "
+                "A quiet start.",
+                "Say anything below and it gets sorted for you. Today shows "
                     + "one thing at a time, or nothing at all."
             )
         }
@@ -818,11 +800,43 @@ enum FieldClassifier {
         "schedule", "renew", "cancel", "email", "text", "order", "return",
         "drop off", "clean", "fix", "file", "pack", "confirm", "rsvp", "wrap",
     ]
-    static let dayWords = [
-        "today", "tonight", "tomorrow", "monday", "tuesday", "wednesday",
-        "thursday", "friday", "saturday", "sunday", "this week", "next week",
-        "weekend",
-    ]
+    /// The day words routing reads, which are `FieldPhrasing`'s.
+    ///
+    /// There used to be a second, shorter list here, and the two disagreed in
+    /// the way that mattered most: `FieldPhrasing` has always understood
+    /// "tues", and this did not. Since a date only survives when routing sends
+    /// the capture to a category that carries one, "dentist tues" lost its day
+    /// *and* fell through to the greedy title heuristic — filed as a film,
+    /// with the Tuesday thrown away. One list, for the same reason
+    /// `FieldPhrasing.dayPhrases` gives: the copies drift the first time
+    /// anybody edits either.
+    static var dayWords: [String] { FieldPhrasing.dayPhrases }
+
+    /// Whether a sentence names a day, on word boundaries.
+    ///
+    /// Boundaries are not fussiness. The abbreviations this now includes are
+    /// three letters long, and a plain `contains` would read a day out of
+    /// "the **wed**ding budget", "**sun**screen" and "**mon**itor" — which
+    /// would file a question as an errand, since a day word is exactly what
+    /// disqualifies `.talk`. A trailing plural is allowed through, because
+    /// "mondays" is a Monday.
+    ///
+    /// And a day word that `FieldPhrasing` read as a thing rather than a time
+    /// does not count: "what about a weekend away?" is a question, not an
+    /// errand due on Saturday.
+    static func namesADay(_ lowered: String) -> Bool {
+        if FieldPhrasing.daysAreOnlyNamedAsThings(lowered) { return false }
+        if FieldPhrasing.dayPhrases.contains(where: {
+            $0.contains(" ") && lowered.contains($0)
+        }) { return true }
+
+        let words = Set(
+            lowered.split(whereSeparator: { !$0.isLetter }).map(String.init)
+        )
+        return FieldPhrasing.dayPhrases.contains {
+            !$0.contains(" ") && (words.contains($0) || words.contains($0 + "s"))
+        }
+    }
     /// How a question opens when it is one. Checked alongside a literal "?",
     /// because most people do not type the mark on a phone.
     private static let questionOpeners = [
@@ -843,9 +857,13 @@ enum FieldClassifier {
     ]
     private static let eatWords = [
         "steak", "dinner", "lunch", "restaurant", "eat", "hungry", "craving",
-        "pizza", "ramen", "sushi", "brunch", "cook",
+        "pizza", "ramen", "sushi", "brunch", "cook", "italian place",
     ]
     private static let moneyWords = ["rent", "bill", "invoice", "insurance", "fund", "save"]
+    // "dentist" is deliberately absent. The app grows a Health category for
+    // it — see `anUnfamiliarObligationGrowsACategory` — and naming it here
+    // would have quietly deleted that, which is a worse answer arrived at by a
+    // shorter route.
     private static let careWords = ["mom", "dad", "birthday", "vet", "doctor", "appointment", "gift"]
     static let homeWords = ["filter", "laundry", "trash", "repair", "super", "lease"]
     static let buyWords = [
@@ -862,7 +880,7 @@ enum FieldClassifier {
     /// asks about it. See `FieldPromotion`.
     static func route(_ lowered: String, context: Context) -> LifeCategory {
         let hasTaskShape = taskVerbs.contains { lowered.contains($0) }
-        let hasDay = dayWords.contains { lowered.contains($0) }
+        let hasDay = namesADay(lowered)
         let isAspiration = aspirationWords.contains { lowered.contains($0) }
 
         // A trip named as a wish, or a place already on a horizon, is still a
@@ -1035,7 +1053,7 @@ enum FieldClassifier {
         // couple ends up with thirty categories of one item each.
         //
         // Not everything needs a new category. This is the line.
-        if dayWords.contains(where: { lowered.contains($0) }) { return .notes }
+        if namesADay(lowered) { return .notes }
 
         return invented(from: lowered) ?? .notes
     }
@@ -1081,7 +1099,7 @@ enum FieldClassifier {
         let words = lowered.split(separator: " ")
         guard (1...5).contains(words.count) else { return false }
         return !taskVerbs.contains { lowered.contains($0) }
-            && !dayWords.contains { lowered.contains($0) }
+            && !namesADay(lowered)
     }
 
     private static func matchesHorizon(
@@ -1110,14 +1128,14 @@ enum FieldClassifier {
         // started — that is the whole point of routing it here — and because
         // the only thing the person needs to know is that the date landed.
         if category == .notes,
-           dayWords.contains(where: { lowered.contains($0) }),
+           namesADay(lowered),
            let dueOn = FieldPhrasing.tidy(
                lowered,
                now: context.now,
                calendar: context.calendar
            ).dueOn {
             return "\(dayWord(dueOn, context: context)), so it's on the "
-                + "calendar. I didn't start a list for it — one thing "
+                + "calendar. No list has been started for it — one thing "
                 + "happening once isn't a category."
         }
 
@@ -1129,11 +1147,11 @@ enum FieldClassifier {
                 .prefix(3)
                 .map(\.word)
                 .joined(separator: ", ")
-            return "This didn't sit with \(existing), so I started "
-                + "\(category.word). If that's wrong, move it and I'll drop it."
+            return "This didn't sit with \(existing), so \(category.word) was "
+                + "started for it. If that's wrong, move it and \(category.word) goes away."
         }
 
-        let hasDay = dayWords.contains { lowered.contains($0) }
+        let hasDay = namesADay(lowered)
 
         switch category {
         case .watchlist:
@@ -1148,7 +1166,7 @@ enum FieldClassifier {
             return sentence
 
         case .food where !hasDay:
-            return "No day on it, so I read it as an appetite rather than an "
+            return "No day on it, so it reads as an appetite rather than an "
                 + "errand. It'll come back when you're deciding "
                 + "\(nextDecisionDay(context))."
 
@@ -1170,9 +1188,9 @@ enum FieldClassifier {
             let mentioned = openItems(in: .trips, context: context).count + 1
             if mentioned >= 3 {
                 sentence += " — that's \(mentioned.spelled) now, so at some "
-                    + "point I'll ask whether one of them is real."
+                    + "point you'll be asked whether one of them is real."
             } else {
-                sentence += ", and if it starts looking real I'll ask."
+                sentence += ", and if it starts looking real you'll be asked."
             }
             return sentence
 
@@ -1184,7 +1202,7 @@ enum FieldClassifier {
             let open = openItems(in: .talk, context: context).count + 1
             var sentence = "You asked something rather than named a task, so "
                 + "there's no date on it and nothing will chase you about it. "
-                + "I'll keep it where you can both see it"
+                + "It stays where you can both see it"
             if open >= 3 {
                 sentence += " — that's \(open.spelled) open now, so one of "
                     + "them is probably worth an evening."
@@ -1194,8 +1212,8 @@ enum FieldClassifier {
             return sentence
 
         case .notes:
-            return "I couldn't tie this to a week or a list, so I kept it "
-                + "rather than guessing. It'll surface when something makes "
+            return "This didn't tie to a week or a list, so it's kept here "
+                + "rather than guessed at. It'll surface when something makes "
                 + "it relevant."
 
         case .care:
@@ -1203,8 +1221,8 @@ enum FieldClassifier {
                 $0.health == .slipping
             }) {
                 let weeks = weeksSince(slipping.lastOccurred, context: context)
-                return "Something for one of them, so it went to Care. I tied "
-                    + "it to \(slipping.title.lowercased()) — the rhythm that "
+                return "Something for one of them, so it went to Care, tied "
+                    + "to \(slipping.title.lowercased()) — the rhythm that "
                     + "has been slipping \(weeks.spelled) weeks."
             }
             return "Something for one of them, so it went to Care, where the "
@@ -1214,7 +1232,7 @@ enum FieldClassifier {
             let opening = hasDay
                 ? "A task with a day attached."
                 : "A thing to do, with no day on it yet."
-            return opening + " I put it where the rest of your "
+            return opening + " It went where the rest of your "
                 + "\(category.rawValue) already sits."
         }
     }
@@ -1300,7 +1318,7 @@ enum FieldClassifier {
         return (
             latest.corrected,
             "You moved something like this before, so it goes here now. "
-                + "I stopped guessing after the \(similar.count.spelled) time."
+                + "No more guessing after the \(similar.count.spelled) time."
         )
     }
 
@@ -1363,8 +1381,8 @@ enum FieldClassifier {
                 calendar: context.calendar
             ).dueOn
             : nil
-        corrected.reasoning = "Moved. I'll file this shape of thing here from "
-            + "now on, and I'll tell you what it changed."
+        corrected.reasoning = "Moved. Things like this go here from "
+            + "now on, and you'll see what it changed."
 
         let correction = FieldCorrection(
             id: UUID().uuidString,
@@ -1873,7 +1891,7 @@ enum FieldDeferral {
         guard let window = partner.awayWindow(on: context.now), heldCount > 0
         else { return nil }
         let day = DateFormatter.fieldWeekday.string(from: window.end)
-        return "\(day) evening, I'll bring \(partner.name) the "
+        return "\(day) evening, \(partner.name) gets the "
             + "\(heldCount.spelled) things that waited — in one go, not "
             + "\(heldCount.spelled) notifications."
     }
@@ -1906,7 +1924,7 @@ enum FieldMomentScheduler {
         calendar: Calendar = .gregorianUS
     ) -> Decision {
         let watched = max(0, candidates.count - 1)
-        let restraint = "That's the only thing I'll send today. "
+        let restraint = "That's the only notification today. "
             + "\(watched.spelled.capitalized) others are being watched."
 
         // Already sent today. There is no second attempt, ever.
@@ -2050,11 +2068,11 @@ enum FieldPromotion {
         return FieldQuestion(
             id: "promote:\(subject.lowercased())",
             prompt: "Is \(subject) something you're actually doing?",
-            stakes: "If it is, I'll start keeping track of what moves it. If "
-                + "it isn't, it stays on the list and I stop asking.",
+            stakes: "If it is, what moves it gets tracked. If "
+                + "it isn't, it stays on the list and the question stops.",
             reasoning: "You've both mentioned \(subject) \(mentions.spelled) "
                 + "times and neither of you has put a date on it. That's the "
-                + "only reason I'm asking.",
+                + "only reason for the question.",
             choices: [
                 FieldChoice(
                     id: "promote:\(subject.lowercased()):yes",
@@ -2346,9 +2364,9 @@ enum FieldOccasion {
         FieldQuestion(
             id: id,
             prompt: "Does this belong with \(shortTitle(occasion.title))?",
-            stakes: "If it does, I'll show them together and it counts toward "
+            stakes: "If it does, they show together and it counts toward "
                 + "that day. If it doesn't, it stays exactly where it is and "
-                + "I stop asking.",
+                + "the question stops.",
             reasoning: reasoning(
                 occasion: occasion,
                 item: item,
@@ -2382,7 +2400,7 @@ enum FieldOccasion {
         case .named(let person):
             return "You wrote \(person) into both of these"
                 + (when.map { ", and \($0) is when it happens" } ?? "")
-                + ". That's the only reason I'm asking."
+                + ". That's the only reason for the question."
         case .referred(let pronoun):
             return "\"\(pronoun.capitalized)\" isn't anyone else here — "
                 + "\(shortTitle(occasion.title)) is the only thing coming "
@@ -2898,10 +2916,10 @@ enum FieldLearning {
             changes.append(
                 FieldBehaviourChange(
                     id: "not-a-task",
-                    observation: "You told me “not a task” \(datedToDateless.count.spelled) times",
+                    observation: "You said “not a task” \(datedToDateless.count.spelled) times",
                     change: "Things you mention without a day stay undated now.",
                     outcome: "“Steak” is an appetite. “Groceries” is a task. "
-                        + "I can tell them apart now.",
+                        + "They're told apart now.",
                     accent: .a
                 )
             )
@@ -2918,8 +2936,8 @@ enum FieldLearning {
                     id: "stopped-inventing",
                     observation: "You moved \(deletions.count.spelled) things into Trips",
                     change: "A place with no date is a trip you mentioned, not "
-                        + "an errand. I file it that way now.",
-                    outcome: "And when one of them starts looking real, I ask "
+                        + "an errand. It's filed that way now.",
+                    outcome: "And when one of them starts looking real, you're asked "
                         + "rather than deciding.",
                     accent: .b
                 )
@@ -2932,8 +2950,8 @@ enum FieldLearning {
             changes.append(
                 FieldBehaviourChange(
                     id: "learned-hour",
-                    observation: "You answer me in the morning, not at night",
-                    change: "I ask once, at \(moment.hourLabel).",
+                    observation: "You answer in the morning, not at night",
+                    change: "One question a day, at \(moment.hourLabel).",
                     outcome: "Your reply rate went from "
                         + "\(Int(moment.replyRateBefore * 100))% to "
                         + "\(Int(moment.replyRateAfter * 100))%.",

@@ -39,6 +39,11 @@ protocol FieldBackend: Sendable {
     func delete(itemID: String) async throws
     /// Answering a promotion question is the only way a horizon is ever
     /// created, so this is the only route by which Us gains anything.
+    func sendChat(_ message: FieldChatMessage) async throws
+    func chatPage(before: String?, decisionsOnly: Bool) async throws -> [FieldChatMessage]
+    func setChatPreference(notices: Bool, readAt: Date?, notifications: Bool?) async throws
+    func confirmChatDecision(_ id: String) async throws
+    func approveGoal(id: String, revision: String, approved: Bool) async throws
     func upsert(_ horizon: FieldHorizon) async throws
     /// The record that a horizon became real, and every ordinary week that
     /// moved it.
@@ -157,6 +162,8 @@ extension FieldBackend {
 /// Everything the app persists. One value, so a load is atomic and a
 /// realtime change can be diffed in one place.
 struct FieldState: Codable, Hashable, Sendable {
+    var conversation: [FieldChatMessage]? = nil
+    var chatPreferences: [FieldChatPreference]? = nil
     var identity: FieldIdentity
     var partners: [FieldPartner]
     var lifeItems: [LifeItem]
@@ -253,7 +260,7 @@ struct FieldState: Codable, Hashable, Sendable {
             dailyMoment: FieldDailyMoment(
                 sendMinute: 8 * 60 + 12,
                 queuedCount: 0,
-                hourRationale: "I haven't learned your hour yet.",
+                hourRationale: "Your hour isn't learned yet.",
                 replyRateBefore: 0,
                 replyRateAfter: 0,
                 lastSentOn: nil
@@ -334,7 +341,7 @@ struct FieldState: Codable, Hashable, Sendable {
         dailyMoment: FieldDailyMoment(
             sendMinute: 8 * 60 + 12,
             queuedCount: 0,
-            hourRationale: "I haven't learned your hour yet.",
+            hourRationale: "Your hour isn't learned yet.",
             replyRateBefore: 0,
             replyRateAfter: 0,
             lastSentOn: nil
@@ -358,7 +365,7 @@ final class FieldStore {
     // offset, calendarOpen, activeCluster, captureDraft, lastReceipt.
 
     /// WE is index 1 and is the home. Cold launch always lands on Today.
-    var activeZone: FieldZone = .we
+    var activeZone: FieldZone = .today
     // Per-zone scroll offset is listed in the handoff's ephemeral state, but
     // it is not stored here: the paging TabView keeps all three zones mounted,
     // so each ScrollView keeps its own position for free. Mirroring it would
@@ -382,8 +389,8 @@ final class FieldStore {
     /// two surfaces have nothing else in common.
     var searchOpen = false
     var activeClusterIndex = 0
-    var captureDraft = ""
-    var lastReceipt: FieldReceipt?
+    var captureDraft = "" { didSet { persistCaptureDraft() } }
+    var lastReceipt: FieldReceipt? { didSet { persistCaptureDraft() } }
     /// Set when the user taps WRONG PLACE — the corrective picker.
     var correctingReceipt: FieldReceipt?
 
@@ -468,6 +475,8 @@ final class FieldStore {
     }
 
     private(set) var loadState: LoadState = .loading
+    private(set) var sharedIntelligenceAuthorized = false
+    func invalidateSharedIntelligence() { sharedIntelligenceAuthorized = false; WESemanticSearch.invalidate() }
 
     /// What this person has already been shown once.
     ///
@@ -521,6 +530,13 @@ final class FieldStore {
         self.storedReadiness = .neither(
             on: FieldReadiness.localDate(for: self.clock.now)
         )
+        if let draft = (backend as? FieldOutbox)?.captureDraft() {
+            self.captureDraft = draft.text
+            if let receipt = draft.receipt, !self.state.lifeItems.contains(where: { $0.id == receipt.id }) {
+                self.lastReceipt = receipt
+            }
+        }
+
     }
 
     // MARK: The day turning
@@ -1084,7 +1100,7 @@ final class FieldStore {
     func returnHome() {
         calendarOpen = false
         searchOpen = false
-        activeZone = .we
+        activeZone = .today
     }
 
     /// One overlay at a time over Life. Opening either closes the other rather
@@ -1099,7 +1115,12 @@ final class FieldStore {
         calendarOpen = false
     }
 
-    func openSearch() {
+    /// Words to start a search with, from a suggestion on Life. Read once,
+    /// by the search surface as it opens.
+    var searchSeed = ""
+
+    func openSearch(_ seed: String = "") {
+        searchSeed = seed
         calendarOpen = false
         searchOpen = true
     }
@@ -1128,6 +1149,18 @@ final class FieldStore {
         return ordered.indices.contains(next) ? ordered[next] : nil
     }
 
+    private(set) var draftSaveError: String?
+
+    private func persistCaptureDraft() {
+        guard let outbox else { return }
+        do {
+            try outbox.saveCaptureDraft(FieldCaptureDraft(text: captureDraft, receipt: lastReceipt))
+            draftSaveError = nil
+        } catch {
+            draftSaveError = "Your draft is only in memory. Keep WE open until it can be saved."
+        }
+    }
+
     // MARK: Capture
 
     /// Classify what was typed and show where it would go. Nothing is filed
@@ -1152,8 +1185,15 @@ final class FieldStore {
     /// `state` — the item appeared, and then vanished on the next load from
     /// Supabase, because nothing wrote it to its destination table. The
     /// backend has always had `upsert` for exactly this and nothing called it.
+    private(set) var captureSaveError: String?
+
     func send() {
+        captureSaveError = nil
         guard let receipt = lastReceipt else { return }
+        guard !state.lifeItems.contains(where: { $0.id == receipt.id }) else {
+            lastReceipt = nil
+            return
+        }
 
         // The chip carries the tidied thought, not the sentence. What was
         // literally typed still travels with the correction, which is the only
@@ -1166,6 +1206,27 @@ final class FieldStore {
             capturedAt: now,
             visibility: visibility
         )
+        // Stamped here, at the crossing, rather than when each correction was
+        // made: "Only me" can be turned on after a correction, and the typed
+        // words in it are exactly as private as the item. Stamped *before*
+        // staging, because the durable outbox is what actually reaches the
+        // server — an unstamped copy there would publish a private item's
+        // words as a shared correction.
+        let corrections = pendingCorrections.map {
+            var correction = $0
+            correction.visibility = visibility
+            return correction
+        }
+        if let outbox {
+            let item = makeCapturedItem(receipt)
+            do {
+                try outbox.stage([.append(capture), .upsertItem(item)]
+                    + corrections.map { .record($0) })
+            } catch {
+                captureSaveError = "This has not been saved. Keep this screen open and try again."
+                return
+            }
+        }
         state.captures.insert(capture, at: 0)
         // Cleared before, so that what is on screen afterwards is about *this*
         // send and not a leftover from the last one. `materialise` sets it
@@ -1175,23 +1236,26 @@ final class FieldStore {
 
         // Corrections are training signal about the classifier, and they are
         // held back with everything else until the moment of crossing.
-        // Stamped here, at the crossing, rather than when each correction was
-        // made: "Only me" can be turned on after a correction, and the typed
-        // words in it are exactly as private as the item.
-        let corrections = pendingCorrections.map {
-            var correction = $0
-            correction.visibility = visibility
-            return correction
-        }
         pendingCorrections = []
         lastReceipt = nil
         correctingReceipt = nil
 
-        Task { [backend] in
+        if outbox != nil {
+            refreshDeliveryStates()
+            Task { await flushPending() }
+            return
+        }
+
+        // `self` rather than `[backend]` alone: enqueueing is what makes the
+        // item's status true, so the status has to be reread once it has
+        // happened. The awaits below hop back to the main actor, which is
+        // where `deliveryStates` is read from.
+        Task { [weak self, backend] in
             try? await backend?.append(capture)
             for correction in corrections {
                 try? await backend?.record(correction)
             }
+            self?.refreshDeliveryStates()
         }
         persist(receipt)
     }
@@ -1200,7 +1264,10 @@ final class FieldStore {
     private func persist(_ receipt: FieldReceipt) {
         guard let item = state.lifeItems.first(where: { $0.id == receipt.id })
         else { return }
-        Task { [backend] in try? await backend?.upsert(item) }
+        Task { [weak self, backend] in
+            try? await backend?.upsert(item)
+            self?.refreshDeliveryStates()
+        }
     }
 
     /// Files the captured text into its category. Without this the receipt
@@ -1210,39 +1277,52 @@ final class FieldStore {
         // past lives" are recognised as the same thing — which is the
         // coincidence the note exists to name, and the highest-value
         // inference the app makes.
-        // Never for an "Only me" receipt. Marking a private thing as "both
-        // added it" would tell this person something about their partner's
-        // list by way of their own, and would make a private item shared-owned.
-        let match = receipt.isPrivate ? nil : state.lifeItems.first {
-            $0.title.localizedCaseInsensitiveCompare(receipt.title)
-                == .orderedSame && $0.owner != speaker && !$0.isDone
-        }
-
-        state.lifeItems.insert(
-            LifeItem(
-                id: receipt.id,
-                title: receipt.title,
-                category: receipt.category,
-                owner: match == nil ? speaker : .shared,
-                // The day the phrasing named, which is the whole reason for
-                // lifting it out of the string: an item with a real date can
-                // be ranked, surfaced, and fall due.
-                dueOn: receipt.dueOn,
-                closesAt: nil,
-                clusterID: nil,
-                source: .captured,
-                detail: match == nil ? nil : "Both added it, independently",
-                isTimeCritical: false,
-                isDone: false,
-                visibility: receipt.isPrivate ? .private : nil
-            ),
-            at: 0
-        )
+        state.lifeItems.insert(makeCapturedItem(receipt), at: 0)
 
         // Here rather than in `submitCapture`, so that looking at a receipt
         // changes nothing. A capture corrected to somewhere else never reaches
         // this line, and the group stays where the couple put it.
         reviveIfPutAway(receipt.category)
+    }
+
+    private func makeCapturedItem(_ receipt: FieldReceipt) -> LifeItem {
+        // Never for an "Only me" receipt. Marking a private thing as "both
+        // added it" would tell this person something about their partner's
+        // list by way of their own, and would make a private item shared-owned.
+        let match = receipt.isPrivate ? nil : state.lifeItems.first {
+            $0.title.localizedCaseInsensitiveCompare(receipt.title) == .orderedSame
+                && $0.owner != speaker && !$0.isDone
+        }
+        return LifeItem(
+            id: receipt.id, title: receipt.title, category: receipt.category,
+            owner: match == nil ? speaker : .shared, dueOn: receipt.dueOn,
+            closesAt: nil, clusterID: nil, source: .captured,
+            detail: match == nil ? nil : "Both added it, independently",
+            isTimeCritical: false, isDone: false,
+            sourceURL: receipt.sourceURL,
+            visibility: receipt.isPrivate ? .private : nil,
+            holdUntil: receipt.isPrivate ? receipt.holdUntil : nil
+        )
+    }
+
+    /// Where these words would be filed, without filing anything. For the +
+    /// card, which says where a thing is going before it goes.
+    func previewDestination(for text: String, link: URL? = nil) -> LifeCategory? {
+        if let link, let category = FieldLinkReader.category(for: link) { return category }
+        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty else { return nil }
+        return FieldClassifier.classify(words, context: classifierContext).category
+    }
+
+    /// Hands a link to the receipt about to be sent. A site whose kind is
+    /// plain decides the category, the same way the preview said it would.
+    func attachLink(_ url: URL?) {
+        guard let url, lastReceipt != nil else { return }
+        lastReceipt?.sourceURL = url
+        if let category = FieldLinkReader.category(for: url) {
+            lastReceipt?.category = category
+            if !category.carriesDates { lastReceipt?.dueOn = nil }
+        }
     }
 
     /// Puts a captured thing on today, or takes it back off.
@@ -1272,6 +1352,34 @@ final class FieldStore {
     /// only changes what `send()` will do.
     func togglePrivate() {
         lastReceipt?.isPrivate.toggle()
+        if lastReceipt?.isPrivate == false { lastReceipt?.holdUntil = nil }
+    }
+
+    /// "Hold until", on the receipt. Only meaningful with Only me on.
+    func setReceiptHold(_ day: Date?) {
+        guard lastReceipt?.isPrivate == true else { return }
+        lastReceipt?.holdUntil = day
+    }
+
+    /// Sets, moves or clears the day WE offers to share a private item.
+    /// The author's own row, so it travels the same way `share` does.
+    func setHold(_ itemID: String, until day: Date?) {
+        guard let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
+              state.lifeItems[index].visibility == .private
+        else { return }
+        state.lifeItems[index].holdUntil = day
+        let item = state.lifeItems[index]
+        Task { [backend] in try? await backend?.upsert(item) }
+    }
+
+    /// Private things whose day has come, for their author's Today. Never
+    /// anyone else's: a private row is only ever on its author's phone.
+    var onlyMeItems: [LifeItem] {
+        state.lifeItems.filter { $0.visibility == .private && !$0.isDone }
+    }
+
+    var heldItemsReadyToOffer: [LifeItem] {
+        state.lifeItems.filter { $0.isReadyToOffer(on: now) }
     }
 
     /// Lets a partner see something that was "Only me". One way: the
@@ -1281,6 +1389,7 @@ final class FieldStore {
               state.lifeItems[index].visibility == .private
         else { return }
         state.lifeItems[index].visibility = .shared
+        state.lifeItems[index].holdUntil = nil
         if let captureIndex = state.captures.firstIndex(where: { $0.id == itemID }) {
             state.captures[captureIndex].visibility = .shared
         }
@@ -1347,11 +1456,307 @@ final class FieldStore {
     // MARK: Acting on a moment
 
     func complete(_ itemID: String) {
-        guard let index = state.lifeItems.firstIndex(where: { $0.id == itemID })
+        guard !isLegacyExternalRow(itemID),
+              let index = state.lifeItems.firstIndex(where: { $0.id == itemID }) else { return }
+        var item = state.lifeItems[index]
+        item.isDone = true
+        guard stageItemChange([.upsertItem(item)]) else { return }
+        state.lifeItems[index] = item
+        deliverStagedItem(item)
+    }
+
+    @discardableResult func keepChatGoal(_ suggestion: FieldGoalSuggestion, title: String) -> Bool {
+        guard FieldConversationPolicy.noticesAllowed(state.chatPreferences ?? []), !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, title.count <= 120 else { return false }
+        let ids = Set(suggestion.items.map(\.id))
+        let evidence = chatMessages.filter { ids.contains($0.id) }
+        guard evidence.count == ids.count else { return false }
+        let items = FieldConversationPolicy.evidence(evidence).filter { item in !state.lifeItems.contains { $0.id == item.id } }
+        var goal = state.horizons.first { $0.id == suggestion.existingGoalID } ?? FieldHorizon(
+            goalPlan: .init(kind: suggestion.kind), id: UUID().uuidString, title: title, window: nil,
+            owner: .shared, isPrimary: false, thesis: nil, targetDate: nil, linkedLifeItemIDs: [], openQuestion: nil)
+        goal.linkedLifeItemIDs = Array(Set(goal.linkedLifeItemIDs).union(ids)).sorted()
+        let mutations = items.map(FieldMutation.upsertItem) + [.upsertHorizon(goal)]
+        guard stageItemChange(mutations) else { return false }
+        mutations.forEach { $0.apply(to: &state) }
+        if outbox != nil { Task { await flushPending() } }
+        else if let backend { Task { for mutation in mutations { try? await mutation.send(to: backend) } } }
+        return true
+    }
+
+    var conversationOpen = false
+    /// This person's private look-ups for the day. In memory only: never
+    /// filed, never sent, never on the partner's screen. See `FieldLookup`.
+    var lookups: [FieldLookup] = []
+    var conversationContext: FieldChatContext?
+    var conversationDraft = ""
+    var conversationError: String?
+    var chatMessages: [FieldChatMessage] { (state.conversation ?? []).sorted { $0.createdAt == $1.createdAt ? $0.id < $1.id : $0.createdAt < $1.createdAt } }
+    var chatUnread: Bool {
+        let read = state.chatPreferences?.first { $0.owner == speaker }?.readAt ?? .distantPast
+        return chatMessages.contains { $0.sender != speaker && $0.createdAt > read }
+    }
+    func openConversation(context: FieldChatContext? = nil) {
+        conversationContext = context; conversationOpen = true
+    }
+    @discardableResult func sendConversation(_ body: String, context: FieldChatContext?, decision: Bool = false, sourceID: String? = nil) -> Bool {
+        let message = FieldChatMessage(body: body.trimmingCharacters(in: .whitespacesAndNewlines), sender: speaker, context: context, decision: decision, sourceID: sourceID)
+        guard message.valid, context == nil || chatContextTitle(context!) != nil else { return false }
+        // Stage the message, every new link and its goal connection in one
+        // durable write. A failed local save must leave the draft intact.
+        var mutations: [FieldMutation] = []
+        var savedIDs: [String] = []
+        if !decision {
+            for (index, url) in message.urls.enumerated() {
+                if let existing = savedConversationLink(url) {
+                    savedIDs.append(existing.id)
+                    continue
+                }
+                let item = LifeItem(explicitTask: false, id: index == 0 ? message.id : UUID().uuidString,
+                    title: FieldConversationLinks.title(url), category: .notes, owner: .shared,
+                    dueOn: nil, closesAt: nil, clusterID: nil, source: .captured,
+                    detail: "From your conversation:\n" + message.body, isTimeCritical: false, isDone: false,
+                    sourceURL: url, visibility: .shared)
+                savedIDs.append(item.id)
+                mutations.append(.upsertItem(item))
+            }
+        }
+        if let context, context.kind == "goal", !savedIDs.isEmpty,
+           var goal = state.horizons.first(where: { $0.id == context.id }) {
+            for id in savedIDs where !goal.linkedLifeItemIDs.contains(id) { goal.linkedLifeItemIDs.append(id) }
+            mutations.append(.upsertHorizon(goal))
+        }
+        // A new goal may still be queued. Compaction replaces its earlier
+        // write, so keep the updated goal before the message that references it.
+        mutations.append(.sendChat(message))
+        guard stageItemChange(mutations) else { conversationError = itemSaveError; return false }
+        mutations.forEach { $0.apply(to: &state) }
+        refreshDeliveryStates()
+        conversationError = nil
+        if outbox != nil { Task { await flushPending() } }
+        else if let backend {
+            Task {
+                do { for mutation in mutations { try await mutation.send(to: backend) } }
+                catch { conversationError = "Your message or saved links could not sync. Please try again." }
+            }
+        }
+        return true
+    }
+    @discardableResult
+    func keepConversationLink(_ url: URL, from message: FieldChatMessage) -> Bool {
+        guard message.urls.contains(where: { FieldConversationLinks.key($0) == FieldConversationLinks.key(url) }) else { return false }
+        if savedConversationLink(url) != nil { return true }
+        let item = LifeItem(explicitTask: false, id: UUID().uuidString,
+            title: FieldConversationLinks.title(url), category: .notes, owner: .shared,
+            dueOn: nil, closesAt: nil, clusterID: nil, source: .captured,
+            detail: "From your conversation:\n" + message.body, isTimeCritical: false, isDone: false,
+            sourceURL: url, visibility: .shared)
+        var mutations: [FieldMutation] = [.upsertItem(item)]
+        if let context = message.context, context.kind == "goal",
+           var goal = state.horizons.first(where: { $0.id == context.id }) {
+            goal.linkedLifeItemIDs.append(item.id)
+            mutations.append(.upsertHorizon(goal))
+        }
+        guard stageItemChange(mutations) else { return false }
+        mutations.forEach { $0.apply(to: &state) }
+        refreshDeliveryStates()
+        if outbox != nil { Task { await flushPending() } }
+        else if let backend {
+            Task {
+                do { for mutation in mutations { try await mutation.send(to: backend) } }
+                catch { conversationError = "This link could not sync. Please try again." }
+            }
+        }
+        return true
+    }
+
+    func savedConversationLink(_ url: URL) -> LifeItem? {
+        let key = FieldConversationLinks.key(url)
+        return state.lifeItems.first { $0.isSharedPresence && !$0.isDone && $0.sourceURL.map(FieldConversationLinks.key) == key }
+    }
+
+    /// Relationships are read from the original messages and shared URLs, so
+    /// re-sharing a link keeps the discussion attached without rewriting notes.
+    func conversationMessage(_ message: FieldChatMessage, relatesTo context: FieldChatContext) -> Bool {
+        if message.context == context { return true }
+        let ids: Set<String>
+        if context.kind == "goal" {
+            ids = Set(state.horizons.first(where: { $0.id == context.id })?.linkedLifeItemIDs ?? [])
+        } else { ids = [context.id] }
+        if ids.contains(message.id) || (message.context?.kind == "life" && ids.contains(message.context?.id ?? "")) { return true }
+        let keys = Set(state.lifeItems.filter { ids.contains($0.id) && $0.isSharedPresence }.compactMap { $0.sourceURL.map(FieldConversationLinks.key) })
+        return message.urls.contains { keys.contains(FieldConversationLinks.key($0)) }
+    }
+
+    func chatContextTitle(_ context: FieldChatContext) -> String? {
+        if context.kind == "goal" { return state.horizons.first { $0.id == context.id }?.title }
+        return state.lifeItems.first { $0.id == context.id && $0.isSharedPresence }?.title
+    }
+    func earlierChat(before: String?, decisionsOnly: Bool = false) async -> [FieldChatMessage] {
+        do { return try await backend?.chatPage(before: before, decisionsOnly: decisionsOnly) ?? chatMessages.filter { !decisionsOnly || ($0.decision && $0.confirmed) } }
+        catch { conversationError = "Couldn’t load this conversation. Try again."; return [] }
+    }
+    /// Whether this person's phone is told when the other suggests deciding
+    /// on something. The server sends unless someone has said no, so unset
+    /// reads as on — and Account says so.
+    var decisionNoticesOn: Bool {
+        state.chatPreferences?.first { $0.owner == speaker }?.notifications != false
+    }
+
+    func setDecisionNotices(_ on: Bool) async {
+        let current = state.chatPreferences?.first { $0.owner == speaker }
+        await updateChatPreference(notices: current?.notices ?? true, notifications: on)
+    }
+
+    /// Today has shown the partner's proposals, so they are seen. Without
+    /// this the notifier counts every proposal as unread: the screen that
+    /// used to mark them read was the retired chat.
+    func markDecisionsSeen() async {
+        let current = state.chatPreferences?.first { $0.owner == speaker }
+        guard let latest = chatMessages
+            .filter({ $0.decision && $0.sender != speaker })
+            .map(\.createdAt).max(),
+            latest > (current?.readAt ?? .distantPast)
         else { return }
-        state.lifeItems[index].isDone = true
-        let item = state.lifeItems[index]
-        Task { [backend] in try? await backend?.upsert(item) }
+        await updateChatPreference(notices: current?.notices ?? true, readAt: now)
+    }
+
+    func updateChatPreference(notices: Bool, readAt: Date? = nil, notifications: Bool? = nil) async {
+        do {
+            if let backend { try await backend.setChatPreference(notices: notices, readAt: readAt, notifications: notifications); await retryLoad() }
+            else {
+                var prefs = state.chatPreferences ?? []
+                let old = prefs.first { $0.owner == speaker }
+                prefs.removeAll { $0.owner == speaker }
+                prefs.append(.init(owner: speaker, notices: notices, readAt: readAt ?? old?.readAt, notifications: notifications ?? old?.notifications))
+                state.chatPreferences = prefs
+            }
+            conversationError = nil
+        } catch { conversationError = "That setting wasn’t saved. Connect and try again." }
+    }
+    func confirmConversationDecision(_ message: FieldChatMessage) async {
+        let id = message.id
+        guard message.decision, message.sender != speaker else { return }
+        do {
+            if let backend {
+                try await backend.confirmChatDecision(id); await retryLoad()
+                var confirmed = message; confirmed.confirmed = true
+                FieldMutation.sendChat(confirmed).apply(to: &state)
+            }
+            else if let index = state.conversation?.firstIndex(where: { $0.id == id }) { state.conversation?[index].confirmed = true }
+        } catch { conversationError = "Your confirmation wasn’t saved. Please try again." }
+    }
+    @discardableResult func keepConversation(_ message: FieldChatMessage, title: String, asTask: Bool, dueOn: Date?) -> Bool {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, title.count <= 240 else { return false }
+        // Stable id makes retrying or keeping the same message on both phones idempotent.
+        let item = LifeItem(explicitTask: asTask, id: message.id, title: title, category: asTask ? .home : .notes,
+            owner: .shared, dueOn: dueOn, closesAt: nil, clusterID: nil, source: .captured,
+            detail: "From your conversation:\n" + message.body, isTimeCritical: false, isDone: false,
+            sourceURL: message.firstURL, visibility: .shared)
+        guard stageItemChange([.upsertItem(item)]) else { return false }
+        FieldMutation.upsertItem(item).apply(to: &state)
+        if let context = message.context, context.kind == "goal", var goal = state.horizons.first(where: { $0.id == context.id }) {
+            if !goal.linkedLifeItemIDs.contains(item.id) { goal.linkedLifeItemIDs.append(item.id); _ = saveGoal(goal) }
+        }
+        if outbox != nil { Task { await flushPending() } }
+        else if let backend { Task { try? await backend.upsert(item) } }
+        return true
+    }
+
+    @discardableResult
+    func saveGoal(_ goal: FieldHorizon) -> Bool {
+        guard !goal.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              goal.title.count <= 120, goal.goalPlan?.valid ?? true else { return false }
+        guard stageItemChange([.upsertHorizon(goal)]) else { return false }
+        state.horizons.removeAll { $0.id == goal.id }
+        state.horizons.append(goal)
+        if outbox != nil { Task { await flushPending() } }
+        else { Task { [backend] in
+            do { try await backend?.upsert(goal) }
+            catch { self.itemSaveError = "Your goal could not sync. Please try again." }
+        } }
+        return true
+    }
+
+    func approveGoal(_ id: String, approved: Bool = true) async {
+        itemSaveError = nil
+        guard let index = state.horizons.firstIndex(where: { $0.id == id }),
+              let plan = state.horizons[index].goalPlan else { return }
+        do {
+            if let backend {
+                try await backend.approveGoal(id: id, revision: plan.revision, approved: approved)
+                await retryLoad()
+            } else {
+                state.horizons[index].goalPlan!.approvedOwners.removeAll { $0 == speaker }
+                if approved {
+                    state.horizons[index].goalPlan!.approvedOwners.append(speaker)
+                }
+            }
+        } catch { itemSaveError = "Your choice wasn’t saved. Connect and try again." }
+    }
+
+    @discardableResult
+    func addGoalTask(goalID: String, title: String) -> Bool {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, title.count <= 240,
+              var goal = state.horizons.first(where: { $0.id == goalID }) else { return false }
+        let item = LifeItem(explicitTask: true, id: UUID().uuidString, title: title, category: goal.goalPlan?.kind == .trip ? .trips : goal.goalPlan?.kind == .savings ? .money : .home, owner: .shared,
+            dueOn: nil, closesAt: nil, clusterID: nil, source: .captured, detail: "For: " + goal.title,
+            isTimeCritical: false, isDone: false)
+        goal.linkedLifeItemIDs.append(item.id)
+        guard stageItemChange([.upsertItem(item), .upsertHorizon(goal)]) else { return false }
+        state.lifeItems.append(item)
+        state.horizons.removeAll { $0.id == goal.id }; state.horizons.append(goal)
+        if outbox != nil { Task { await flushPending() } }
+        else { Task { [backend] in
+            do { try await backend?.upsert(item); try await backend?.upsert(goal) }
+            catch { self.itemSaveError = "The next step could not sync. Please try again." }
+        } }
+        return true
+    }
+
+    /// A decision becomes a concrete plan on the same item. Its date,
+    /// ownership, visibility and provenance remain attached to that plan.
+    @discardableResult
+    func saveDecision(on itemID: String, choice: String) -> Bool {
+        let choice = choice.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !choice.isEmpty, choice.count <= 240,
+              !isLegacyExternalRow(itemID),
+              let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
+              !state.lifeItems[index].isDone,
+              FieldItemPurpose.resolve(state.lifeItems[index]) == .decision else { return false }
+        var item = state.lifeItems[index]
+        let original = item.title
+        item.title = FieldItemPurpose.decisionTitle(item, choice: choice)
+        let record = "\(identity.name(for: speaker)) chose: \(choice). From: \(original)."
+        item.detail = [item.detail, record].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n\n")
+        guard stageItemChange([.upsertItem(item)]) else { return false }
+        state.lifeItems[index] = item
+        deliverStagedItem(item)
+        return true
+    }
+
+    @discardableResult
+    func saveNextStep(on itemID: String, note: String) -> Bool {
+        let note = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !note.isEmpty, note.count <= 1000, !isLegacyExternalRow(itemID),
+              let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
+              !state.lifeItems[index].isDone else { return false }
+        var item = state.lifeItems[index]
+        item.detail = [item.detail, note].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n\n")
+        guard stageItemChange([.upsertItem(item)]) else { return false }
+        state.lifeItems[index] = item
+        deliverStagedItem(item)
+        return true
+    }
+
+    private func deliverStagedItem(_ item: LifeItem) {
+        if outbox != nil {
+            refreshDeliveryStates()
+            Task { await flushPending() }
+        } else {
+            Task { [backend] in try? await backend?.upsert(item) }
+        }
     }
 
     // MARK: Changing a filed thing
@@ -1379,14 +1784,20 @@ final class FieldStore {
     /// undo" is not true while the proof-of-catch is still sitting there — a
     /// pill for a thing that no longer exists is the app contradicting itself
     /// on the screen a couple looks at most.
-    func remove(_ itemID: String) {
+    @discardableResult
+    func remove(_ itemID: String) -> Bool {
         guard !isLegacyExternalRow(itemID),
-              let index = state.lifeItems.firstIndex(where: { $0.id == itemID })
-        else { return }
-
+              let index = state.lifeItems.firstIndex(where: { $0.id == itemID }) else { return false }
+        guard stageItemChange([.deleteItem(id: itemID)]) else { return false }
         state.lifeItems.remove(at: index)
         state.captures.removeAll { $0.id == itemID }
-        Task { [backend] in try? await backend?.delete(itemID: itemID) }
+        if outbox != nil {
+            refreshDeliveryStates()
+            Task { await flushPending() }
+        } else {
+            Task { [backend] in try? await backend?.delete(itemID: itemID) }
+        }
+        return true
     }
 
     /// Moves a filed item to another category, and teaches the classifier.
@@ -1396,6 +1807,8 @@ final class FieldStore {
     /// dropping it would make the same mistake again next week. This is why it
     /// records a `FieldCorrection` exactly as `correct(to:)` does for a
     /// receipt.
+    private(set) var itemSaveError: String?
+
     func refile(_ itemID: String, to category: LifeCategory) {
         guard !isLegacyExternalRow(itemID),
               let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
@@ -1403,17 +1816,17 @@ final class FieldStore {
         else { return }
 
         let original = state.lifeItems[index].category
-        state.lifeItems[index].category = category
+        var item = state.lifeItems[index]
+        item.category = category
 
         // Moving into a category that does not carry dates drops the date
         // rather than putting a due date on a film — the same rule
         // `FieldClassifier.correct` applies to a receipt.
         if !category.carriesDates {
-            state.lifeItems[index].dueOn = nil
-            state.lifeItems[index].closesAt = nil
+            item.dueOn = nil
+            item.closesAt = nil
         }
 
-        let item = state.lifeItems[index]
         let correction = FieldCorrection(
             id: UUID().uuidString,
             input: item.title,
@@ -1421,6 +1834,8 @@ final class FieldStore {
             corrected: category,
             correctedAt: now
         )
+        guard stageItemChange([.upsertItem(item), .record(correction)]) else { return }
+        state.lifeItems[index] = item
         state.corrections.append(correction)
 
         // The picker does not offer a put-away group, so this is reachable
@@ -1428,6 +1843,11 @@ final class FieldStore {
         // anyway: a group with something filed into it is not away, whichever
         // device did the filing.
         reviveIfPutAway(category)
+        if outbox != nil {
+            refreshDeliveryStates()
+            Task { await flushPending() }
+            return
+        }
 
         Task { [backend] in
             try? await backend?.upsert(item)
@@ -1718,15 +2138,55 @@ final class FieldStore {
               state.lifeItems[index].category.carriesDates
         else { return }
 
-        state.lifeItems[index].dueOn = day.map {
-            Calendar.gregorianUS.startOfDay(for: $0)
+        var item = state.lifeItems[index]
+        item.dueOn = day.map { Calendar.gregorianUS.startOfDay(for: $0) }
+        if item.timing != nil {
+            item.timing = day.map { WEObjectTiming(precision: .day, startDay: DateFormatter.fieldDay.string(from: $0)) } ?? .init()
+            item.closesAt = nil
         }
-        if day == nil {
-            state.lifeItems[index].closesAt = nil
+        if day == nil { item.closesAt = nil }
+        guard stageItemChange([.upsertItem(item)]) else { return }
+        state.lifeItems[index] = item
+        if outbox != nil {
+            refreshDeliveryStates()
+            Task { await flushPending() }
+        } else {
+            Task { [backend] in try? await backend?.upsert(item) }
         }
+    }
 
-        let item = state.lifeItems[index]
-        Task { [backend] in try? await backend?.upsert(item) }
+    func hideDeletedImportRepresentations() {
+        let deleted = WEIntelligenceStore.shared.deletedSharedIDs
+        do { try outbox?.cancelDeletedItems(deleted) }
+        catch { itemSaveError = "Deleted-item queue cleanup needs retry." }
+        state.lifeItems.removeAll { deleted.contains($0.id.lowercased()) }
+    }
+
+    @discardableResult func acceptTiming(_ timing: WEObjectTiming, for itemID: String) -> Bool {
+        guard timing.isResolved, let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
+              intelligenceEligibleLifeItems.contains(where: { $0.id == itemID }) else { return false }
+        var item = state.lifeItems[index]
+        item.timing = timing
+        item.dueOn = timing.precision == .day ? timing.anchor : nil
+        item.closesAt = timing.precision == .time && timing.kind == .deadline ? timing.start : nil
+        guard stageItemChange([.upsertItem(item)]) else { return false }
+        state.lifeItems[index] = item
+        if outbox != nil { refreshDeliveryStates(); Task { await flushPending() } }
+        else { Task { [backend] in try? await backend?.upsert(item) } }
+        return true
+    }
+
+    /// Corrections are durable before the interface acknowledges them.
+    private func stageItemChange(_ mutations: [FieldMutation]) -> Bool {
+        itemSaveError = nil
+        guard let outbox else { return true }
+        do {
+            try outbox.stage(mutations)
+            return true
+        } catch {
+            itemSaveError = "This change could not be saved on this phone. The original item is still here. Please try again."
+            return false
+        }
     }
 
     func answer(_ question: FieldQuestion, with choice: FieldChoice) {
@@ -1882,8 +2342,8 @@ final class FieldStore {
         let cluster = FieldCluster(
             id: UUID().uuidString,
             title: FieldOccasion.shortTitle(anchor.title),
-            rationale: "You put these together. I'll keep anything else that "
-                + "belongs with them here too — and ask first, every time.",
+            rationale: "You put these together. Anything else that belongs with "
+                + "them lands here too, and you're asked first, every time.",
             tint: anchor.owner,
             timeframe: proposal.anchorDate.map {
                 DateFormatter.fieldWeekdayShort.string(from: $0).uppercased()
@@ -2016,7 +2476,7 @@ final class FieldStore {
             identity: state.identity
         )
         guard act != .none, let extraction else {
-            complete(itemID)
+            itemSaveError = "There isn’t a contact or destination to open yet. Add the details or use a lookup below."
             return
         }
 
@@ -2071,9 +2531,52 @@ final class FieldStore {
         )
     }
 
+    /// Opening another app proves no outcome. Completion and waiting for a
+    /// reply are separate confirmations; "Still on me" clears prior waiting.
     func resolveOutcome(_ question: FieldOutcomeQuestion, done: Bool) {
-        awaitingOutcome = nil
-        if done { complete(question.id) }
+        itemSaveError = nil
+        if done { complete(question.id) } else { reclaimOutreach(question.id) }
+        if itemSaveError == nil { awaitingOutcome = nil }
+    }
+
+    func confirmWaitingForReply(_ question: FieldOutcomeQuestion) {
+        recordReachedOut(question.id)
+        if itemSaveError == nil { awaitingOutcome = nil }
+    }
+
+    /// Somebody confirmed the outward act happened and the thing is still open.
+    private func recordReachedOut(_ itemID: String) {
+        guard !isLegacyExternalRow(itemID),
+              let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
+              state.lifeItems[index].reachedOutAt == nil
+        else { return }
+        var item = state.lifeItems[index]
+        item.reachedOutAt = now
+        guard stageItemChange([.upsertItem(item)]) else { return }
+        state.lifeItems[index] = item
+        deliverStagedItem(item)
+    }
+
+    /// "Actually, it is still on me."
+    ///
+    /// Taking the action back, which has to be possible for the same reason
+    /// the confirmation has to be explicit: the app is holding a claim about
+    /// the world on somebody's behalf, and they are the only ones who can say
+    /// it is no longer true. A voicemail nobody returned is not somebody else
+    /// having the next move for the rest of the year.
+    ///
+    /// The item goes back to wherever its date puts it — this clears a fact,
+    /// it does not file anything.
+    func reclaimOutreach(_ itemID: String) {
+        guard !isLegacyExternalRow(itemID),
+              let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
+              state.lifeItems[index].reachedOutAt != nil
+        else { return }
+        var item = state.lifeItems[index]
+        item.reachedOutAt = nil
+        guard stageItemChange([.upsertItem(item)]) else { return }
+        state.lifeItems[index] = item
+        deliverStagedItem(item)
     }
 
     func dismissOutreach() {
@@ -2142,6 +2645,29 @@ final class FieldStore {
 
     // MARK: Onboarding (6f)
 
+    /// The couple's colours as the person holding this phone sees them:
+    /// `personA` is always their own light, `personB` always their partner's.
+    /// Slots are A and B on the server; the lights speak in "you" and "them".
+    var viewerIdentity: FieldIdentity {
+        var viewer = identity
+        if speaker == .b {
+            swap(&viewer.personA, &viewer.personB)
+            swap(&viewer.nameA, &viewer.nameB)
+        }
+        return viewer
+    }
+
+    /// A goal, read in the lights' language: both in, one yes, or one person's.
+    func lightsReading(for goal: FieldHorizon) -> WELightsMark.Reading {
+        if let plan = goal.goalPlan {
+            if plan.isBuilding { return .together }
+            if !plan.approvedOwners.isEmpty { return .leaning }
+        }
+        if goal.owner == speaker { return .mine }
+        if goal.owner != .shared { return .theirs }
+        return .apart
+    }
+
     func canChooseSwatch(for owner: FieldOwner) -> Bool {
         backend == nil || owner == speaker
     }
@@ -2150,6 +2676,8 @@ final class FieldStore {
         // A live device may only choose the colour for the person holding it.
         // Backend-free gallery/previews still allow both rows to be explored.
         guard canChooseSwatch(for: owner) else { return }
+        // Within your own family only. Warm stays warm, cool stays cool.
+        guard owner != .shared, swatch.inFamily(of: owner) == swatch else { return }
         switch owner {
         case .a: state.identity.personA = swatch
         case .b: state.identity.personB = swatch
@@ -2187,6 +2715,81 @@ final class FieldStore {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    // MARK: Delivery
+
+    /// What the app may say about each item it still owes the server.
+    ///
+    /// Recomputed rather than observed: the queue lives behind a lock off the
+    /// main actor, and a stored snapshot refreshed at the few moments it can
+    /// change is simpler than making the outbox observable and cheaper than
+    /// asking it per row while a zone draws.
+    private(set) var deliveryStates: [String: FieldDeliveryState] = [:]
+
+    /// The queue, when this store has one. Previews, the gallery and the
+    /// memory-backed tests do not, and everything below is a no-op there.
+    private var outbox: FieldOutbox? { backend as? FieldOutbox }
+
+    /// Whether this store is in a position to answer the question at all.
+    ///
+    /// False in previews, the gallery and the memory-backed tests, which have
+    /// no queue. Without this the fallback below reports `.shared` there, and
+    /// a surface would tell somebody their writing was safely stored by a
+    /// build that has nowhere to store it. Not knowing is a state; asserting
+    /// is not allowed.
+    var canReportDelivery: Bool { outbox != nil }
+
+    func deliveryState(for itemID: String) -> FieldDeliveryState {
+        deliveryStates[itemID] ?? .shared
+    }
+
+    func refreshDeliveryStates() {
+        deliveryStates = outbox?.deliveryStates() ?? [:]
+        lostUnsentWriting = outbox?.lostUnsentWriting ?? false
+    }
+
+    /// Unsent writing on this phone could not be read and was set aside.
+    ///
+    /// Distinct from every other delivery state, and the distinction is the
+    /// point: `needsAttention` is about a write that is still here and can be
+    /// tried again, and this is about writes that are not and cannot. The app
+    /// does not know what they said — that is what unreadable means — so it
+    /// cannot show them, name them, or offer to send them. It can only say
+    /// that they existed.
+    private(set) var lostUnsentWriting = false
+
+    /// Told once. The queue does not persist the flag, so this ends it.
+    func acknowledgeLostUnsentWriting() {
+        outbox?.acknowledgeLostUnsentWriting()
+        lostUnsentWriting = false
+    }
+
+    /// Send what is waiting. Called when connectivity returns and when the app
+    /// comes back to the foreground.
+    ///
+    /// Neither clears a write that was set aside — see `FieldOutbox.flushPending`.
+    func flushPending() async {
+        guard let outbox else { return }
+        await outbox.flushPending()
+        refreshDeliveryStates()
+    }
+
+    /// The person asking again for one item, or for everything.
+    func retryDelivery(for itemID: String? = nil) async {
+        guard let outbox else { return }
+        await outbox.retryDelivery(itemID: itemID)
+        refreshDeliveryStates()
+    }
+
+    func reviewSharedEdit(itemID: String) async throws -> WESharedEditConflict {
+        guard let outbox else { throw SharePublicationError.unavailable }
+        return try await outbox.reviewSharedConflict(itemID: itemID)
+    }
+    func resolveSharedEdit(_ conflict: WESharedEditConflict, keepLocal: Bool) async throws {
+        guard let outbox else { throw SharePublicationError.unavailable }
+        try outbox.resolveSharedConflict(conflict, keepLocal: keepLocal)
+        await retryLoad()
+    }
+
     // MARK: Loading
 
     func load() async {
@@ -2195,6 +2798,7 @@ final class FieldStore {
             // state on hand is the whole truth and there is nothing to wait
             // for.
             loadState = .loaded
+            sharedIntelligenceAuthorized = true
             return
         }
 
@@ -2222,20 +2826,26 @@ final class FieldStore {
         // deliberately outside the do/catch below, because whether the zones
         // loaded and whether the couple is open to each other are two
         // unrelated questions and neither should suppress the other.
-        await refreshReadiness()
+        // Readiness ritual retired; conversation is explicit.
 
         do {
             state = try await backend.load()
+            hideDeletedImportRepresentations()
             lastLoadedAt = now
             loadState = .loaded
+            sharedIntelligenceAuthorized = true
             // Separate from state on purpose: this is one person's, and
             // `FieldState` is the couple's and is cached to disk.
             teachingMoments = Set((try? await backend.teachingMoments()) ?? [])
+            // `load()` flushes first, so this is the moment the queue is at
+            // its emptiest and the statuses on screen are least stale.
+            refreshDeliveryStates()
         } catch {
             // Cached data is still worth drawing; it was true recently and
             // saying so is more useful than an empty screen. Without a cache
             // there is nothing honest to draw, and the zones offer a retry.
             loadState = lastLoadedAt.map(LoadState.stale) ?? .failed
+            invalidateSharedIntelligence()
         }
     }
 
@@ -2377,7 +2987,7 @@ final class FieldStore {
         // turns "I marked" into "we both did" when the partner got there
         // first, and it is the same call the realtime tick makes — one path to
         // the bloom, not two.
-        await refreshReadiness()
+        // Readiness ritual retired; conversation is explicit.
     }
 
     /// Re-read the circle. Called on every load and every realtime tick, so
@@ -2457,6 +3067,15 @@ final class FieldMemoryBackend: FieldBackend, @unchecked Sendable {
 
     private func apply(_ mutation: FieldMutation) {
         lock.withLock { mutation.apply(to: &state) }
+    }
+
+    func sendChat(_ message: FieldChatMessage) async throws { apply(.sendChat(message)) }
+    func chatPage(before: String?, decisionsOnly: Bool) async throws -> [FieldChatMessage] {
+        lock.withLock {
+            let messages = (state.conversation ?? []).sorted { $0.createdAt < $1.createdAt }
+            let cutoff = messages.first { $0.id == before }?.createdAt ?? .distantFuture
+            return Array(messages.filter { $0.createdAt < cutoff && (!decisionsOnly || ($0.decision && $0.confirmed)) }.suffix(100))
+        }
     }
 
     func append(_ capture: FieldCapture) async throws {
@@ -2562,4 +3181,18 @@ final class FieldMemoryBackend: FieldBackend, @unchecked Sendable {
     func changes() -> AsyncStream<Void> {
         AsyncStream { $0.finish() }
     }
+}
+
+// Backends must opt into authenticated goal agreement; never simulate it in live mode.
+extension FieldBackend {
+    func approveGoal(id: String, revision: String, approved: Bool) async throws {
+        throw NSError(domain: "WE.Goals", code: 1, userInfo: [NSLocalizedDescriptionKey: "Goal agreement is unavailable."])
+    }
+}
+
+extension FieldBackend {
+    func sendChat(_ message: FieldChatMessage) async throws { throw NSError(domain: "ChatUnavailable", code: 1) }
+    func chatPage(before: String?, decisionsOnly: Bool) async throws -> [FieldChatMessage] { [] }
+    func setChatPreference(notices: Bool, readAt: Date?, notifications: Bool?) async throws { throw NSError(domain: "ChatUnavailable", code: 1) }
+    func confirmChatDecision(_ id: String) async throws { throw NSError(domain: "ChatUnavailable", code: 1) }
 }

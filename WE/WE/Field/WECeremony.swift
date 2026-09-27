@@ -45,7 +45,7 @@ enum WEBeat: String, CaseIterable, Codable, Sendable, Identifiable {
     func detail(partner: String) -> String {
         switch self {
         case .yoursStaysYours:
-            "Nothing you write reaches \(partner) unless you send it."
+            "Anything you mark Only me stays with you until you share it with \(partner)."
         case .nothingMovesWithoutYou:
             "You see the topic before you see anything else."
         case .whatOpensOpensTogether:

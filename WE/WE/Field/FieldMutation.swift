@@ -32,6 +32,7 @@ import Foundation
 /// of `FieldModel`. Nothing needs it: compaction keys on `Subject`, which is
 /// built from strings.
 enum FieldMutation: Codable, Sendable {
+    case sendChat(FieldChatMessage)
     case append(FieldCapture)
     case record(FieldCorrection)
     case upsertItem(LifeItem)
@@ -83,6 +84,10 @@ extension FieldMutation {
     /// reproduce.
     func apply(to state: inout FieldState) {
         switch self {
+        case .sendChat(let message):
+            var messages = state.conversation ?? []
+            messages.removeAll { $0.id == message.id }; messages.append(message)
+            state.conversation = messages
         case .append(let capture):
             // Newest first, matching every read path's expectation.
             state.captures.removeAll { $0.id == capture.id }
@@ -194,6 +199,7 @@ extension FieldMutation {
     /// enum fails to compile in both places until both are answered.
     func send(to backend: any FieldBackend) async throws {
         switch self {
+        case .sendChat(let message): try await backend.sendChat(message)
         case .append(let capture):
             try await backend.append(capture)
         case .record(let correction):
@@ -218,8 +224,8 @@ extension FieldMutation {
             try await backend.setIdentity(identity)
         case .setDailyMoment(let moment):
             try await backend.setDailyMoment(moment)
-        case .markReady(let localDate):
-            try await backend.markReady(localDate: localDate)
+        case .markReady:
+            break // Drain legacy queued readiness taps without reviving the ritual.
         case .setCategoryHidden(let category, let hidden):
             try await backend.setCategoryHidden(category, hidden: hidden)
         }
@@ -241,6 +247,7 @@ extension FieldMutation {
     /// value that differs every time it is read. Compaction looked each entry
     /// up under a key it could never match, and dropped every queued answer.
     enum Subject: Hashable, Sendable {
+        case chat(String)
         case capture(String)
         case correction(String)
         case item(String)
@@ -270,6 +277,7 @@ extension FieldMutation {
 
     var subject: Subject {
         switch self {
+        case .sendChat(let message): .chat(message.id)
         case .append(let capture): .capture(capture.id)
         case .record(let correction): .correction(correction.id)
         // An item and the capture it came from share an id, and a delete has

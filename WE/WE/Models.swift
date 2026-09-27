@@ -86,10 +86,16 @@ nonisolated struct PartnerInvitation: Equatable, Sendable {
     let code: String
     let expiresAt: Date
 
+    /// The app's own scheme. Still understood, but not what is shared: most
+    /// apps will not make a custom scheme tappable.
     var deepLink: String { "we://join/\(code)" }
 
+    /// What is shared. An https link every app makes tappable, which opens WE
+    /// directly when it is installed and the invitation page when it is not.
+    var webLink: String { WEDeepLinkRouter.invitationURL(code: code) }
+
     var shareMessage: String {
-        "Join me in WE\n\(deepLink)\nCode: \(code)"
+        "Join me in WE\n\(webLink)\nCode: \(code)"
     }
 }
 

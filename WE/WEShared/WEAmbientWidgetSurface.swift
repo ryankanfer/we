@@ -154,105 +154,53 @@ private struct WEHomeSurface: View {
     }
 }
 
+/// The two lights, as the widget's ground: the same burgundy and sage glow
+/// that sits under Today, so the home screen and the app are one place.
 struct WEExternalBackground: View {
     var body: some View {
-        LinearGradient(
-            colors: [
-                Color.weWidgetPrivateInk,
-                Color.weWidgetDuskBlue.opacity(0.82),
-                Color.weWidgetWarmStone.opacity(0.88),
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+        ZStack {
+            Color(red: 0.039, green: 0.039, blue: 0.035)
+            RadialGradient(
+                colors: [Color.weWidgetYou.opacity(0.75), Color.weWidgetYou.opacity(0)],
+                center: UnitPoint(x: 0.28, y: 1.05),
+                startRadius: 0,
+                endRadius: 150
+            )
+            RadialGradient(
+                colors: [Color.weWidgetThem.opacity(0.65), Color.weWidgetThem.opacity(0)],
+                center: UnitPoint(x: 0.74, y: 1.05),
+                startRadius: 0,
+                endRadius: 150
+            )
+        }
     }
 }
 
+/// The widget's small mark, in the lights' grammar: two dots that sit
+/// apart, drift close, overlap, or settle into one, by what is going on
+/// between the two of them.
 struct WEExternalContinuityMark: View {
     let state: ExternalSurfaceDisplayState
 
     var body: some View {
         Canvas { context, size in
+            let r = min(size.height, size.width / 3) / 2
             let midY = size.height / 2
-            let left = size.width * 0.08
-            let right = size.width * 0.92
-            let champagne = Color.weWidgetChampagne
-            let pearl = Color.weWidgetPearl
-
+            let gap: CGFloat
             switch state {
-            case .quiet:
-                var path = Path()
-                path.move(to: CGPoint(x: left, y: midY))
-                path.addCurve(
-                    to: CGPoint(x: right, y: midY),
-                    control1: CGPoint(
-                        x: size.width * 0.36,
-                        y: midY - 2
-                    ),
-                    control2: CGPoint(
-                        x: size.width * 0.64,
-                        y: midY + 2
-                    )
-                )
-                context.stroke(
-                    path,
-                    with: .color(pearl.opacity(0.68)),
-                    lineWidth: 1.4
-                )
-            case .roomAvailable:
-                var path = Path()
-                path.move(to: CGPoint(x: left, y: midY + 2))
-                path.addCurve(
-                    to: CGPoint(x: right, y: midY - 2),
-                    control1: CGPoint(
-                        x: size.width * 0.40,
-                        y: midY - 8
-                    ),
-                    control2: CGPoint(
-                        x: size.width * 0.60,
-                        y: midY + 8
-                    )
-                )
-                context.stroke(
-                    path,
-                    with: .color(champagne),
-                    lineWidth: 1.8
-                )
-            case .sharedRoomActive:
-                let gap = size.width * 0.16
-                var leftPath = Path()
-                leftPath.move(to: CGPoint(x: left, y: midY))
-                leftPath.addLine(
-                    to: CGPoint(x: size.width / 2 - gap, y: midY)
-                )
-                var rightPath = Path()
-                rightPath.move(
-                    to: CGPoint(x: size.width / 2 + gap, y: midY)
-                )
-                rightPath.addLine(to: CGPoint(x: right, y: midY))
-                context.stroke(
-                    leftPath,
-                    with: .color(champagne),
-                    lineWidth: 1.7
-                )
-                context.stroke(
-                    rightPath,
-                    with: .color(pearl),
-                    lineWidth: 1.7
-                )
-            case .resolved:
-                var path = Path()
-                path.move(
-                    to: CGPoint(x: size.width * 0.26, y: midY)
-                )
-                path.addLine(
-                    to: CGPoint(x: size.width * 0.74, y: midY)
-                )
-                context.stroke(
-                    path,
-                    with: .color(pearl.opacity(0.44)),
-                    lineWidth: 1
-                )
+            case .quiet: gap = r * 2.6
+            case .roomAvailable: gap = r * 1.5
+            case .sharedRoomActive: gap = r * 0.9
+            case .resolved: gap = 0
+            }
+            let a = CGRect(x: size.width / 2 - gap / 2 - r, y: midY - r, width: r * 2, height: r * 2)
+            let b = CGRect(x: size.width / 2 + gap / 2 - r, y: midY - r, width: r * 2, height: r * 2)
+            if state == .resolved {
+                context.fill(Path(ellipseIn: a), with: .color(Color.weWidgetPearl.opacity(0.7)))
+            } else {
+                context.fill(Path(ellipseIn: a), with: .color(Color.weWidgetYou))
+                context.blendMode = .screen
+                context.fill(Path(ellipseIn: b), with: .color(Color.weWidgetThem))
             }
         }
         .accessibilityHidden(true)
@@ -260,6 +208,10 @@ struct WEExternalContinuityMark: View {
 }
 
 extension Color {
+    /// Burgundy and sage, the two lights. Soft values, for a dark ground.
+    static let weWidgetYou = Color(red: 0.706, green: 0.341, blue: 0.416)
+    static let weWidgetThem = Color(red: 0.541, green: 0.663, blue: 0.545)
+
     static let weWidgetPrivateInk = Color(
         red: 23 / 255,
         green: 48 / 255,

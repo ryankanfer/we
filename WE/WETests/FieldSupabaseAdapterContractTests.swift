@@ -16,6 +16,10 @@ private final class FieldAdapterURLProtocol: URLProtocol, @unchecked Sendable {
     private static let horizon = "44444444-4444-4444-4444-444444444444"
 
     private static let bodies: [String: String] = [
+        // Other data loaded alongside the rows exercised by this contract.
+        "field_chat_page": "[]",
+        "field_chat_preferences": "[]",
+        "field_goal_current_approvals": "[]",
         "field_identity": """
         [{
           "swatch_a":"clay",
@@ -204,7 +208,9 @@ private final class FieldAdapterURLProtocol: URLProtocol, @unchecked Sendable {
     ]
 
     override class func canInit(with request: URLRequest) -> Bool {
-        request.url?.path.contains("/rest/v1/field_") == true
+        guard let path = request.url?.path else { return false }
+        return path.contains("/rest/v1/field_")
+            || path == "/rest/v1/rpc/field_chat_page"
     }
 
     override class func canonicalRequest(

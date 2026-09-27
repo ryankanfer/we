@@ -95,7 +95,7 @@ enum IncomingShareParser {
                     omissions.append(.init(label: label, reason: "A duplicate photo was left out."))
                     continue
                 }
-                guard image.data.count <= WEShareConstants.maximumOutputBytes else {
+                guard image.data.count <= (image.isOriginal ? WEShareConstants.maximumSourceBytes : WEShareConstants.maximumOutputBytes) else {
                     omissions.append(.init(label: label, reason: "The normalized photo was still over 8 MB."))
                     continue
                 }
@@ -108,11 +108,12 @@ enum IncomingShareParser {
                         id: resourceID,
                         kind: .image,
                         sealedFilename: filename,
-                        contentType: image.contentType,
+                        contentType: image.contentType == "public.jpeg" ? "image/jpeg" : (image.contentType == "public.png" ? "image/png" : image.contentType),
                         sha256: image.sha256,
                         byteCount: image.data.count,
                         pixelWidth: image.pixelWidth,
-                        pixelHeight: image.pixelHeight
+                        pixelHeight: image.pixelHeight,
+                        isOriginal: image.isOriginal
                     )
                 )
                 resourceData[resourceID] = image.data

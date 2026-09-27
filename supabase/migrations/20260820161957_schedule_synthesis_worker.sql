@@ -22,6 +22,8 @@ declare
   v_has_cron boolean;
   v_has_net boolean;
   v_has_vault boolean;
+  v_hosted text;
+  v_secrets int;
 begin
   select exists (select 1 from pg_available_extensions where name = 'pg_cron')
     into v_has_cron;
@@ -47,15 +49,47 @@ begin
   --   select vault.create_secret('<dedicated sb_secret_ key>', 'synthesis_worker_key');
   --   select vault.create_secret('https://<ref>.supabase.co', 'synthesis_worker_url');
   --
+  -- Whether this deployment is expected to carry them is declared out of band
+  -- too, once per project:
+  --
+  --   alter database postgres set we.deployment_is_hosted = 'true';
+  --
+  -- The extension check above was doing this job and cannot: the CI image
+  -- carries all three extensions, so a lane with no Vault secrets fell through
+  -- to the exception below and failed schema creation for every branch. Schema
+  -- creation and worker scheduling are separate concerns, and only the second
+  -- one needs a credential.
+  select count(distinct name) into v_secrets
+  from vault.decrypted_secrets
+  where name in ('synthesis_worker_key', 'synthesis_worker_url');
+
+  v_hosted := coalesce(nullif(current_setting('we.deployment_is_hosted', true), ''), 'unknown');
+
+  if v_hosted = 'false' then
+    raise notice
+      'we.deployment_is_hosted is false; schema created, synthesis worker not scheduled';
+    return;
+  end if;
+
   -- A hosted deployment without either secret is incomplete. Fail the
   -- migration instead of reporting success while leaving every answer held.
-  if (
-    select count(distinct name)
-    from vault.decrypted_secrets
-    where name in ('synthesis_worker_key', 'synthesis_worker_url')
-  ) <> 2 then
+  if v_hosted = 'true' and v_secrets <> 2 then
     raise exception
       'vault secrets synthesis_worker_key/synthesis_worker_url are missing; worker not scheduled';
+  end if;
+
+  -- Undeclared. Schedule when the credential is there, and say so plainly when
+  -- it is not, rather than guessing that an unlabelled database is production.
+  --
+  -- This branch is the one that trades safety for a working lane: an unflagged
+  -- database missing its secrets gets a notice, not the exception. That is the
+  -- whole point on CI, and it is a real hole on a hosted project that never set
+  -- the flag. Set `we.deployment_is_hosted` on every hosted project so that
+  -- deployment takes the `true` branch and keeps the loud failure.
+  if v_hosted = 'unknown' and v_secrets <> 2 then
+    raise notice
+      'we.deployment_is_hosted is unset and no synthesis worker secrets are present; not scheduled';
+    return;
   end if;
 
   if not exists (

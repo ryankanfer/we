@@ -185,10 +185,10 @@ extension FieldAct {
     func pastTense(target: String?) -> String {
         let who = target ?? "them"
         switch self {
-        case .call: return "You called \(who). Is that one done?"
-        case .message: return "You texted \(who). Is that one done?"
-        case .email: return "You emailed \(who). Is that one done?"
-        case .book: return "You called \(who) to book it. Is that one done?"
+        case .call: return "What happened with your call to \(who)?"
+        case .message: return "What happened with your message to \(who)?"
+        case .email: return "What happened with your email to \(who)?"
+        case .book: return "What happened with booking through \(who)?"
         case .schedule, .pay, .order, .none:
             return "Is that one done?"
         }
@@ -303,8 +303,8 @@ enum FieldOutreach {
         case .calendarDraft: "Putting it on the calendar"
         case .complete: "Marking it done"
         case .unresolved(_, let name):
-            name.map { "I don't have a number for \($0)." }
-                ?? "I don't know who to reach for this."
+            name.map { "No number saved for \($0)." }
+                ?? "It's not clear who to reach for this."
         }
     }
 }

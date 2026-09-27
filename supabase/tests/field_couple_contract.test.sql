@@ -134,10 +134,14 @@ from (
 
 select is(
   (
-    select case
+    -- `udt_name` is `name` and `data_type` is `character_data`, so the CASE
+    -- resolves to `name` and pgTAP cannot match it against the `text` on the
+    -- other side. Without the cast the file aborts here and every assertion
+    -- below it silently never runs.
+    select (case
       when columns.data_type = 'ARRAY' then columns.udt_name
       else columns.data_type
-    end
+    end)::text
     from information_schema.columns
     where columns.table_schema = 'public'
       and columns.table_name = typed_projection.table_name
@@ -399,11 +403,16 @@ select is(
   0::bigint,
   'the outsider cannot discover the paired relationship'
 );
+-- The refusal moved, and became more precise. 20260808010000 gave
+-- invitations a `consumed_at` and checks it before counting members, so a
+-- code B already redeemed is refused as spent rather than as full. Both
+-- sentences keep the outsider out; this is the one the product now says.
+-- The guarantee itself is the assertion below: they are still unpaired.
 select throws_like(
   $$select public.join_couple(
     (select join_code from field_contract_context limit 1)
   )$$,
-  '%already has two people%',
+  '%already been used%',
   'the outsider cannot become a third partner'
 );
 select is(
@@ -431,8 +440,10 @@ insert into public.field_identity (
   looks_after
 ) values (
   (select couple_id from field_contract_context limit 1),
-  'clay',
-  'slate',
+  -- 20260820230000 replaced the four warm names with eight pigments and
+  -- migrated the old values: clay -> rust, slate -> indigo.
+  'rust',
+  'indigo',
   true,
   'a quiet trip',
   'the dog'
@@ -515,7 +526,9 @@ insert into public.field_identity (
   swatch_b
 ) values (
   (select couple_id from field_contract_context limit 1),
-  'rust',
+  -- Deliberately not the 'rust' A already holds: if B wrote the same value
+  -- the assertion below would pass whether or not anything preserved it.
+  'amber',
   'teal'
 )
 on conflict (couple_id) do update
@@ -526,7 +539,7 @@ select is(
     select concat(swatch_a, ':', swatch_b)
     from public.field_identity
   ),
-  'clay:teal',
+  'rust:teal',
   'Partner B can choose side B but cannot overwrite Partner A''s swatch'
 );
 select is(
@@ -554,14 +567,18 @@ insert into public.field_captures (
   'trips',
   'Sunday gives this a real date.'
 );
+-- `client_id` is NOT NULL and unique per couple since 20260803120000: it is
+-- what makes a retry a no-op rather than a second row.
 insert into public.field_corrections (
   id,
+  client_id,
   couple_id,
   input,
   original_destination,
   corrected_destination,
   corrected_by
 ) values (
+  '84000000-0000-0000-0000-000000000003',
   '84000000-0000-0000-0000-000000000003',
   (select couple_id from field_contract_context limit 1),
   'Book the cabin Sunday',
@@ -607,10 +624,12 @@ insert into public.field_away_windows (
 );
 insert into public.field_standing_rules (
   id,
+  client_id,
   couple_id,
   text,
   set_by
 ) values (
+  '84000000-0000-0000-0000-000000000006',
   '84000000-0000-0000-0000-000000000006',
   (select couple_id from field_contract_context limit 1),
   'Keep Sunday mornings open.',
@@ -1192,7 +1211,10 @@ select throws_like(
     true,
     'OUTSIDER_PRIVATE_NOTE'
   )$$,
-  '%not yours%',
+  -- 20260904120000 gave every insight RPC one shared entry guard, and its
+  -- refusal is 'not your insight'. The '%not yours%' this asserted was the
+  -- wording before that, and matched nothing after it.
+  '%not your insight%',
   'the outsider cannot answer the couple''s private prompt'
 );
 

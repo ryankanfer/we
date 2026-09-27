@@ -473,7 +473,7 @@ nonisolated enum PreviewData {
         )
     }()
 
-    static let choosingHueSnapshot = RelationshipSnapshot(
+    static let justPairedSnapshot = RelationshipSnapshot(
         profile: Profile(id: "ryan", name: "Ryan"),
         membership: Membership(
             coupleID: "preview-couple",

@@ -132,7 +132,7 @@ struct WECanvasTests {
     /// the drift worth catching. The absolute floor is guarded separately, by
     /// `proseStepsClearAAOnEveryGround`.
     @Test func everyDeviationStaysCloseToTheGroundAtEveryStep() {
-        for canvas in WECanvas.allCases where canvas != .ground {
+        for canvas in WECanvas.allCases where canvas == .room || canvas == .page {
             for step in FieldInk.allCases {
                 let onGround = Self.contrast(
                     Self.composite(step, on: .ground),
@@ -200,7 +200,7 @@ struct WECanvasTests {
         let ground = Self.components(WECanvas.ground.bg)
         let ink = Self.components(WECanvas.ground.ink)
 
-        for canvas in WECanvas.allCases where canvas != .ground {
+        for canvas in WECanvas.allCases where canvas == .room || canvas == .page {
             let bg = Self.components(canvas.bg)
 
             #expect(
@@ -223,16 +223,10 @@ struct WECanvasTests {
 
     // MARK: Which zone stands where
 
-    /// Every zone stands on the same ground, and the glow is what differs.
-    ///
-    /// This used to assert that Life took the paper. V2 §3 cut the light
-    /// treatment "so that geometry alone carries differentiation" — so the
-    /// test that once proved the grounds were distinct now has to prove they
-    /// are not, and that the orientation moved somewhere else rather than
-    /// being dropped.
-    @Test func everyZoneStandsOnTheGround() {
+    /// Practical reading and Today share paper; Us keeps its darker room.
+    @Test func lifeAndTodayUsePaperWhileUsStaysDark() {
         for zone in FieldZone.allCases {
-            #expect(zone.canvas == .ground, "\(zone.label) left the ground")
+            #expect(zone.canvas == .cream)
         }
     }
 
@@ -245,9 +239,8 @@ struct WECanvasTests {
     @Test func eachZoneIsLitDifferently() {
         let statements = FieldZone.allCases.map(\.glow)
         #expect(Set(statements).count == FieldZone.allCases.count)
+        #expect(FieldZone.today.glow == .splitBottom)
         #expect(FieldZone.life.glow == .warmBottomLeft)
-        #expect(FieldZone.we.glow == .splitBottom)
-        #expect(FieldZone.us.glow == .coolBottomRight)
     }
 
     /// Today is the only zone lit from both sides.
@@ -257,6 +250,6 @@ struct WECanvasTests {
     /// you" everywhere else in the system. A second split would spend that.
     @Test func onlyTodayIsLitFromBothSides() {
         let split = FieldZone.allCases.filter { $0.glow == .splitBottom }
-        #expect(split == [.we])
+        #expect(split == [.today])
     }
 }

@@ -292,15 +292,6 @@ actor SimulationStore {
         replace(members: members)
     }
 
-    func updateHue(viewer: SimulationViewer, hue: MemberHue) {
-        let members = snapshot.members.map {
-            $0.id == viewer.userID
-                ? Member(id: $0.id, name: $0.name, hue: hue)
-                : $0
-        }
-        replace(members: members)
-    }
-
     func createPlan(
         _ input: PlanInput,
         viewer: SimulationViewer
@@ -1177,13 +1168,6 @@ actor SimulationRepository: Repository {
 
     func updateProfile(name: String, userID: String) async throws {
         await store.updateProfile(viewer: viewer, name: name)
-    }
-
-    func updateHue(
-        _ hue: MemberHue,
-        membership: Membership
-    ) async throws {
-        await store.updateHue(viewer: viewer, hue: hue)
     }
 
     func createPlan(_ input: PlanInput, coupleID: String) async throws {

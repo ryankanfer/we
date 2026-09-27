@@ -219,7 +219,8 @@ enum FieldPersonPalette: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    /// The first of each is the default — Ryan gets Clay, Dylan gets Slate.
+    /// The first of each is the default: burgundy for whoever starts the
+    /// couple, sage for whoever joins. The pair on the icon.
     var defaultSwatch: FieldSwatch { swatches[0] }
 }
 
@@ -247,7 +248,7 @@ enum FieldPersonPalette: String, CaseIterable, Codable, Sendable {
 ///   · four of the twenty eight possible pairs produce a shared blend closer
 ///     than CIEDE2000 8 to one of its parents. Those are the pairs where
 ///     "yours, theirs, ours" would read as two colours rather than three, and
-///     they are the reason the similar pair rule exists. See `blendIsMuddy`.
+///     they are why the two people draw from different families.
 enum FieldSwatch: String, CaseIterable, Codable, Sendable, Identifiable {
     // Warm
     case burgundy
@@ -304,15 +305,8 @@ enum FieldSwatch: String, CaseIterable, Codable, Sendable, Identifiable {
         }
     }
 
-    /// The value for a ground.
-    ///
-    /// `deep` existed for the cream canvas, where a soft hue on paper is a
-    /// wash rather than a mark. Every ground is near-black now, so every
-    /// ground wants `soft` — but the signature is kept so that the ~30 call
-    /// sites reading a swatch against a canvas keep saying which one they
-    /// mean. Collapsing it would bake "there is only one ground" into thirty
-    /// files instead of this one.
-    func color(on canvas: WECanvas) -> Color { soft }
+    /// Soft pigments on dark surfaces; deeper variants on warm paper.
+    func color(on canvas: WECanvas) -> Color { canvas == .cream ? deep : soft }
 
     /// The value on the ground, for contexts that genuinely cannot take a
     /// canvas — gradient stops, the colour field, `UIColor` bridging.
@@ -371,46 +365,23 @@ enum FieldSwatch: String, CaseIterable, Codable, Sendable, Identifiable {
         self = FieldSwatch(stored: raw) ?? .burgundy
     }
 
-    // MARK: The similar pair rule
+    // MARK: Families
 
-    /// Whether these two produce a shared atmosphere that reads as one of
-    /// them rather than as a third thing.
-    ///
-    /// The lesson of the blend is the mechanism: two colours stay distinct
-    /// and produce a third. Difference is the mechanism, not a problem to be
-    /// resolved. A muddy blend breaks that, so WE offers nearby tonal
-    /// variations — and it does so only *after both people commit*, to both
-    /// of them at the same instant, revealing nothing about who chose what or
-    /// when.
-    static func blendIsMuddy(_ a: FieldSwatch, _ b: FieldSwatch) -> Bool {
-        muddyPairs.contains(Set([a, b]))
+    /// Assigned, not chosen. The person who starts the couple is warm and
+    /// the person who joins is cool, so the two lights are always different
+    /// and their overlap is always a third colour. Each person may pick a
+    /// shade inside their own family; nobody can cross over. Every warm and
+    /// cool pair blends cleanly, which is why there is no similar pair rule.
+    static func family(for owner: FieldOwner) -> FieldPersonPalette {
+        owner == .b ? .cool : .warm
     }
 
-    /// Measured, not guessed. Every pair whose linear light blend sits closer
-    /// than CIEDE2000 8 to either parent.
-    private static let muddyPairs: Set<Set<FieldSwatch>> = [
-        [.burgundy, .rose],
-        [.rose, .rust],
-        [.sage, .moss],
-        [.sage, .teal],
-    ]
-
-    /// What to offer when a pair is too close, for one of the two people.
-    ///
-    /// Nearby rather than opposite: somebody who chose sage wanted a green,
-    /// and answering a near collision by offering them burgundy is the app
-    /// overruling a choice rather than helping with one.
-    var neighbours: [FieldSwatch] {
-        switch self {
-        case .burgundy: [.rust, .amber]
-        case .rose: [.amber, .burgundy]
-        case .rust: [.amber, .burgundy]
-        case .amber: [.rust, .rose]
-        case .sage: [.indigo, .moss]
-        case .moss: [.teal, .indigo]
-        case .teal: [.indigo, .moss]
-        case .indigo: [.teal, .sage]
-        }
+    /// This swatch if it belongs to `owner`'s family, otherwise that
+    /// family's default. Old rows from when anyone could pick anything land
+    /// here instead of breaking the lights.
+    func inFamily(of owner: FieldOwner) -> FieldSwatch {
+        let family = FieldSwatch.family(for: owner)
+        return family.swatches.contains(self) ? self : family.defaultSwatch
     }
 }
 
@@ -440,10 +411,15 @@ struct FieldIdentity: Hashable, Codable, Sendable {
 
     /// Burgundy and sage: the reference pair, and the seeded default.
     ///
-    /// Not the only colours, and not a recommendation — they are the pair the
-    /// system was measured against, and the one the design was drawn with.
-    /// The clay and slate this replaced were the two colours the retired set
-    /// happened to list first.
+    /// Every couple starts here, and it is the pair on the app icon.
+    /// Both people pulled back into their own family.
+    var inFamilies: FieldIdentity {
+        var copy = self
+        copy.personA = personA.inFamily(of: .a)
+        copy.personB = personB.inFamily(of: .b)
+        return copy
+    }
+
     static let seed = FieldIdentity(
         personA: .burgundy,
         personB: .sage,
@@ -857,11 +833,11 @@ enum FieldType {
     /// The takeover's items — 400 21/1.25.
     static let takeoverItem = serif(21, .regular)
     /// Body / supporting — 400 13.5–15/1.6.
-    static let body = serif(14.5, .regular)
+    static let body = serif(17, .regular)
     /// Reasoning — italic 400 12.5–13.5/1.6–1.65.
-    static let reasoning = serif(13, .regular, italic: true)
+    static let reasoning = serif(16, .regular)
     /// The receipt's reasoning — italic 400 13.5/1.65.
-    static let receiptReasoning = serif(13.5, .regular, italic: true)
+    static let receiptReasoning = serif(16, .regular)
     /// Anchor quotes — italic 400 19/1.55.
     static let anchorQuote = serif(19, .regular, italic: true)
     /// The season narrative — 400 16.5/1.75.
@@ -870,6 +846,8 @@ enum FieldType {
     static let metric = serif(21.5, .regular)
     /// The capture field's own text — 400 17/1.3.
     static let captureInput = serif(17, .regular)
+    /// Generous text on the capture sheet’s writing paper.
+    static let captureWriting = serif(23, .regular)
     /// The lock screen clock — 300 80/1.
     static let lockClock = serif(80, .light)
     /// The daily moment's statement — 400 20/1.35.
@@ -899,7 +877,7 @@ enum FieldType {
     /// Right-aligned date / count — 400 9.5, tracking +2.0.
     static let dateCount = sans(9.5)
     /// An action — DONE, I'LL TAKE IT. 400 10-11, tracking +1.6-2.4.
-    static let button = sans(11)
+    static let button = sans(15)
     /// The WE mark's wordmark — 400 11, tracking +2.4.
     static let mark = sans(11)
     /// The status bar clock — the one place the app imitates OS chrome, and
@@ -1168,14 +1146,10 @@ struct FieldSwatchRow: View {
     /// Called with the tapped swatch. The caller persists.
     var choose: (FieldSwatch) -> Void
 
-    /// Which eight to offer.
-    ///
-    /// All of them, to both people. The warm and cool split was a way of
-    /// keeping two colours from being nearly the same colour, and Pigment
-    /// does that by measurement instead — every pair is at least CIEDE2000 12
-    /// apart. Halving somebody's choice to solve a problem that no longer
-    /// exists is the system deciding for them.
-    private var offered: [FieldSwatch] { FieldSwatch.allCases }
+    /// Your own family only: four warm shades for the person who started
+    /// the couple, four cool ones for the person who joined. The two lights
+    /// can never be the same light.
+    private var offered: [FieldSwatch] { FieldSwatch.family(for: owner).swatches }
 
     var body: some View {
         let current = owner == .a ? identity.personA : identity.personB
@@ -1254,18 +1228,19 @@ struct FieldIntelligenceMark: View {
 // alternative, text-only for the escape.
 
 struct FieldFilledButtonStyle: ButtonStyle {
+    @Environment(\.weCanvas) private var canvas
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(FieldType.button)
-            .tracking(FieldTracking.button)
-            .textCase(.uppercase)
-            .foregroundStyle(FieldPalette.bg)
+            .tracking(0)
+            .textCase(nil)
+            .foregroundStyle(canvas.bg)
             .padding(.horizontal, 20)
             .padding(.vertical, 13)
             .background(
-                FieldPalette.ink,
+                canvas.ink,
                 in: RoundedRectangle(
                     cornerRadius: FieldMetrics.cardRadius,
                     style: .continuous
@@ -1280,6 +1255,7 @@ struct FieldFilledButtonStyle: ButtonStyle {
 }
 
 struct FieldOutlinedButtonStyle: ButtonStyle {
+    @Environment(\.weCanvas) private var canvas
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Passed for the two person-tinted choices on a question toward Us.
     var tint: Color?
@@ -1287,9 +1263,9 @@ struct FieldOutlinedButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(FieldType.button)
-            .tracking(FieldTracking.button)
-            .textCase(.uppercase)
-            .foregroundStyle(tint ?? FieldInk.legend.color(on: .ground))
+            .tracking(0)
+            .textCase(nil)
+            .foregroundStyle(tint ?? FieldInk.legend.color(on: canvas))
             .padding(.horizontal, 20)
             .padding(.vertical, 13)
             .background(
@@ -1305,7 +1281,7 @@ struct FieldOutlinedButtonStyle: ButtonStyle {
                     style: .continuous
                 )
                 .stroke(
-                    tint?.opacity(0.55) ?? FieldRule.secondaryButton.color(on: .ground),
+                    tint?.opacity(0.55) ?? FieldRule.secondaryButton.color(on: canvas),
                     lineWidth: 1
                 )
             }
@@ -1322,8 +1298,8 @@ struct FieldQuietButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(FieldType.button)
-            .tracking(FieldTracking.button)
-            .textCase(.uppercase)
+            .tracking(0)
+            .textCase(nil)
             .foregroundStyle(.fieldInk(.label))
             .padding(.vertical, 13)
             .opacity(configuration.isPressed ? 0.6 : 1)
@@ -1375,6 +1351,7 @@ struct FieldLabel: View {
 /// in. Selected fills faintly rather than inverting — nothing at this size
 /// earns the ink block a filled button gets.
 struct FieldChip: View {
+    @Environment(\.weCanvas) private var canvas
     let word: String
     var isSelected = false
     var tint: Color?
@@ -1406,15 +1383,15 @@ struct FieldChip: View {
                     if isSelected {
                         Capsule().fill(
                             tint?.opacity(0.14)
-                                ?? FieldPalette.ink.opacity(0.10)
+                                ?? canvas.ink.opacity(0.10)
                         )
                     }
                 }
                 .overlay {
                     Capsule().stroke(
                         isSelected
-                            ? (tint ?? FieldPalette.ink).opacity(0.5)
-                            : FieldRule.secondaryButton.color(on: .ground),
+                            ? (tint ?? canvas.ink).opacity(0.5)
+                            : FieldRule.secondaryButton.color(on: canvas),
                         lineWidth: 1
                     )
                 }

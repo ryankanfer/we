@@ -9,30 +9,21 @@ material only; native development has no parity or maintenance obligation to it.
 
 ## Native product
 
-The iPhone app has three primary destinations:
+The iPhone app has two places and one way in, fixed at the bottom: **Today · + · Life**.
 
-- **WE** — shared intelligence, private reflection, consent, and mutual reveal.
-- **Life** — responsibilities owned by Me, Partner, or Together.
-- **Ahead** — scheduled and unscheduled plans.
-- **Profile** — account, appearance, archives, privacy, and walkthrough replay, opened from
-  the avatar rather than a tab.
+- **Today** is the day's conversation. WE opens with one thing worth doing now; below it, what each of you added today and where WE filed it. It starts fresh each morning, and a question like "what did we get for dad?" is answered privately, with links to real records only.
+- **+** opens a card in the middle of the screen: say something, or paste a link. WE reads a link on the phone (title, site, picture) and says where it will go before it goes. Two circles send it to both of you; one circle keeps it Only me.
+- **Life** is where everything lives. It opens on search, in the middle of the screen. Below that is **Where we're headed** (goals), then an icon bar: All, then each group (Care, Food, Trips, Watchlist, Buys…). Calendar is in the header.
 
-First use follows:
+**Only me** is a property of any item, not a place. Anything can be kept private, and sharing it later is one way: private can become shared, never the reverse. Nothing your partner sees is shaped by it. Yours, the separate private space, is retired; its writing moved into Life as private notes (`docs/archive/CIRCLE.md`).
 
-> The Threshold → create account or sign in → pair → choose personal hue → enter WE
+**Decide on this together** turns a shared item into a proposal the other person agrees to. That agreement is the one thing stored as a message; everything else typed is filed into Life.
 
-The Threshold is a six-beat walkthrough that demonstrates the trust model rather than narrating
-it. WE names what it refuses to be; the person writes one private line, held on the device; they
-try to push it across and feel the boundary refuse; they meet a second consent pad that is not
-theirs to press; they set the four signals the shared field may notice; they hold to cross. The
-partner's side of the field stays dark throughout, because it is — it resolves only when the
-partner actually arrives.
+**Account** is the same screen before and after pairing, reached from the top of each place.
 
-The private line and the signal choices are held on the device and delivered once the two people
-are paired: the line becomes the first private reflection, the choices become signal consent.
-Nothing leaves the phone before pairing. The walkthrough is skippable, shown only on first use,
-replayable from Profile, linear under VoiceOver, and uses crossfades when Reduce Motion is
-enabled.
+The first run is Welcome, sign in, pair or wait for your partner, then the Promise. Colours are fixed by role (the first person burgundy, the second sage); there is no colour step. The walkthrough never opens by itself: "See how it works" on the welcome and "See how WE works" in Account play it, and it never writes to a real account.
+
+Retired words stay retired: `WELexiconTests` fails if one comes back into on-screen text.
 
 ## Trust model
 
@@ -42,7 +33,7 @@ Privacy is enforced in Supabase as well as Swift:
 - Each person answers privately; answers appear only after both submit.
 - A decline is owner-only. The initiator continues to see quiet waiting.
 - A withdrawal leaves no partner-side trace.
-- Completed mutual-reveal resolutions may enter a sanitized relationship archive.
+- Departure currently preserves shared records for the remaining member. Relationship archive support and replacement-partner visibility require explicit confirmation before destructive beta tests.
 - Private reflections, unrevealed responses, pending requests, declines, and dismissals never
   enter an archive.
 
@@ -74,23 +65,17 @@ partner identity, ownership, dates, or history is added to the query.
 - [x] Build Ahead, Life, Profile, complete Auth, the Threshold walkthrough, Pairing, WE, and
   Insight Detail.
 - [ ] Adapt information density for Mac — **deferred / N/A for this iPhone-first milestone**.
-- [x] Add loading, empty, offline, inline error/retry, partner-waiting, and
-  relationship-ended/archive states.
+- [x] Add loading, empty, offline, inline error/retry and partner-waiting states.
+- [ ] Reconcile departure/archive behavior with the private-beta decision and verify it.
 - [x] Keep the frozen web tag for comparison only.
 
-Pull requests now gate schema/privacy, native build/unit, and serial critical UI flows. Nightly
-automation exercises Partner A, Partner B, and an outsider against an isolated live Supabase
-stack, then renders small/large/max-accessibility iPhone contracts with reviewable `.xcresult`
-and visual-diff evidence. Two authenticated sessions through the full lifecycle also run
-locally:
-
-```bash
-./supabase/tests/local/run_dual_sided.sh
-```
-
-See [`supabase/tests/local/README.md`](supabase/tests/local/README.md). The remaining manual
-gates are VoiceOver and widget judgment, the Supabase security-advisor/callback review, and
-five target-couple usability sessions.
+Pull requests define schema/privacy, native build/unit, and serial critical UI checks.
+For this private beta, additional hosted two-account suites and their QA secrets are deferred.
+Their presence in the repository is not proof that they ran. Current executed, skipped, and
+pending checks are recorded in [docs/PRIVATE_BETA.md](docs/PRIVATE_BETA.md).
+Direct negative authorization and concurrency checks remain release gates; the two-person
+UI checklist cannot substitute for them. Existing local contract tools are documented in
+[`supabase/probes/dual-sided/README.md`](supabase/probes/dual-sided/README.md).
 
 ## Running the iPhone app
 
@@ -124,10 +109,18 @@ It is not the source of truth for native navigation, presentation, or maintenanc
 
 **WE never sends a notification containing news, only ones inviting presence.**
 
-There is exactly one, and it is sent once per space: the moment the second
-person joins, both phones receive the same fixed sentence, which names nobody
-and reports nothing. No badge, no sound, no payload beyond that sentence. Local
-moments follow the same rule.
+There are two, and neither says what happened:
+
+1. **Arrival**, once per space: the moment the second person joins, both phones
+   receive the same fixed sentence, which names nobody and reports nothing.
+2. **A decision is waiting**, opt-out in Account ("Tell me when … suggests a
+   decision"): when your partner suggests deciding on something, your phone
+   receives "Something is waiting for you both in WE." Nothing else — not what,
+   not who. It is sent only within an hour of the proposal and only if Today
+   has not already shown it.
+
+No badge, no sound, no payload beyond the sentence. Local moments follow the
+same rule. The permission is asked once, after the Promise.
 
 Refusing notifications is a first class path, not a degraded one. The ceremony
 is driven by persisted state and an aggregate that reveals no timing, so a
@@ -136,10 +129,18 @@ all costs a convenience and never correctness — the arrival is simply there
 when the app is next opened. Nothing is retried, and nothing ever reports that
 the other person was or was not notified.
 
-See `supabase/functions/announce-arrival/README.md`.
+See `supabase/functions/announce-arrival/README.md` and
+`supabase/functions/notify-conversation/`.
 
 ## Deliberate exclusions
 
 AI chat, advertisements, A/B infrastructure, external calendar accounts, finance integrations,
 relationship scores, recurrence, priorities, reminders, and Mac adaptation
 are outside this milestone.
+
+
+## Private beta implementation
+
+The current beta work and verification gates are tracked in [docs/PRIVATE_BETA.md](docs/PRIVATE_BETA.md). The walkthrough follows one fictional thought through capture, date correction and retrieval. It is offered, never automatic, and replayable.
+
+The main places are Today and Life, with + between them; see Native product above.

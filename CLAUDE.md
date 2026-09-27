@@ -28,3 +28,27 @@ Key routing rules:
 
 Note: this repo has no developer-facing product surface (package.json is `private: true`,
 no published SDK/CLI/API). /plan-devex-review and /devex-review do not apply.
+
+## The two lights
+
+WE's signature is two soft lights at the bottom edge of the screen, one per
+person, drawn by `WELights` (and `WELightsMark` at text size). `personA` is
+always the viewer's own light and `personB` their partner's: pass
+`store.viewerIdentity`, never the raw slot-ordered `store.identity`.
+
+**The sentence test.** Every light behaviour must be legible as one sentence
+about the relationship: "Dylan is here." "This is only yours." "You decided
+together." If a moment cannot be captioned that way it is decoration, and it
+does not ship. No idle breathing, no ambient drift, nothing that counts,
+compares, scores or streaks. The lights react to what happens between the two
+people, never to how much either of them does.
+
+Current vocabulary (keep new work inside it or extend it deliberately):
+- apart: before anything, or not yet decided
+- near: the resting state of a shared screen
+- lifted: nothing has been added yet
+- alone (+ dashed ring for their place): only yours, or waiting for them to join
+- leaning: one of you has said yes
+- merged / merge pulse: you decided together (kept rare)
+- parting: their light going out, only after a partner leaves
+- pulseTheirs: they just added something; pulseMine: something is waiting for you

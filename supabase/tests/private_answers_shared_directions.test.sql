@@ -66,14 +66,14 @@ select ok(
   ),
   'safe shared directions publish realtime changes'
 );
-select unlike(
+select unialike(
   pg_get_functiondef(
     'public.submit_response(uuid,text,boolean,text)'::regprocedure
   ),
   '%status = ''revealed''%',
   'submitting never reveals response rows'
 );
-select like(
+select ialike(
   pg_get_functiondef(
     'public.resolve_insight(uuid,text,text)'::regprocedure
   ),
@@ -154,7 +154,11 @@ insert into public.couple_members (
     2
   );
 
-set local role authenticated;
+-- Seeded as the owner on purpose: `authenticated` has no INSERT on
+-- `public.plans` — the guarantee `native_product.test.sql:52` asserts — so
+-- a fixture that writes one directly cannot hold that role. The claims are
+-- set first regardless, because `private.prepare_shared_item()` stamps the
+-- row from `auth.uid()` and rejects a write with no actor behind it.
 select set_config(
   'request.jwt.claims',
   '{"sub":"71000000-0000-0000-0000-000000000001","role":"authenticated"}',
@@ -173,7 +177,6 @@ insert into public.plans (
   '71000000-0000-0000-0000-000000000001',
   '71000000-0000-0000-0000-000000000001'
 );
-reset role;
 
 insert into public.insights (
   id,

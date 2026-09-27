@@ -1,0 +1,4 @@
+// Public client configuration. Never put a service-role key here.
+// These values are embedded in the app; database access must be enforced by RLS.
+SUPABASE_URL = https:/$()/tizunrayxyorzrvopnsw.supabase.co
+SUPABASE_PUBLISHABLE_KEY = sb_publishable__suAVQyAW3B9BmcN7srkrA_ZlIfZxuY

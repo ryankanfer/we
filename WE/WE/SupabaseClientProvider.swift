@@ -38,7 +38,8 @@ struct SupabaseClientProvider: Sendable {
                     options: SupabaseClientOptions(
                         auth: .init(
                             storageKey: authStorageKey,
-                            autoRefreshToken: false
+                            autoRefreshToken: false,
+                            emitLocalSessionAsInitialSession: true
                         ),
                         global: global
                     )
@@ -47,7 +48,10 @@ struct SupabaseClientProvider: Sendable {
             return SupabaseClient(
                 supabaseURL: $0.url,
                 supabaseKey: $0.publishableKey,
-                options: SupabaseClientOptions(global: global)
+                options: SupabaseClientOptions(
+                    auth: .init(emitLocalSessionAsInitialSession: true),
+                    global: global
+                )
             )
         }
     }

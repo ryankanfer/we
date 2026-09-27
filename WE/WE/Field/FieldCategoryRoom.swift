@@ -52,7 +52,7 @@ struct FieldCategoryRoom: View {
 
     var body: some View {
         ZStack {
-            FieldPalette.bgElevated.ignoresSafeArea()
+            WECanvas.surface.bgElevated.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -72,7 +72,8 @@ struct FieldCategoryRoom: View {
             }
         }
         .overlay(alignment: .topTrailing) { controls }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(WETheme.shared.colorScheme)
+        .environment(\.weCanvas, WECanvas.surface)
         .sheet(item: $openItem) { reference in
             FieldItemSheet(itemID: reference.id)
                 .environment(store)
@@ -295,7 +296,7 @@ struct FieldCategoryRoom: View {
             }
         } else if !digest.quiet.isEmpty {
             FieldLabel(
-                digest.pressing.isEmpty ? "In this room" : "Quiet below here",
+                digest.pressing.isEmpty ? "In \(category.word)" : "Quiet below here",
                 font: FieldType.subLabel,
                 tracking: FieldTracking.subLabel,
                 ink: .recessive
@@ -396,7 +397,7 @@ private struct FieldGroupDestinationSheet: View {
 
     var body: some View {
         ZStack {
-            FieldPalette.bgElevated.ignoresSafeArea()
+            WECanvas.surface.bgElevated.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 18) {
                 headline
@@ -422,7 +423,8 @@ private struct FieldGroupDestinationSheet: View {
             .padding(.horizontal, FieldMetrics.screenSide)
             .padding(.bottom, 40)
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(WETheme.shared.colorScheme)
+        .environment(\.weCanvas, WECanvas.surface)
         .presentationDetents([.medium])
         // Deliberately no identifier on this root. SwiftUI propagates a
         // container's identifier down over the one on any descendant that is

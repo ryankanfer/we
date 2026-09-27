@@ -27,9 +27,11 @@ struct UsSurfaceConstraintTests {
         return try String(contentsOf: field, encoding: .utf8)
     }
 
+    /// Us is no longer a zone; what it held is the shared-question room
+    /// (opened from Today) and goals (opened from Life). The rules came with it.
     private static let usSurfaces = [
-        "FieldUsZone.swift",
         "FieldJourneyUsZone.swift",
+        "FieldGoalsSurface.swift",
     ]
 
     /// Rule four: no eyebrow labels. No tracked uppercase category headers.

@@ -1,5 +1,7 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
+import { cleanupIntake } from "../_shared/intake-cleanup.ts";
+
 type CleanupJob = {
   id: string;
   object_path: string;
@@ -27,6 +29,7 @@ Deno.serve(async (request) => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
+  const intake = await cleanupIntake(client);
   const { data, error } = await client.rpc("share_claim_cleanup_jobs", {
     p_limit: 25,
   });
@@ -36,7 +39,7 @@ Deno.serve(async (request) => {
 
   const jobs = (data ?? []) as CleanupJob[];
   if (jobs.length === 0) {
-    return json({ claimed: 0, removed: 0, retried: 0 });
+    return json({ claimed: 0, removed: 0, retried: 0, intake });
   }
 
   const paths = jobs.map((job) => job.object_path);
@@ -58,6 +61,7 @@ Deno.serve(async (request) => {
 
   // No object paths, filenames, hashes, or source content enter diagnostics.
   return json({
+    intake,
     claimed: jobs.length,
     removed: completedCount,
     retried: retryCount,

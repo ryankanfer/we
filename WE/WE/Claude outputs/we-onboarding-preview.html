@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WE onboarding preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300;6..72,400&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F0EBDD; --paper-up:#F8F4EA; --ink:#241F19; --ink-2:rgba(36,31,25,.62); --ink-3:rgba(36,31,25,.45);
+    --rule:rgba(36,31,25,.12); --ground:#0A0A09; --ground-up:#17140F; --cream-ink:#F0EBDD;
+    --you:#B4576A; --you-deep:#7E2F42; --them:#8AA98B; --them-deep:#4E6B52;
+    --serif:"Newsreader",Georgia,serif; --sans:"DM Sans",-apple-system,Helvetica,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#D9D2C3;font-family:var(--sans);color:var(--ink);padding:40px 16px 80px}
+  h1.page{font-family:var(--serif);font-weight:300;font-size:40px;text-align:center}
+  p.lede{text-align:center;color:var(--ink-2);margin:10px auto 36px;max-width:620px;line-height:1.5}
+  .row{display:flex;flex-wrap:wrap;gap:40px;justify-content:center;align-items:flex-start}
+  .col{display:flex;flex-direction:column;align-items:center;gap:14px}
+  .tag{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-2)}
+  .note{max-width:360px;font-size:14px;line-height:1.5;color:var(--ink-2);text-align:center}
+
+  /* phone */
+  .phone{width:375px;height:780px;border-radius:52px;background:var(--paper);position:relative;overflow:hidden;
+    box-shadow:0 0 0 11px #1b1813,0 30px 60px rgba(0,0,0,.25)}
+  .island{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:120px;height:34px;border-radius:20px;background:#000;z-index:5}
+  .status{height:54px}
+  .screen{position:absolute;inset:54px 0 0 0;display:flex;flex-direction:column}
+  .top{display:flex;align-items:center;gap:14px;padding:6px 24px 0;height:44px}
+  .back{width:30px;font-size:22px;cursor:pointer;visibility:hidden;user-select:none}
+  .dots{flex:1;display:flex;gap:6px}
+  .dots i{flex:1;height:2px;border-radius:2px;background:rgba(36,31,25,.12)}
+  .dots i.on{background:rgba(36,31,25,.78)}
+  .skip{font-size:15px;font-weight:500;color:var(--ink-2);cursor:pointer}
+  .body{flex:1;overflow:auto;padding:14px 24px 20px}
+  .foot{padding:10px 24px 34px}
+  .btn{display:flex;align-items:center;justify-content:center;gap:10px;height:56px;border-radius:18px;background:var(--ink);color:var(--paper);
+    font-weight:600;font-size:16px;border:0;width:100%;cursor:pointer}
+  .btn.ghost{background:transparent;color:var(--ink);border:1px solid rgba(36,31,25,.18)}
+  .btn:disabled{opacity:.35;cursor:default}
+  .h{font-family:var(--serif);font-weight:300;font-size:40px;line-height:1.05;letter-spacing:-.4px}
+  .sub{font-family:var(--serif);font-size:18px;line-height:1.45;color:var(--ink-2);margin-top:12px}
+  .step{display:none;flex-direction:column;height:100%}
+  .step.show{display:flex}
+
+  /* hello */
+  .bloom{height:210px;position:relative;margin:4px 0 18px}
+  .bloom span{position:absolute;top:30px;width:150px;height:150px;border-radius:50%;mix-blend-mode:multiply;transition:left 1.2s ease}
+  .bloom .a{background:rgba(180,87,106,.55);left:40px}
+  .bloom .b{background:rgba(138,169,139,.6);left:140px}
+  .bloom.on .a{left:70px}.bloom.on .b{left:110px}
+
+  /* bar replica */
+  .bar{margin:26px 0 8px;background:var(--ground-up);border-radius:26px;padding:18px 22px;display:flex;align-items:center;justify-content:space-between;color:var(--cream-ink)}
+  .bar .t{font-size:16px;opacity:.9}
+  .bar .plus{width:52px;height:52px;border-radius:50%;background:var(--cream-ink);color:var(--ink);display:grid;place-items:center;font-size:28px;font-weight:300}
+  .callouts{display:flex;flex-direction:column;gap:16px;margin-top:22px}
+  .co{display:flex;gap:14px;align-items:flex-start}
+  .co b{flex:none;width:58px;height:30px;border-radius:15px;display:grid;place-items:center;font-size:13px;font-weight:600;background:var(--ink);color:var(--paper)}
+  .co b.p{width:30px;font-size:18px;font-weight:400}
+  .co div{font-family:var(--serif);font-size:18px;line-height:1.35}
+  .co div small{display:block;font-size:15px;color:var(--ink-2)}
+
+  /* try */
+  .chips{display:flex;flex-direction:column;gap:10px;margin-top:22px}
+  .chip{padding:16px 18px;border-radius:16px;background:var(--paper-up);border:1px solid var(--rule);font-family:var(--serif);font-size:19px;cursor:pointer;text-align:left}
+  .chip:hover{border-color:rgba(36,31,25,.3)}
+  .landed{margin-top:22px;display:none}
+  .landed.show{display:block;animation:rise .45s ease}
+  @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  .said{font-family:var(--serif);font-style:italic;color:var(--ink-2);font-size:17px;margin-bottom:12px}
+  .arrow{font-size:13px;letter-spacing:.14em;color:var(--ink-3);margin:6px 0 10px}
+
+  /* tile */
+  .tile{background:var(--ground-up);color:var(--cream-ink);border-radius:18px;padding:20px 20px 22px;position:relative;overflow:hidden}
+  .tile .lab{font-size:10px;letter-spacing:.2em;opacity:.55}
+  .tile .ti{font-family:var(--serif);font-weight:300;font-size:28px;line-height:1.1;margin:10px 0 8px}
+  .tile .me{font-family:var(--serif);font-size:16px;opacity:.72}
+  .tile .who{display:flex;align-items:center;gap:10px;margin-top:14px;padding-top:14px;border-top:1px solid rgba(240,235,221,.12);font-family:var(--serif);font-size:16px}
+  .tile .edge{position:absolute;left:0;right:0;bottom:0;height:3px}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+
+  /* toggle */
+  .seg{display:flex;gap:4px;padding:4px;border-radius:16px;background:rgba(36,31,25,.06);margin:22px 0 16px}
+  .seg button{flex:1;height:46px;border:0;border-radius:12px;background:transparent;font:500 15px var(--sans);color:var(--ink-2);cursor:pointer}
+  .seg button.on{background:var(--paper-up);color:var(--ink);box-shadow:0 2px 6px rgba(36,31,25,.1)}
+  .lines{margin-top:16px;font-family:var(--serif);font-size:17px;line-height:1.45;color:var(--ink-2)}
+  .lines p+p{margin-top:8px}
+
+  /* promise */
+  .prom{margin-top:22px;display:flex;flex-direction:column}
+  .prom div{padding:16px 0;border-top:1px solid var(--rule)}
+  .prom div:last-child{border-bottom:1px solid var(--rule)}
+  .prom h3{font-family:var(--serif);font-weight:400;font-size:22px}
+  .prom p{font-family:var(--serif);font-size:16px;color:var(--ink-2);margin-top:4px;line-height:1.4}
+
+  /* sign in */
+  .x{position:absolute;right:22px;top:6px;font-size:20px;color:var(--ink-2)}
+  .field{margin-top:14px}
+  .field label{display:block;font-size:13px;font-weight:500;color:var(--ink-2);margin:0 0 6px 4px}
+  .field .in{height:56px;border-radius:16px;background:var(--paper-up);border:1px solid var(--rule);display:flex;align-items:center;padding:0 16px;font-size:17px;color:var(--ink)}
+  .field .in.focus{border-color:var(--you-deep);box-shadow:0 0 0 3px rgba(126,47,66,.12)}
+  .field .in span.ph{color:var(--ink-3)}
+  .field .in .eye{margin-left:auto;color:var(--ink-3);font-size:14px}
+  .apple{background:#000;color:#fff}
+  .or{display:flex;align-items:center;gap:12px;color:var(--ink-3);font-size:13px;margin:18px 0 4px}
+  .or:before,.or:after{content:"";flex:1;height:1px;background:var(--rule)}
+  .link{text-align:center;font-size:15px;color:var(--ink-2);margin-top:14px}
+  .link a{color:var(--ink);font-weight:600;text-decoration:underline;text-underline-offset:3px}
+  .pill{display:inline-block;font-size:11px;letter-spacing:.12em;padding:4px 8px;border-radius:8px;background:rgba(126,47,66,.1);color:var(--you-deep);margin-left:6px;vertical-align:middle}
+</style>
+</head>
+<body>
+<h1 class="page">Onboarding, simplified</h1>
+<p class="lede">Left: the walkthrough, click through it. Five screens, one idea each, with the Promise folded in as the last page. Right: the new sign in and create account screens.</p>
+
+<div class="row">
+  <!-- WALKTHROUGH -->
+  <div class="col">
+    <div class="tag">Walkthrough</div>
+    <div class="phone">
+      <div class="island"></div><div class="status"></div>
+      <div class="screen">
+        <div class="top">
+          <div class="back" id="back" onclick="go(step-1)">&#8249;</div>
+          <div class="dots" id="dots"><i></i><i></i><i></i><i></i></div>
+          <div class="skip" onclick="go(0)">Skip</div>
+        </div>
+
+        <!-- 0 hello -->
+        <div class="step" data-s="0">
+          <div class="body">
+            <div class="bloom" id="bloom"><span class="a"></span><span class="b"></span></div>
+            <div class="h">Welcome in, Ry.</div>
+            <div class="sub">This is a shared place for you and your person. It takes one minute to learn.</div>
+          </div>
+          <div class="foot"><button class="btn" onclick="go(1)">Show me &rarr;</button></div>
+        </div>
+
+        <!-- 1 the whole app -->
+        <div class="step" data-s="1">
+          <div class="body">
+            <div class="h">This is the whole app.</div>
+            <div class="sub">Three buttons at the bottom of your screen.</div>
+            <div class="bar"><span class="t">Today</span><span class="plus">+</span><span class="t">Life</span></div>
+            <div class="callouts">
+              <div class="co"><b>Today</b><div>What needs you today.<small>One thing at a time.</small></div></div>
+              <div class="co"><b class="p">+</b><div>Add anything.<small>A plan, a reminder, a link.</small></div></div>
+              <div class="co"><b>Life</b><div>Everything you've saved.<small>Sorted for you.</small></div></div>
+            </div>
+          </div>
+          <div class="foot"><button class="btn" onclick="go(2)">Next &rarr;</button></div>
+        </div>
+
+        <!-- 2 try it -->
+        <div class="step" data-s="2">
+          <div class="body">
+            <div class="h">Try it. Tap one.</div>
+            <div class="sub">Type like you'd text. It gets sorted for you.</div>
+            <div class="chips" id="chips">
+              <button class="chip" onclick="land('Dinner at the Italian place Friday','FOOD','Friday, October 2')">Dinner at the Italian place Friday</button>
+              <button class="chip" onclick="land('Call the vet about Miso Tuesday','CARE','Tuesday, September 29')">Call the vet about Miso Tuesday</button>
+              <button class="chip" onclick="land('Gift idea for Mom','BUYS','')">Gift idea for Mom</button>
+            </div>
+            <div class="landed" id="landed">
+              <div class="said" id="said"></div>
+              <div class="arrow">&darr; SAVED IN LIFE</div>
+              <div class="tile">
+                <div class="lab" id="lcat">LIFE &middot; FOOD</div>
+                <div class="ti" id="ltitle"></div>
+                <div class="me" id="ldate"></div>
+                <div class="edge" style="background:linear-gradient(90deg,var(--you),var(--them))"></div>
+              </div>
+              <div class="lines"><p>Wrong spot? Tap it and move it.</p></div>
+            </div>
+          </div>
+          <div class="foot"><button class="btn" id="tryNext" onclick="go(3)" disabled>Next &rarr;</button></div>
+        </div>
+
+        <!-- 3 shared or only me -->
+        <div class="step" data-s="3">
+          <div class="body">
+            <div class="h">Shared, or just yours.</div>
+            <div class="sub">Everything is shared unless you say otherwise.</div>
+            <div class="seg">
+              <button id="sBoth" class="on" onclick="vis(false)">Both of us</button>
+              <button id="sMe" onclick="vis(true)">&#128274; Only me</button>
+            </div>
+            <div class="tile">
+              <div class="lab" id="vcat">LIFE &middot; FOOD</div>
+              <div class="ti" id="vtitle">Dinner at the Italian place</div>
+              <div class="who" id="vwho"></div>
+              <div class="edge" id="vedge"></div>
+            </div>
+            <div class="lines" id="vlines"></div>
+          </div>
+          <div class="foot"><button class="btn" onclick="go(4)">Next &rarr;</button></div>
+        </div>
+
+        <!-- 4 promise -->
+        <div class="step" data-s="4">
+          <div class="body">
+            <div class="h">Three promises.</div>
+            <div class="sub">What this app will always do for the two of you.</div>
+            <div class="prom">
+              <div><h3>Yours stays yours.</h3><p>Anything you mark Only me, only you see.</p></div>
+              <div><h3>Nothing moves without you.</h3><p>Nothing private is ever shared unless you say yes.</p></div>
+              <div><h3>Big things are decided together.</h3><p>You both answer. Neither of you sees the other's answer first.</p></div>
+            </div>
+          </div>
+          <div class="foot"><button class="btn" onclick="go(0)">Bring in your person &rarr;</button></div>
+        </div>
+      </div>
+    </div>
+    <p class="note">Last button changes with where they are: <b>Bring in your person</b>, <b>Start adding</b> while waiting, or <b>Open WE</b> if already paired.</p>
+  </div>
+
+  <!-- SIGN IN -->
+  <div class="col">
+    <div class="tag">Sign in</div>
+    <div class="phone">
+      <div class="island"></div><div class="status"></div>
+      <div class="screen">
+        <div class="body" style="padding-top:30px">
+          <span class="x">&#10005;</span>
+          <div class="h">Welcome back.</div>
+          <div class="sub">Today and Life are right where you left them.</div>
+          <div style="margin-top:26px"><button class="btn apple">&#63743; Sign in with Apple</button></div>
+          <div class="or">or with email</div>
+          <div class="field"><label>Email</label><div class="in focus">ry@example.com</div></div>
+          <div class="field"><label>Password</label><div class="in">&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull; <span class="eye">Show</span></div></div>
+          <div style="text-align:right;margin-top:10px;font-size:14px;color:var(--ink-2)">Forgot password?</div>
+        </div>
+        <div class="foot">
+          <button class="btn">Sign in</button>
+          <div class="link">New here? <a>Create an account</a></div>
+        </div>
+      </div>
+    </div>
+    <p class="note">One job per screen: no toggle between sign in and create. Big filled fields instead of hairlines. Sign in with Apple <span class="pill">NEEDS SETUP</span> is optional.</p>
+  </div>
+
+  <div class="col">
+    <div class="tag">Create account</div>
+    <div class="phone">
+      <div class="island"></div><div class="status"></div>
+      <div class="screen">
+        <div class="body" style="padding-top:30px">
+          <span class="x">&#10005;</span>
+          <div class="h">First, you.</div>
+          <div class="sub">Your own account, then you're in with Dylan.</div>
+          <div style="margin-top:26px"><button class="btn apple">&#63743; Continue with Apple</button></div>
+          <div class="or">or with email</div>
+          <div class="field"><label>Your first name</label><div class="in">Ry</div></div>
+          <div class="field"><label>Email</label><div class="in"><span class="ph">you@example.com</span></div></div>
+          <div class="field"><label>Password</label><div class="in"><span class="ph">8 or more characters</span><span class="eye">Show</span></div></div>
+        </div>
+        <div class="foot">
+          <button class="btn" disabled>Create account</button>
+          <div class="link">Have an account? <a>Sign in</a></div>
+        </div>
+      </div>
+    </div>
+    <p class="note">The line under the title adapts: invitees see who they're joining. The button stays off until everything's filled, with the rule shown in the field itself.</p>
+  </div>
+</div>
+
+<script>
+  let step=0, landedYet=false, onlyMe=false;
+  const steps=[...document.querySelectorAll('.step')];
+  function go(n){
+    step=Math.max(0,Math.min(4,n));
+    steps.forEach(s=>s.classList.toggle('show',+s.dataset.s===step));
+    document.getElementById('back').style.visibility=step?'visible':'hidden';
+    const d=document.getElementById('dots'); d.style.visibility=step?'visible':'hidden';
+    [...d.children].forEach((i,k)=>i.classList.toggle('on',k<step));
+    if(step===0){const b=document.getElementById('bloom');b.classList.remove('on');setTimeout(()=>b.classList.add('on'),60)}
+    if(step===3) vis(onlyMe);
+  }
+  function land(said,cat,date){
+    document.getElementById('said').textContent='“'+said+'”';
+    const title=said.replace(/ (Friday|Tuesday)$/,'');
+    document.getElementById('ltitle').textContent=title;
+    document.getElementById('lcat').textContent='LIFE · '+cat;
+    document.getElementById('ldate').textContent=date;
+    document.getElementById('vtitle').textContent=title;
+    document.getElementById('vcat').textContent='LIFE · '+cat;
+    const l=document.getElementById('landed'); l.classList.remove('show'); void l.offsetWidth; l.classList.add('show');
+    document.getElementById('tryNext').disabled=false;
+  }
+  function vis(me){
+    onlyMe=me;
+    document.getElementById('sBoth').classList.toggle('on',!me);
+    document.getElementById('sMe').classList.toggle('on',me);
+    document.getElementById('vwho').innerHTML= me
+      ? '<span class="dot" style="background:var(--you)"></span> Only you, for now <span style="margin-left:auto;opacity:.6">&#128274;</span>'
+      : '<span style="position:relative;width:20px;height:10px"><span class="dot" style="position:absolute;left:8px;background:var(--them)"></span><span class="dot" style="position:absolute;left:0;background:var(--you)"></span></span> You and Dylan <span style="margin-left:auto;font:10px var(--sans);letter-spacing:.2em;opacity:.55">SHARED</span>';
+    document.getElementById('vedge').style.background= me ? 'var(--you)' : 'linear-gradient(90deg,var(--you),var(--them))';
+    document.getElementById('vlines').innerHTML= me
+      ? '<p>Perfect for a gift idea or a surprise.</p><p>Share it when it’s ready, or pick a day and you’ll be asked then.</p>'
+      : '<p>Dylan sees it too, in both of your Today and Life.</p>';
+  }
+  document.getElementById('ltitle').textContent='Dinner at the Italian place';
+  go(0);
+</script>
+</body>
+</html>

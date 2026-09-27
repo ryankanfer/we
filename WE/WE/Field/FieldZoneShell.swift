@@ -12,7 +12,11 @@
 //      WE mark. The mark is not a tab — it is the app's own avatar, and
 //      tapping it returns to Today from anywhere.
 //
-//      A tap on LIFE while Life is already showing opens the calendar.
+//      One consequence, used deliberately: on Today the mark has nothing left
+//      to do. So a tap there opens Yours, and a tap on LIFE while Life is
+//      already showing opens the calendar. Tap to go, tap again to go deeper —
+//      the same sentence twice, and the only way this bar can hold two more
+//      destinations without gaining a control.
 //    · The Reminders takeover is the **only** surface permitted to cover the
 //      WE mark, and only while open.
 //
@@ -31,6 +35,27 @@ struct FieldZoneShell: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var store: FieldStore
     @State private var showsAccount = false
+    @State private var planNavigation = WEPlanNavigation.shared
+    @State private var intentPlan: FieldItemReference?
+    /// The + card.
+    @State private var showsComposer = false
+    @State private var footerHeight: CGFloat = 240
+
+    // The two lights, as a language. Each of these is a real event between
+    // the two of them; none of them counts anything.
+    @State private var pulseBoth = 0
+    @State private var pulseMine = 0
+    @State private var pulseTheirs = 0
+    @State private var mergeLights = 0
+    @State private var knownItemIDs: Set<String> = []
+    @State private var knownDecisions: Set<String> = []
+    @State private var itemsPrimed = false
+    @State private var decisionsPrimed = false
+    @State private var arrivingName: String?
+    @State private var arrivalPose: WELightsPose?
+    @State private var whisper: String?
+    @Namespace private var navSelection
+
 
     // Constructed in the body, not as a default argument. Default argument
     // expressions are evaluated in a nonisolated context, so `= FieldStore()`
@@ -41,6 +66,12 @@ struct FieldZoneShell: View {
     }
 
     var body: some View {
+        lifecycle
+    }
+
+    /// Split out of `body` so the type checker gets three small expressions
+    /// instead of one enormous one.
+    private var layers: some View {
         ZStack {
             // The ground crossfades with the zone. Never a slide: the two
             // canvases are the same room under different light, and sliding
@@ -54,50 +85,153 @@ struct FieldZoneShell: View {
             // bottom-right is Us, split at the bottom is Today. The ground
             // beneath is constant, so this is the only thing that moves when
             // a zone changes — which is why it is the orientation.
-            FieldGlow(
-                identity: store.identity,
-                statement: store.activeZone.glow
+            //
+            // Now the two lights: yours and theirs, drawn together on Today
+            // and spread wide under Life. They swell once whenever something
+            // new lands in Life, from either of you.
+            WELights(
+                identity: store.viewerIdentity,
+                pose: lightsPose,
+                pulse: pulseBoth,
+                pulseMine: pulseMine,
+                pulseTheirs: pulseTheirs,
+                merge: mergeLights
             )
-            .animation(.weCanvasCrossing, value: store.activeZone)
+            .environment(\.weCanvas, store.activeZone.canvas)
+
+            // "Dylan is here." The first time both people are in, once per
+            // couple, per phone. Their light rises into place and the two meet.
+            if let arrivingPerson = arrivingName {
+                ZStack {
+                    store.activeZone.canvas.bg.opacity(0.82).ignoresSafeArea()
+                    WEWordReveal(
+                        text: "\(arrivingPerson) is here.",
+                        font: FieldType.hero(48),
+                        tracking: -1,
+                        alignment: .center
+                    )
+                    .foregroundStyle(store.activeZone.canvas.ink)
+                    .padding(.horizontal, 32)
+                }
+                .transition(.opacity)
+                .zIndex(30)
+                .onTapGesture { withAnimation(.weCanvasCrossing) { arrivingName = nil; arrivalPose = nil } }
+            }
 
             pager
+                .ignoresSafeArea(.container, edges: .bottom)
+                .environment(\.fieldFooterHeight, footerHeight)
 
-            if !store.calendarOpen, !store.searchOpen {
-                navigationBar
-                    .frame(maxHeight: .infinity, alignment: .bottom)
-                    .transition(.opacity)
-
-                // Above the navigation bar and below everything else, in all
-                // three zones at once, because what it reports is true of all
-                // three at once.
-                FieldLoadStateLine(store: store)
-                    .frame(maxHeight: .infinity, alignment: .bottom)
-                    .padding(.bottom, 96)
-                    .transition(.opacity)
-            }
 
             if store.calendarOpen {
                 FieldCalendarSurface(store: store)
+                    .environment(\.weCanvas, WECanvas.surface)
                     .transition(.opacity)
                     .zIndex(20)
             }
 
             if store.searchOpen {
                 FieldLifeSearch(store: store)
+                    .environment(\.weCanvas, WECanvas.surface)
                     .transition(.opacity)
                     .zIndex(20)
             }
         }
+    }
+
+    @ViewBuilder private var footer: some View {
+            if !store.calendarOpen, !store.searchOpen {
+                VStack(spacing: 0) {
+                    if let whisper {
+                        Text(whisper)
+                            .font(.system(.footnote, weight: .medium))
+                            .foregroundStyle(store.activeZone.canvas.ink.opacity(0.75))
+                            .padding(.bottom, 10)
+                            .transition(.opacity.combined(with: .offset(y: 6)))
+                            .accessibilityAddTraits(.updatesFrequently)
+                    }
+                    FieldLoadStateLine(store: store)
+                    navigationBar
+                }
+                .foregroundStyle(store.activeZone.canvas.ink)
+                .padding(.top, 20)
+                .padding(.bottom, 8)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+                    footerHeight = $0
+                }
+                // A soft fade rather than a frosted slab, so the two lights
+                // still come up from under the bar. The bar itself is glass.
+                .background {
+                    LinearGradient(
+                        colors: [
+                            store.activeZone.canvas.bg.opacity(0),
+                            store.activeZone.canvas.bg.opacity(0.55),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .ignoresSafeArea(edges: .bottom)
+                    .allowsHitTesting(false)
+                }
+            }
+    }
+
+    private var framed: some View {
+        layers
         // The status bar is the one piece of chrome WE does not draw. Every
         // ground is near-black now, so this no longer varies — but it still
         // has to be stated, because the default follows the system and a
         // phone in light mode would paint a black clock onto #0A0A09.
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(store.activeZone.canvas.isDark ? .dark : .light)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HStack {
+                Spacer()
+                Button { showsAccount = true } label: {
+                    Text("Account").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                }
+                    .accessibilityIdentifier("field.openAccount")
+            }
+            .font(FieldType.body)
+            .foregroundStyle(store.activeZone.canvas.ink)
+            .buttonStyle(.plain)
+            .frame(minHeight: 44)
+            .padding(.horizontal, FieldMetrics.screenSide)
+            .background(store.activeZone.canvas.bg)
+        }
+        .overlay(alignment: .bottom) { footer }
+        .overlay {
+            FieldComposerOverlay(isPresented: $showsComposer) { store.go(to: .today) }
+                .preferredColorScheme(WETheme.shared.colorScheme)
+                .environment(\.weCanvas, .surface)
+                .environment(store)
+        }
+    }
+
+    private var observed: some View {
+        framed
         .environment(store)
+        .onChange(of: Set(store.state.lifeItems.map(\.id)), initial: true) { _, ids in noticeNewItems(ids) }
+        .onChange(of: confirmedDecisionIDs, initial: true) { _, ids in noticeDecisions(ids) }
+        .onChange(of: store.heldItemsReadyToOffer.count, initial: true) { _, ready in
+            if ready > 0 { pulseMine += 1 }
+        }
+        .task(id: session.snapshot?.membership?.coupleID) { await playArrivalIfNew() }
         .animation(.fieldZone(reduceMotion), value: store.activeZone)
         .animation(.fieldZone(reduceMotion), value: store.calendarOpen)
         .animation(.fieldZone(reduceMotion), value: store.searchOpen)
         .task { await store.load() }
+        .task {
+            if WEFeatureFlags.shareInboxEnabled { WEIntelligenceStore.shared.reload(); await WEIntelligenceStore.shared.synchronize() }
+        }
+        .sheet(item: $intentPlan) { FieldItemSheet(itemID: $0.id).environment(store) }
+        .task(id: planNavigation.pendingID) {
+            guard let id = planNavigation.pendingID else { return }
+            await store.retryLoad()
+            if store.intelligenceEligibleLifeItems.contains(where: { $0.id.caseInsensitiveCompare(id) == .orderedSame }) {
+                intentPlan = FieldItemReference(id: id)
+            }
+            planNavigation.pendingID = nil
+        }
         // The day turning, for as long as the app is on screen. Owned by the
         // store — it is the only thing that holds `now` — but driven from
         // here, because a `.task` is cancelled with the view and a Task the
@@ -110,30 +244,42 @@ struct FieldZoneShell: View {
         // The tick comes first and is the reason this comment is now true.
         // Re-planning before catching the clock up plans against the day the
         // app went to sleep on, which is exactly what it claimed not to do.
+        // The other half of the same idea: the reason a write failed may have
+        // just stopped being true. `.reconnecting` is the edge `AppSession`
+        // publishes the instant the path comes back, ahead of its own refresh.
+        .onChange(of: session.connectionState) { _, state in
+            guard state == .online || state == .reconnecting else { store.invalidateSharedIntelligence(); return }
+            Task {
+                await store.flushPending()
+                await store.retryLoad()
+                if WEFeatureFlags.shareInboxEnabled { WEIntelligenceStore.shared.reload(); await WEIntelligenceStore.shared.synchronize() }
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .background || phase == .active else { return }
+            if phase == .background { store.invalidateSharedIntelligence() }
             if phase == .active {
                 store.tick()
+                // A write queued on a train drains when the app comes back,
+                // rather than waiting for the person to happen to type
+                // something else. `flushPending` is idempotent — every
+                // mutation is an upsert on a client-generated id — so a
+                // foreground during a flush cannot send anything twice.
+                Task {
+                await store.flushPending()
+                await store.retryLoad()
+                if WEFeatureFlags.shareInboxEnabled { WEIntelligenceStore.shared.reload(); await WEIntelligenceStore.shared.synchronize() }
+            }
             }
             Task { await store.refreshDailyMoment() }
         }
+    }
+
+    private var lifecycle: some View {
+        observed
         .fullScreenCover(isPresented: $showsAccount) {
             FieldAccountView()
                 .environment(store)
-        }
-        // The circle. Presented from the shell rather than from Today, because
-        // the second person's tap can land while the first is reading Life —
-        // it belongs to both of them, not to one navigation zone.
-        .fullScreenCover(isPresented: roomBinding) {
-            FieldCircleRoom(
-                identity: store.identity,
-                // Non-nil whenever the state is `.both`, which is the only
-                // state this binding is true for. Nothing is invented locally
-                // if it somehow is nil — the room simply does not open, which
-                // is better than opening it around words nobody was given.
-                prompt: store.circle.prompt ?? "",
-                onClose: { store.closeRoom() }
-            )
         }
         // 2a. Asked once, on the first arrival in the zones after a second
         // person joins — which is where both people land, whichever of them
@@ -154,7 +300,32 @@ struct FieldZoneShell: View {
         // to be swiped away unread, and `FieldDepartureView` dismisses itself
         // only after `acknowledge_departure()` has recorded the telling.
         .fullScreenCover(isPresented: departureBinding) {
-            FieldDepartureView()
+            FieldDepartureView(identity: store.viewerIdentity)
+        }
+        // Writing that was on this phone and owed to the server, in a file
+        // that could not be read. It used to be moved aside in silence, which
+        // meant the one case where somebody genuinely lost something was the
+        // one case the app said nothing about — the item simply was not there
+        // the next time they looked, and there was no reason for it.
+        //
+        // An alert rather than the hairline `FieldLoadStateLine` draws, and
+        // deliberately: that line is for not knowing, and this is a loss. It
+        // is also the reason there is only one button. There is nothing to
+        // retry — a queue the app could not decode is a queue it cannot send —
+        // so offering an action would be a second untruth on top of the first.
+        .alert(
+            "Some unsent writing was lost",
+            isPresented: lostWritingBinding
+        ) {
+            Button("OK") { store.acknowledgeLostUnsentWriting() }
+        } message: {
+            Text(
+                """
+                Writing saved on this phone but not yet synced couldn't be \
+                read, so it was set aside. WE can't recover it or say what it \
+                said. Anything that had already synced is safe.
+                """
+            )
         }
         .task(id: session.snapshot?.membership?.coupleID) {
             guard let decision = crossingDecision else { return }
@@ -199,6 +370,13 @@ struct FieldZoneShell: View {
         )
     }
 
+    /// The setter is ignored for the same reason the two covers above ignore
+    /// theirs: this closes when the telling has been recorded, not because a
+    /// gesture dismissed it. The button is what records it.
+    private var lostWritingBinding: Binding<Bool> {
+        Binding(get: { store.lostUnsentWriting }, set: { _ in })
+    }
+
     private var crossingDecision: FieldCrossingDecision? {
         guard let user = session.user?.id,
               let couple = session.snapshot?.membership?.coupleID
@@ -209,21 +387,97 @@ struct FieldZoneShell: View {
         )
     }
 
+    // MARK: The lights
+
+    private var lightsPose: WELightsPose {
+        if let arrivalPose { return arrivalPose }
+        // An empty app lifts the lights into view behind its one line, so a
+        // new couple's first screen is warm rather than blank.
+        if store.state.lifeItems.isEmpty { return .lifted }
+        // "One of you said yes." Leaning, not touching, until the other does.
+        if hasPendingDecision { return .leaning }
+        return .near
+    }
+
+    /// A decision one of them has proposed and the other has not confirmed.
+    private var hasPendingDecision: Bool {
+        store.chatMessages.contains { $0.decision && !$0.confirmed }
+    }
+
+    private var confirmedDecisionIDs: Set<String> {
+        Set(store.chatMessages.filter { $0.decision && $0.confirmed }.map(\.id))
+    }
+
+    /// Something new in Life. Theirs makes their light rise; yours makes both
+    /// swell. The first read only learns what is already there.
+    private func noticeNewItems(_ ids: Set<String>) {
+        // Primed only once the first load has answered, so the launch itself
+        // never reads as a flood of new things.
+        defer { knownItemIDs = ids; if store.loadState != .loading { itemsPrimed = true } }
+        guard itemsPrimed else { return }
+        let fresh = store.state.lifeItems.filter { ids.subtracting(knownItemIDs).contains($0.id) }
+        guard !fresh.isEmpty else { return }
+        let partner: FieldOwner = store.speaker == .a ? .b : .a
+        if fresh.contains(where: { $0.owner == partner && $0.isSharedPresence }) {
+            pulseTheirs += 1
+            whisperOnce()
+        } else {
+            pulseBoth += 1
+        }
+    }
+
+    /// Both said yes. The one moment the lights fully overlap.
+    private func noticeDecisions(_ ids: Set<String>) {
+        defer { knownDecisions = ids; if store.loadState != .loading { decisionsPrimed = true } }
+        guard decisionsPrimed else { return }
+        if !ids.subtracting(knownDecisions).isEmpty { mergeLights += 1 }
+    }
+
+    /// The lights speak once. The first time their light swells because
+    /// they added something, one small caption says why, and never again.
+    private func whisperOnce() {
+        let key = "we.lights.whispered"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        withAnimation(.weCanvasCrossing) { whisper = "\(store.partnerName) added to Life" }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.2) {
+            withAnimation(.weCanvasCrossing) { whisper = nil }
+        }
+    }
+
+    private func playArrivalIfNew() async {
+        guard let snapshot = session.snapshot,
+              let couple = snapshot.membership?.coupleID,
+              snapshot.members.count >= 2
+        else { return }
+        let key = "we.arrival.played.\(couple)"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+
+        arrivalPose = .alone
+        try? await Task.sleep(for: .milliseconds(400))
+        withAnimation(.weCanvasCrossing) { arrivingName = store.partnerName }
+        try? await Task.sleep(for: .milliseconds(700))
+        arrivalPose = .merged
+        try? await Task.sleep(for: .milliseconds(2600))
+        withAnimation(.weCanvasCrossing) {
+            arrivingName = nil
+            arrivalPose = nil
+        }
+    }
+
     // MARK: The pager
 
     private var pager: some View {
         TabView(selection: zoneBinding) {
-            FieldLifeZone()
-                .tag(FieldZone.life)
-
             FieldTodayZone()
-                .tag(FieldZone.we)
+                .tag(FieldZone.today)
 
-            FieldUsZone()
-                .tag(FieldZone.us)
+            FieldLifeZone()
+                .environment(\.weCanvas, WECanvas.surface)
+                .tag(FieldZone.life)
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
-        .ignoresSafeArea()
     }
 
     /// Routed through the store so the mark, the flanking labels, and the
@@ -241,59 +495,38 @@ struct FieldZoneShell: View {
     // transparent) so content scrolls softly beneath it. Bar padding
     // 16px 30px 30px; the bar occupies roughly 103pt."
 
-    private var navigationBar: some View {
-        VStack(spacing: 10) {
-            HStack(alignment: .center, spacing: 0) {
-                zoneLabel(.life)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-
-                weMark
-                    .padding(.horizontal, 26)
-
-                zoneLabel(.us)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+    /// Add something, from either zone. The one way in, always in the same
+    /// place — it replaced a composer that lived only on Today.
+    private var addButton: some View {
+        Button {
+            showsComposer = true
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 22, weight: .light))
+                .foregroundStyle(store.activeZone.canvas.bg)
+                .frame(width: 52, height: 52)
+                .background(store.activeZone.canvas.ink, in: Circle())
+                .contentShape(Circle())
         }
-        .padding(.top, 16)
-        .padding(.horizontal, FieldMetrics.screenSide)
-        .padding(.bottom, 30)
-        // The bar is chrome over whichever page is showing, so it takes that
-        // page's canvas rather than a scaffold's. Without this the labels stay
-        // cream ink and vanish the moment Life scrolls under them.
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add something")
+        .accessibilityIdentifier("field.capture.open")
+    }
+
+    /// One glass capsule: Today, +, Life. The selected word sits on a lighter
+    /// pill that slides between the two, the way the walkthrough shows it.
+    private var navigationBar: some View {
+        HStack(alignment: .center, spacing: 6) {
+            zoneLabel(.today)
+            addButton
+            zoneLabel(.life)
+        }
+        .padding(6)
+        .weGlass(in: Capsule())
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
         .environment(\.weCanvas, store.activeZone.canvas)
         .animation(.weCanvasCrossing, value: store.activeZone)
-        .background(alignment: .bottom) {
-            ZStack(alignment: .bottom) {
-                LinearGradient(
-                    stops: [
-                        .init(color: store.activeZone.canvas.bg.opacity(0.96), location: 0),
-                        .init(color: store.activeZone.canvas.bg.opacity(0.96), location: 0.45),
-                        .init(color: .clear, location: 1),
-                    ],
-                    startPoint: .bottom,
-                    endPoint: .top
-                )
-
-                // Sits *behind* the navigation and below the words, at the
-                // display edge. It replaces the sliding indicator that used to
-                // live here: an indicator tracking the selected zone is a
-                // progress device, and the direction bans those. Selection is
-                // carried by the words themselves, full ink against reduced.
-                //
-                // Both hues, in every zone. The bar is the couple's chrome and
-                // all three zones hold both people's material; `.mine` is for
-                // the genuinely private surfaces — composition, the stillness,
-                // the Promise — which arrive with the ceremony.
-                WEColourField(state: .shared, identity: store.identity)
-            }
-            .ignoresSafeArea(edges: .bottom)
-            // Deliberately *not* `accessibilityHidden`. The scrim and the
-            // field are colour with no node of their own, and marking a view
-            // that is not an accessibility element hidden promotes it to one
-            // — an element carrying nothing but a hidden flag, which the
-            // audit then reports as a node with no description. Hiding what
-            // was never there is what created the defect.
-        }
     }
 
     /// Tap to go there. Tap it again, once you are there, to open the room
@@ -310,22 +543,28 @@ struct FieldZoneShell: View {
             // Life only. US has no room behind it, and inventing a general
             // `zone.deeperRoom` for a single case would make the bar look like
             // it holds three of these when it holds one.
-            if zone == .life, store.activeZone == .life {
-                store.openCalendar()
+            if zone == .today {
+                store.returnHome()
             } else {
                 store.go(to: zone)
             }
         } label: {
-            Text(zone.navLabel)
-                .font(FieldType.zoneLabel)
-                .tracking(FieldTracking.zoneLabel)
+            Text(zone.navLabel.capitalized)
+                .font(.system(.subheadline, weight: .medium))
                 .foregroundStyle(
                     store.activeZone == zone
                         ? .fieldInk(.headline)
                         : .fieldInk(.labelQuiet)
                 )
-                .frame(minWidth: 44, minHeight: 44)
-                .contentShape(Rectangle())
+                .frame(minWidth: 92, minHeight: 52)
+                .background {
+                    if store.activeZone == zone {
+                        Capsule()
+                            .fill(store.activeZone.canvas.ink.opacity(store.activeZone.canvas.isDark ? 0.14 : 0.08))
+                            .matchedGeometryEffect(id: "zone.selection", in: navSelection)
+                    }
+                }
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(zone.navLabel.capitalized)
@@ -354,49 +593,6 @@ struct FieldZoneShell: View {
         }
     }
 
-    /// 40 × 40pt circle, 1px border at ink .5, fill ink .06, the wordmark in
-    /// 11pt DM Sans at +2.4. Present on every zone.
-    ///
-    /// Tap returns to Today; long-press opens the account. A long-press does
-    /// not exist for VoiceOver, so the accessibility action below is the only
-    /// route for those users and is not optional.
-    private var weMark: some View {
-        // Not a `Button`: a Button consumes the long press, so tap and
-        // long-press have to be attached as peers to the same shape.
-        ZStack {
-            Circle()
-                .fill(FieldPalette.ink.opacity(0.06))
-                .overlay {
-                    Circle().strokeBorder(FieldRule.mark, lineWidth: 1)
-                }
-                .frame(width: 40, height: 40)
-
-            Text("WE")
-                .font(FieldType.mark)
-                .tracking(FieldTracking.mark)
-                .foregroundStyle(.fieldInk(.headline))
-        }
-        .frame(width: 48, height: 48)
-        .contentShape(Circle())
-        .onTapGesture { store.returnHome() }
-        .onLongPressGesture(minimumDuration: 0.5) { showsAccount = true }
-        .accessibilityElement(children: .ignore)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("WE")
-        .accessibilityHint(isHome ? "" : "Returns to Today")
-        .accessibilityIdentifier("field.nav.we")
-        .accessibilityAction { store.returnHome() }
-        .accessibilityAction(named: "Account") { showsAccount = true }
-    }
-
-    /// Whether the mark has nothing left to do as a way home.
-    ///
-    /// Today, with nothing over it. The two overlays count as "not home"
-    /// deliberately: while one is up the mark has to mean *close this*.
-    private var isHome: Bool {
-        store.activeZone == .we && !store.calendarOpen && !store.searchOpen
-    }
-
 }
 
 // MARK: - Motion
@@ -423,7 +619,12 @@ extension Animation {
 // while the app is alive. That falls out of the paging TabView keeping all
 // three mounted — the scaffold does not track offsets itself, and adding a
 // second source of truth for them would only fight SwiftUI's.
+extension EnvironmentValues {
+    @Entry var fieldFooterHeight: CGFloat = 0
+}
+
 struct FieldZoneScaffold<Content: View>: View {
+    @Environment(\.fieldFooterHeight) private var footerHeight
     @Environment(\.dynamicTypeSize) private var typeSize
     let zone: FieldZone
     var horizontalPadding: CGFloat = FieldMetrics.screenSide
@@ -477,13 +678,13 @@ struct FieldZoneScaffold<Content: View>: View {
                     content
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, FieldMetrics.screenTop)
+                .padding(.top, 28)
                 .padding(.horizontal, horizontalPadding)
                 // The bar grows with the type size, so a constant clearance
                 // is only correct at one setting. At the accessibility sizes
                 // the old 112 left the last row of every zone sitting under
                 // LIFE, WE, and US.
-                .padding(.bottom, FieldMetrics.screenBottom(at: typeSize))
+                .padding(.bottom, footerHeight + 32)
             }
             .scrollBounceBehavior(.basedOnSize)
             // Scrolling away from the capture field puts the keyboard away

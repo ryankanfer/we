@@ -86,6 +86,7 @@ final class FieldZoneUITests: XCTestCase {
     @MainActor
     func testForTodayPutsSomethingOnTheClearDay() throws {
         let app = launchEmpty()
+        openCapture(app)
         let input = app.textViews["field.capture.input"]
         XCTAssertTrue(input.waitForExistence(timeout: 12))
 
@@ -191,6 +192,7 @@ final class FieldZoneUITests: XCTestCase {
     @MainActor
     func testReachingOutStopsForAConfirmationAndNeverGuesses() throws {
         let app = launchEmpty()
+        openCapture(app)
         let input = app.textViews["field.capture.input"]
         XCTAssertTrue(input.waitForExistence(timeout: 12))
 
@@ -352,6 +354,7 @@ final class FieldZoneUITests: XCTestCase {
     @MainActor
     func testAnItemOutreachOwnsOffersNoLookupBlock() throws {
         let app = launchEmpty()
+        openCapture(app)
         let input = app.textViews["field.capture.input"]
         XCTAssertTrue(input.waitForExistence(timeout: 12))
 
@@ -510,10 +513,9 @@ final class FieldZoneUITests: XCTestCase {
     @MainActor
     func testAccountIsReachableAndOffersDeletion() throws {
         let app = launchZones()
-
-        let we = app.buttons["field.nav.we"]
-        XCTAssertTrue(we.waitForExistence(timeout: 8))
-        we.press(forDuration: 0.9)
+        let account = app.buttons["field.openAccount"]
+        XCTAssertTrue(account.waitForExistence(timeout: 8))
+        account.tap()
 
         let signOut = app.buttons["field.account.signOut"]
         XCTAssertTrue(
@@ -534,7 +536,7 @@ final class FieldZoneUITests: XCTestCase {
             app.descendants(matching: .any)["privacy.policy"]
                 .waitForExistence(timeout: 4)
         )
-        app.buttons["Done"].tap()
+        app.navigationBars["Privacy"].buttons["Done"].tap()
 
         for _ in 0..<6 where delete.exists && !delete.isHittable {
             app.swipeUp()
@@ -642,9 +644,8 @@ final class FieldZoneUITests: XCTestCase {
     @MainActor
     func testCaptureProducesAReceipt() throws {
         let app = launchZones()
-        XCTAssertTrue(
-            app.staticTexts["TELL WE ANYTHING"].waitForExistence(timeout: 8)
-        )
+        openCapture(app)
+        XCTAssertTrue(app.textViews["field.capture.input"].waitForExistence(timeout: 8))
 
         // A pill submits its phrase and shows the receipt. Addressed by
         // identifier, not by words: the suggestions are read from this
@@ -659,9 +660,9 @@ final class FieldZoneUITests: XCTestCase {
         pill.tap()
 
         XCTAssertTrue(
-            app.staticTexts["FILED TO"].waitForExistence(timeout: 4)
+            app.staticTexts["Save to"].waitForExistence(timeout: 4)
         )
-        XCTAssertTrue(app.buttons["WRONG PLACE"].exists)
+        XCTAssertTrue(app.buttons["field.receipt.wrong"].exists)
     }
 
     // MARK: The calendar
@@ -734,7 +735,9 @@ final class FieldZoneUITests: XCTestCase {
         )
     }
 
-    /// With something over Life, the mark means *close this*, then home.
+    /// With something over Life, the mark means *close this*. Otherwise
+    /// dismissing the calendar would drop somebody into the private space,
+    /// which is the one place an accidental arrival is least welcome.
     @MainActor
     func testTheMarkClosesTheCalendarThenGoesHome() throws {
         let app = launchZones()
@@ -752,7 +755,7 @@ final class FieldZoneUITests: XCTestCase {
 
         // The bar is hidden while the calendar is up, so this is the tap a
         // person makes immediately after closing it — the first one the bar
-        // can receive. It has to mean Today.
+        // can receive. It has to mean Today, not Yours.
         app.buttons["Done"].tap()
         XCTAssertTrue(we.waitForExistence(timeout: 4))
         we.tap()
@@ -862,50 +865,6 @@ final class FieldZoneUITests: XCTestCase {
         )
     }
 
-    // MARK: Onboarding (6f)
-
-    /// Onboarding asks for a colour and nothing else.
-    ///
-    /// The three questions used to sit directly under the blend, so the
-    /// moment the couple's two colours became a third thing was immediately
-    /// followed by a form — and they were the only screen in the sequence
-    /// asking the couple to produce data rather than receive something. They
-    /// are cut, and return days later as the first thing WE asks on its own.
-    ///
-    /// Asserted as absence rather than deleted outright, because "we removed
-    /// the questions" and "the questions quietly came back" look identical in
-    /// a diff a year from now.
-    @MainActor
-    func testOnboardingAsksForAColourAndNothingElse() throws {
-        let app = launchOnboarding()
-
-        XCTAssertTrue(
-            app.staticTexts["Choose yours."].waitForExistence(timeout: 8)
-        )
-
-        for question in [
-            "Do you live together?",
-            "What's the one thing you're saving for?",
-            "Who or what else do you look after?",
-        ] {
-            XCTAssertFalse(
-                app.staticTexts[question].exists,
-                "onboarding must not ask: \(question)"
-            )
-        }
-
-        // And none of the setup scaffolding the questions came wrapped in.
-        for banned in ["SETTING UP · 1 OF 3", "THEN THREE QUESTIONS"] {
-            XCTAssertFalse(app.staticTexts[banned].exists, banned)
-        }
-
-        // What is left is the choice and one word.
-        XCTAssertTrue(app.buttons["field.swatch.burgundy"].exists)
-        let finish = app.buttons["field.onboarding.finish"]
-        XCTAssertTrue(finish.exists)
-        XCTAssertTrue(finish.isEnabled)
-    }
-
     // MARK: Rendered contracts
 
     /// Stable attachment names are part of the CI contract: the visual-diff
@@ -970,6 +929,7 @@ final class FieldZoneUITests: XCTestCase {
             .completed,
             "explicit OpenAI consent should enable holding the answer"
         )
+        keepScreenshot(of: app, named: "review.us.processing-consent")
         XCTAssertFalse(app.staticTexts["AFTER THAT"].exists)
         XCTAssertFalse(app.staticTexts["THIS WEEK"].exists)
     }
@@ -997,6 +957,8 @@ final class FieldZoneUITests: XCTestCase {
         )
         XCTAssertTrue(proposalApp.buttons["field.us.chooseDirection"].exists)
         XCTAssertTrue(proposalApp.buttons["field.us.restDirection"].exists)
+        XCTAssertTrue(proposalApp.staticTexts["Proposed direction"].exists)
+        keepScreenshot(of: proposalApp, named: "review.us.proposed")
 
         let activeApp = launchJourney("journeyactive")
         activeApp.buttons["field.nav.us"].tap()
@@ -1004,14 +966,21 @@ final class FieldZoneUITests: XCTestCase {
             activeApp.staticTexts["field.us.journey.active"]
                 .waitForExistence(timeout: 6)
         )
-        XCTAssertTrue(activeApp.staticTexts["THE NEXT USEFUL MOVE"].exists)
+        XCTAssertTrue(activeApp.staticTexts["Make space for the evening"].exists)
         XCTAssertTrue(activeApp.buttons["What brought this here"].exists)
+        XCTAssertTrue(activeApp.staticTexts["Agreed direction"].exists)
+        keepScreenshot(of: activeApp, named: "review.us.agreed")
         XCTAssertFalse(
             activeApp.staticTexts[
                 "Dinner and the rest of the evening were still unshaped."
             ].exists,
             "evidence should begin collapsed"
         )
+        activeApp.swipeUp()
+        let evidence = activeApp.buttons["What brought this here"]
+        XCTAssertTrue(waitForHittable(evidence), "Shared evidence must clear the bottom navigation")
+        evidence.tap()
+        XCTAssertTrue(activeApp.staticTexts["Dinner and the rest of the evening were still unshaped."].waitForExistence(timeout: 4))
     }
 
     @MainActor
@@ -1040,6 +1009,7 @@ final class FieldZoneUITests: XCTestCase {
     @MainActor
     func testCriticalZonesPassAccessibilityAudit() throws {
         let app = launchEmpty(maximumAccessibility: true)
+        openCapture(app)
         let capture = app.textViews["field.capture.input"]
         XCTAssertTrue(capture.waitForExistence(timeout: 12))
 
@@ -1050,6 +1020,7 @@ final class FieldZoneUITests: XCTestCase {
             .trait,
         ])
 
+        app.buttons["field.capture.done"].tap()
         app.buttons["field.nav.us"].tap()
         XCTAssertTrue(
             app.staticTexts["field.us.journey.empty"]
@@ -1233,6 +1204,14 @@ final class FieldZoneUITests: XCTestCase {
     /// is not a weaker assertion — a `•••` that stopped announcing itself as
     /// "More" would be a bug worth failing on.
     @MainActor
+    private func openCapture(_ app: XCUIApplication) {
+        if app.textViews["field.capture.input"].exists { return }
+        let button = app.buttons["field.capture.open"]
+        XCTAssertTrue(button.waitForExistence(timeout: 8))
+        button.tap()
+    }
+
+    @MainActor
     private func roomMenu(_ app: XCUIApplication) -> XCUIElement {
         app.buttons["More"].firstMatch
     }
@@ -1265,8 +1244,7 @@ final class FieldZoneUITests: XCTestCase {
         return false
     }
 
-    /// Nothing in the chrome carries a badge or a count. "One
-    /// waiting" would be the forbidden count, read aloud.
+    /// Nothing in the chrome carries a badge or a count.
     @MainActor
     func testTheChromeCarriesNoCount() {
         let app = launchZones()
@@ -1280,23 +1258,6 @@ final class FieldZoneUITests: XCTestCase {
                 "the chrome is carrying a count: \(label)"
             )
         }
-    }
-
-    @MainActor
-    private func launchOnboarding() -> XCUIApplication {
-        let app = XCUIApplication()
-        WEUITestLaunchSupport.configure(app)
-        app.launchEnvironment["WE_REPOSITORY"] = "preview"
-        app.launchEnvironment["WE_PREVIEW_SCENARIO"] = "choosinghue"
-        app.launchEnvironment["WE_SKIP_PROMISE"] = "1"
-        app.launchEnvironment["WE_SKIP_WALKTHROUGH"] = "1"
-        app.launchEnvironment["WE_DISABLE_CREDENTIAL_PROMPTS"] = "1"
-        app.launchArguments += [
-            "-hasSeenLivingConfluencePromise", "YES",
-            "-hasSeenWalkthrough", "YES",
-        ]
-        app.launch()
-        return app
     }
 
     @MainActor

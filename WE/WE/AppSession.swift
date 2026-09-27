@@ -11,7 +11,6 @@ final class AppSession: ObservableObject {
         case resettingPassword
         case needsCouple
         case waitingForPartner
-        case choosingHue
         case ready
         case failed(String)
     }
@@ -191,6 +190,9 @@ final class AppSession: ObservableObject {
                 email: email,
                 password: password
             )
+            // The account exists now, verified or not. The walkthrough plays
+            // the first time the session lands somewhere with an app behind it.
+            WalkthroughGate.markAccountCreated()
             switch result {
             case .signedIn(let signedInUser):
                 try await self.load(user: signedInUser, allowsCache: false)
@@ -204,6 +206,7 @@ final class AppSession: ObservableObject {
     }
 
     func returnToSignIn(message: String? = nil) {
+        WEIntelligenceStore.shared.reset()
         shareVault.deactivate()
         noticeMessage = message
         errorMessage = nil
@@ -217,6 +220,14 @@ final class AppSession: ObservableObject {
                 password: password
             )
             try await self.load(user: signedInUser, allowsCache: true)
+        }
+    }
+
+    /// Sends the confirmation link again, and stays on the screen that asked.
+    func resendVerification(email: String) async {
+        await working {
+            try await self.repository.resendVerification(email: email)
+            self.noticeMessage = "Sent again. If it isn't there in a minute, check spam."
         }
     }
 
@@ -265,6 +276,7 @@ final class AppSession: ObservableObject {
         noticeMessage = nil
         defer { isWorking = false }
         stopObservingRelationship()
+        WEIntelligenceStore.shared.reset()
         shareVault.deactivate()
 
         do {
@@ -313,6 +325,10 @@ final class AppSession: ObservableObject {
             // Do not destroy a private vault on a failed password or failed
             // server deletion. Once deletion is confirmed, purge it before
             // rendering the signed-out state.
+            if let context = try? self.shareVault.activeContext() {
+                try? WEIntelligencePersistence().remove(vaultID: context.pointer.vaultID)
+            }
+            WEIntelligenceStore.shared.reset()
             self.shareVault.purge(accountID: deletingUser.id)
             self.localData.purge()
             self.user = nil
@@ -344,6 +360,11 @@ final class AppSession: ObservableObject {
 
     func joinCouple(code: String) async {
         await perform { try await self.repository.joinCouple(code: code) }
+    }
+
+    /// Gives up a space this person is alone in and joins theirs instead.
+    func joinInstead(code: String) async {
+        await perform { try await self.repository.joinInstead(code: code) }
     }
 
     // MARK: The device
@@ -407,13 +428,6 @@ final class AppSession: ObservableObject {
         guard let user else { return }
         await perform {
             try await self.repository.updateProfile(name: name, userID: user.id)
-        }
-    }
-
-    func updateHue(_ hue: MemberHue) async {
-        guard let membership = snapshot?.membership else { return }
-        await perform {
-            try await self.repository.updateHue(hue, membership: membership)
         }
     }
 
@@ -858,8 +872,6 @@ final class AppSession: ObservableObject {
 
         if snapshot.members.count < 2 && !hasDeparted {
             state = .waitingForPartner
-        } else if !membership.hasChosenHue {
-            state = .choosingHue
         } else {
             state = .ready
         }
@@ -880,6 +892,7 @@ final class AppSession: ObservableObject {
         }
 
         stopObservingRelationship()
+        WEIntelligenceStore.shared.reset()
         shareVault.deactivate()
         do {
             try await cache.remove(userID: storedUser.id)

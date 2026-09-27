@@ -66,6 +66,12 @@ private struct TeachingMomentRow: Codable {
 }
 
 private struct LifeItemRow: Codable {
+    var intelligence_version: Int?
+    var timing: WEObjectTiming?
+    var connected_plan_id: UUID?
+    var place: String?
+    let source_url: String?
+    let explicit_task: Bool?
     let id: UUID
     let title: String
     let category: String
@@ -80,6 +86,13 @@ private struct LifeItemRow: Codable {
     /// Optional so a build running against a database that predates solo
     /// visibility still decodes. Absent resolves to `shared` in `map`.
     let visibility: String?
+    /// Optional for the same reason, one column later: a database that
+    /// predates `20260906120000_life_item_reached_out` has no such key, and a
+    /// build talking to it should still show the couple their Life.
+    let reached_out_at: Date?
+    /// Optional, like the two above: a database that predates
+    /// `20260927120000_hold_until` has no such key.
+    let hold_until: String?
 }
 
 /// The links a published share brought with it.
@@ -98,7 +111,31 @@ private struct LifeResourceRow: Codable {
     let created_at: Date
 }
 
+private struct GoalApprovalRow: Decodable {
+    let goal_id: UUID
+    let profile_id: UUID
+    let revision: String
+}
+
+private struct ChatRow: Decodable {
+    let id: UUID
+    let sender_id: UUID
+    let body: String
+    let created_at: Date
+    let context_kind: String?
+    let context_id: UUID?
+    let decision: Bool
+    let confirmed_by: UUID?
+    let source_id: UUID?
+}
+private struct ChatPreferenceRow: Decodable {
+    let profile_id: UUID
+    let notices: Bool
+    let read_at: Date?
+    let notifications: Bool?
+}
 private struct HorizonRow: Codable {
+    let goal_plan: FieldGoalPlan?
     let id: UUID
     let title: String
     let window_label: String?
@@ -280,6 +317,8 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
     func load() async throws -> FieldState {
         // Issued concurrently — this is the app's cold start, and fourteen
         // sequential round trips would be the whole launch budget.
+        async let chat = chatPage(before: nil, decisionsOnly: false)
+        async let chatPreferences = fetch([ChatPreferenceRow].self, from: "field_chat_preferences")
         async let identity = fetchIdentity()
         async let windows = fetch([AwayWindowRow].self, from: "field_away_windows")
         async let clusters = fetch([ClusterRow].self, from: "field_clusters")
@@ -288,6 +327,7 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             [LifeResourceRow].self, from: "field_life_resources"
         )
         async let horizons = fetch([HorizonRow].self, from: "field_horizons")
+        async let approvals = fetch([GoalApprovalRow].self, from: "field_goal_current_approvals")
         async let questions = fetch([QuestionRow].self, from: "field_questions")
         async let rhythms = fetch([RhythmRow].self, from: "field_rhythms")
         async let evidence = fetch([EvidenceRow].self, from: "field_evidence")
@@ -305,16 +345,28 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
 
         let resolvedIdentity = try await identity
         let resolvedQuestions = try await questions
+        let resolvedApprovals = try await approvals
         let sourceURLs = sourceURLs(from: try await lifeResources)
 
         return FieldState(
+            conversation: try await chat,
+            chatPreferences: try await chatPreferences.map { .init(owner: $0.profile_id == viewerID ? viewerOwner : (viewerOwner == .a ? .b : .a), notices: $0.notices, readAt: $0.read_at, notifications: $0.notifications) },
             identity: resolvedIdentity,
             partners: try await partners(windows: windows),
             lifeItems: try await lifeItems.map {
                 map($0, sourceURL: sourceURLs[$0.id])
             },
             clusters: try await clusters.map(map),
-            horizons: try await horizons.map { map($0, questions: resolvedQuestions) },
+            horizons: try await horizons.map { row in
+                var goal = map(row, questions: resolvedQuestions)
+                if var plan = goal.goalPlan {
+                    plan.approvedOwners = resolvedApprovals.filter {
+                        $0.goal_id == row.id && $0.revision == plan.revision
+                    }.map { $0.profile_id == viewerID ? viewerOwner : (viewerOwner == .a ? .b : .a) }
+                    goal.goalPlan = plan
+                }
+                return goal
+            },
             rhythms: try await rhythms.map(map),
             anchors: [],
             threads: [],
@@ -359,8 +411,8 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             // hold a colour from before the palette changed, and rawValue
             // returns nil for those, which would send a couple who chose clay
             // and slate silently to the seeded pair.
-            personA: row.flatMap { FieldSwatch(stored: $0.swatch_a) } ?? .burgundy,
-            personB: row.flatMap { FieldSwatch(stored: $0.swatch_b) } ?? .sage,
+            personA: (row.flatMap { FieldSwatch(stored: $0.swatch_a) } ?? .burgundy).inFamily(of: .a),
+            personB: (row.flatMap { FieldSwatch(stored: $0.swatch_b) } ?? .sage).inFamily(of: .b),
             nameA: nameA,
             nameB: nameB,
             livesTogether: row?.lives_together,
@@ -403,8 +455,8 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             return FieldDailyMoment(
                 sendMinute: 8 * 60 + 12,
                 queuedCount: 0,
-                hourRationale: "I haven't learned your hour yet, so I'm "
-                    + "starting in the morning and watching when you reply.",
+                hourRationale: "Your hour isn't learned yet, so this "
+                    + "starts in the morning and watches when you reply.",
                 replyRateBefore: 0,
                 replyRateAfter: 0,
                 lastSentOn: nil
@@ -495,6 +547,11 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
 
     private func map(_ row: LifeItemRow, sourceURL: URL?) -> LifeItem {
         LifeItem(
+            publicationVersion: row.intelligence_version,
+            timing: row.timing,
+            connectedPlanID: row.connected_plan_id?.uuidString,
+            place: row.place,
+            explicitTask: row.explicit_task,
             id: row.id.uuidString,
             title: row.title,
             category: LifeCategory(rawValue: row.category),
@@ -506,8 +563,10 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             detail: row.detail,
             isTimeCritical: row.is_time_critical,
             isDone: row.is_done,
-            sourceURL: sourceURL,
-            visibility: row.visibility.flatMap(FieldVisibility.init(rawValue:))
+            sourceURL: row.source_url.flatMap(URL.init(string:)) ?? sourceURL,
+            visibility: row.visibility.flatMap(FieldVisibility.init(rawValue:)),
+            reachedOutAt: row.reached_out_at,
+            holdUntil: postgresDay(row.hold_until)
         )
     }
 
@@ -519,6 +578,7 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             $0.horizon_id == row.id && $0.answered_choice == nil
         }
         return FieldHorizon(
+            goalPlan: row.goal_plan,
             id: row.id.uuidString,
             title: row.title,
             window: row.window_label,
@@ -697,6 +757,8 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             "source": .string(item.source.rawValue),
             "is_time_critical": .bool(item.isTimeCritical),
             "is_done": .bool(item.isDone),
+            "explicit_task": .bool(item.explicitTask ?? false),
+            "source_url": item.sourceURL.map { .string($0.absoluteString) } ?? .null,
         ]
         if let existing = UUID(uuidString: item.id) {
             payload["id"] = .string(existing.uuidString)
@@ -723,6 +785,13 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         // whatever the column already had, and taking something *out* of an
         // occasion would have looked right and done nothing.
         payload["cluster_id"] = item.clusterID.map { .string($0) } ?? .null
+        // Explicitly null when absent, like the dates above and for a sharper
+        // reason: taking back an outward act is the whole point of the column
+        // being clearable, and an upsert that omitted the key would have put
+        // "somebody already called them" back on the next load.
+        payload["reached_out_at"] = item.reachedOutAt.map {
+            .string(ISO8601DateFormatter.we.string(from: $0))
+        } ?? .null
         // Only when this device actually knows it. The database honours a
         // requested `private` on insert, lets the author move `private` to
         // `shared`, and ignores everything else — so sending the known value
@@ -731,7 +800,23 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         if let visibility = item.visibility {
             payload["visibility"] = .string(visibility.rawValue)
         }
+        // Only on private rows, where it means something. Explicitly null when
+        // absent so clearing a hold actually clears it. Shared rows never
+        // carry the key, and the database clears it on the crossing anyway.
+        if item.visibility == .private {
+            payload["hold_until"] = item.holdUntil.map {
+                .string(DateFormatter.fieldDay.string(from: $0))
+            } ?? .null
+        }
 
+        if let timing = item.timing {
+            payload["timing"] = try JSONDecoder().decode(AnyJSON.self, from: JSONEncoder.share.encode(timing))
+        }
+        if let version = item.publicationVersion, version > 0 {
+            let encoded: AnyJSON = .object(payload)
+            _ = try await client.rpc("intake_update_life", params: ["p_id": AnyJSON.string(item.id), "p_expected": .integer(version), "p_fields": encoded]).execute()
+            return
+        }
         _ = try await client
             .from("field_life_items")
             .upsert(payload, onConflict: "id")
@@ -764,8 +849,39 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             .execute()
     }
 
-    /// The only way Us ever gains anything: somebody answered a promotion
-    /// question with a yes.
+    func sendChat(_ message: FieldChatMessage) async throws {
+        try await client.rpc("field_chat_send", params: [
+            "p_id": AnyJSON.string(message.id), "p_body": .string(message.body),
+            "p_context_kind": message.context.map { .string($0.kind) } ?? .null,
+            "p_context_id": message.context.map { .string($0.id) } ?? .null,
+            "p_decision": .bool(message.decision), "p_source": message.sourceID.map(AnyJSON.string) ?? .null
+        ]).execute()
+    }
+    func chatPage(before: String?, decisionsOnly: Bool) async throws -> [FieldChatMessage] {
+        let rows: [ChatRow] = try await client.rpc("field_chat_page", params: [
+            "p_before": before.map(AnyJSON.string) ?? .null, "p_decisions": .bool(decisionsOnly)
+        ]).execute().value
+        return rows.reversed().map { row in
+            FieldChatMessage(id: row.id.uuidString, body: row.body,
+                sender: row.sender_id == viewerID ? viewerOwner : (viewerOwner == .a ? .b : .a), createdAt: row.created_at,
+                context: row.context_kind.flatMap { kind in row.context_id.map { .init(kind: kind, id: $0.uuidString) } },
+                decision: row.decision, confirmed: row.confirmed_by != nil, sourceID: row.source_id?.uuidString)
+        }
+    }
+    func setChatPreference(notices: Bool, readAt: Date?, notifications: Bool?) async throws {
+        try await client.rpc("field_chat_preference", params: ["p_notices": readAt == nil ? AnyJSON.bool(notices) : .null, "p_read": .bool(readAt != nil), "p_notifications": notifications.map(AnyJSON.bool) ?? .null]).execute()
+    }
+    func confirmChatDecision(_ id: String) async throws {
+        let _: ChatRow = try await client.from("field_chat_messages").update(["confirmed_by": viewerID.uuidString]).eq("id", value: id).select().single().execute().value
+    }
+
+    func approveGoal(id: String, revision: String, approved: Bool) async throws {
+        try await client.rpc("set_us_goal_agreement", params: [
+            "p_goal": AnyJSON.string(id), "p_revision": .string(revision),
+            "p_approved": .bool(approved)
+        ]).execute()
+    }
+
     func upsert(_ horizon: FieldHorizon) async throws {
         var payload: [String: AnyJSON] = [
             "couple_id": .string(coupleID.uuidString),
@@ -779,8 +895,12 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         if let existing = UUID(uuidString: horizon.id) {
             payload["id"] = .string(existing.uuidString)
         }
-        if let window = horizon.window { payload["window_label"] = .string(window) }
-        if let thesis = horizon.thesis { payload["thesis"] = .string(thesis) }
+        if var plan = horizon.goalPlan {
+            plan.approvedOwners = []
+            payload["goal_plan"] = try JSONDecoder().decode(AnyJSON.self, from: JSONEncoder().encode(plan))
+        }
+        payload["window_label"] = horizon.window.map(AnyJSON.string) ?? .null
+        payload["thesis"] = horizon.thesis.map(AnyJSON.string) ?? .null
         if let target = horizon.targetDate {
             payload["target_date"] = .string(
                 DateFormatter.fieldDay.string(from: target)
@@ -1215,7 +1335,10 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         "field_away_windows",
         "field_clusters",
         "field_life_items",
+        "field_chat_messages",
+        "field_chat_preferences",
         "field_horizons",
+        "field_goal_approvals",
         "field_questions",
         "field_rhythms",
         "field_evidence",

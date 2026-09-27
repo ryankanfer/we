@@ -116,7 +116,7 @@ struct WalkthroughSeedTests {
     func japanIsTheSubjectSaidTwice() {
         for start in Self.starts {
             guard case .memory(let proposal)? = WalkthroughOutcome.resolve(
-                .us,
+                .goals,
                 now: start
             ) else {
                 Issue.record("no promotion on \(start)")
@@ -148,7 +148,7 @@ struct WalkthroughSeedTests {
     @Test
     func theUsQuestionOffersTwoAnswers() {
         guard case .memory(let proposal)? = WalkthroughOutcome.resolve(
-            .us,
+            .goals,
             now: FieldSampleData.today
         ) else {
             Issue.record("no Us question")
@@ -168,85 +168,65 @@ struct WalkthroughJourneyOrderTests {
     func theJourneysChainAndThenStop() {
         let ordered = WalkthroughJourney.ordered
 
-        #expect(ordered == [.today, .life, .us])
+        #expect(ordered == [.today, .life, .goals])
         #expect(ordered.map(\.progressIndex) == [0, 1, 2])
         #expect(WalkthroughJourney.today.next == .life)
-        #expect(WalkthroughJourney.life.next == .us)
-        #expect(WalkthroughJourney.us.next == nil)
-        #expect(WalkthroughJourney.today.headerLabel == "TODAY · HOME")
+        #expect(WalkthroughJourney.life.next == .goals)
+        #expect(WalkthroughJourney.goals.next == nil)
+        #expect(WalkthroughJourney.today.headerLabel == "TODAY")
         #expect(WalkthroughJourney.life.headerLabel == "LIFE")
-        #expect(WalkthroughJourney.us.headerLabel == "US")
+        #expect(WalkthroughJourney.goals.headerLabel == "LIFE · WHERE WE'RE HEADED")
         #expect(WalkthroughJourney.today.nextTitle == "Next: Life")
-        #expect(WalkthroughJourney.life.nextTitle == "Next: Us")
-        #expect(WalkthroughJourney.us.nextTitle == "Open WE")
+        #expect(WalkthroughJourney.life.nextTitle == "Next: Where we're headed")
+        #expect(WalkthroughJourney.goals.nextTitle == "Open WE")
     }
 }
 
 // MARK: - When it plays
 
 struct WalkthroughGateTests {
-    /// Signed out and only signed out — and never twice.
-    @Test
-    func itOpensOnceForSomeoneSignedOut() {
-        #expect(
-            WalkthroughGate.shouldPresent(
-                hasSeen: false,
-                isSignedOut: true,
-                isSkipped: false
-            )
-        )
-        #expect(
-            !WalkthroughGate.shouldPresent(
-                hasSeen: true,
-                isSignedOut: true,
-                isSkipped: false
-            )
-        )
-        #expect(
-            !WalkthroughGate.shouldPresent(
-                hasSeen: false,
-                isSignedOut: false,
-                isSkipped: false
-            )
-        )
-        #expect(
-            !WalkthroughGate.shouldPresent(
-                hasSeen: false,
-                isSignedOut: true,
-                isSkipped: true
-            )
-        )
-    }
-
-    /// A replay always plays, and `consider` must not close it or reopen it
-    /// underneath the person reading it.
+    /// Offered, never imposed: closed until someone asks, and asking always
+    /// opens it.
     @MainActor
     @Test
-    func aReplayIsNotOverruledByTheAutomaticGate() {
+    func itOpensOnlyWhenAskedFor() {
         let defaults = UserDefaults(
             suiteName: "walkthrough.tests.\(UUID().uuidString)"
         )!
         let presenter = WalkthroughPresenter(defaults: defaults)
-
-        presenter.consider(isSignedOut: true)
-        #expect(presenter.isPresented)
-
-        presenter.finish()
         #expect(!presenter.isPresented)
 
-        // Seen, so the gate declines.
-        presenter.consider(isSignedOut: true)
-        #expect(!presenter.isPresented)
-
-        // Asked for anyway.
         presenter.replay()
         #expect(presenter.isPresented)
 
-        // A session republishing its state must not close it.
-        presenter.consider(isSignedOut: true)
-        #expect(presenter.isPresented)
-
         presenter.finish()
         #expect(!presenter.isPresented)
+        #expect(presenter.hasSeen)
     }
+}
+
+@MainActor
+struct PrivateBetaWalkthroughTests {
+    @Test func fictionalThoughtCanBeCorrectedAndRetrievedWithoutBackend() throws {
+        let store = WalkthroughPractice.makeStore()
+        #expect(store.state.lifeItems.isEmpty)
+        #expect(!store.canReportDelivery)
+        store.captureDraft = WalkthroughPractice.input
+        store.submitCapture()
+        let receipt = try #require(store.lastReceipt)
+        #expect(receipt.category == .food)
+        let friday = try #require(receipt.dueOn)
+        #expect(Calendar.gregorianUS.component(.weekday, from: friday) == 6)
+        let saturday = try #require(Calendar.gregorianUS.date(byAdding: .day, value: 1, to: friday))
+        store.lastReceipt?.dueOn = saturday
+        store.send()
+        #expect(store.state.lifeItems.count == 1)
+        #expect(store.state.lifeItems.first?.dueOn == saturday)
+        store.redate(receipt.id, to: receipt.dueOn)
+        #expect(store.state.lifeItems.first?.dueOn == receipt.dueOn)
+        store.send()
+        #expect(store.state.lifeItems.count == 1)
+        #expect(WalkthroughPractice.makeStore().state.lifeItems.isEmpty)
+    }
+
 }

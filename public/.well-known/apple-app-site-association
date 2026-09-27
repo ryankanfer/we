@@ -1,0 +1,12 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["2F28BDAM56.com.ryankanfer.WE"],
+        "components": [
+          { "/": "/join/*", "comment": "Partner invitations open straight into WE." }
+        ]
+      }
+    ]
+  }
+}
