@@ -26,7 +26,6 @@ struct WelcomeView: View {
     }
 
     @EnvironmentObject private var pendingInvitation: PendingInvitation
-    @EnvironmentObject private var walkthrough: WalkthroughPresenter
     @State private var destination: Destination?
 
     /// Whether the held code has already been offered on this launch.
@@ -43,14 +42,11 @@ struct WelcomeView: View {
             title: WEGateCopy.welcome,
             subtitle: WEGateCopy.welcomeLine,
             hero: {
-                ZStack(alignment: .topTrailing) {
-                    WelcomeBloom(diameter: 280)
-                        .padding(.top, 12)
-                    // The explanation, offered rather than played at them.
-                    Button("How it works") { walkthrough.replay() }
-                        .buttonStyle(FirstRunLinkStyle())
-                        .accessibilityIdentifier("welcome.walkthrough")
-                }
+                // No walkthrough here. It plays once the account exists,
+                // when there is somebody to welcome by name.
+                WelcomeBloom(diameter: 280)
+                    .padding(.top, 12)
+                    .frame(maxWidth: .infinity)
             },
             actions: {
                 Button(WEGateCopy.begin) { destination = .createAccount }

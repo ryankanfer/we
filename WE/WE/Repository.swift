@@ -39,6 +39,8 @@ protocol Repository {
     func signIn(email: String, password: String) async throws
         -> AuthenticatedUser
     func sendPasswordReset(email: String) async throws
+    /// Sends the sign up confirmation email again.
+    func resendVerification(email: String) async throws
     func handleAuthCallback(_ url: URL) async throws -> AuthCallbackResult
     func updatePassword(_ password: String) async throws
     func signOut() async throws
@@ -176,6 +178,9 @@ protocol Repository {
 
 extension Repository {
     func recordJourneyQuestionShown(insightID: String) async throws {}
+
+    /// Nothing to resend for a repository with no email behind it.
+    func resendVerification(email: String) async throws {}
 
     func loadPrivateProposals(
         for user: AuthenticatedUser

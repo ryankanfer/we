@@ -362,6 +362,26 @@ struct LifeItem: Identifiable, Codable, Hashable, Sendable {
     /// could say: the moment the thing is done, nobody is owed anything.
     var isAwaitingSomeoneElse: Bool { reachedOutAt != nil && !isDone }
 
+    /// "Hold until": the day an Only me item's author wanted to be asked
+    /// whether it is ready to share.
+    ///
+    /// Only me is framed as time, not a wall. A gift idea, a surprise, a thing
+    /// somebody is still working out how to say: private because it is not
+    /// ready yet. This is the "yet". WE never shares on its own; on the day,
+    /// it asks the author, and only the author, whether it is time.
+    ///
+    /// Meaningless once shared, and the database clears it on that crossing
+    /// (`20260927120000_hold_until.sql`), so a partner who can read the row
+    /// never learns when it was meant to arrive. Optional for the same reason
+    /// the columns above are.
+    var holdUntil: Date? = nil
+
+    /// Private, held, and the day has come.
+    func isReadyToOffer(on day: Date, calendar: Calendar = .gregorianUS) -> Bool {
+        guard visibility == .private, !isDone, let holdUntil else { return false }
+        return calendar.startOfDay(for: holdUntil) <= calendar.startOfDay(for: day)
+    }
+
     /// Whether this item may inform something both people will see.
     ///
     /// Deliberately phrased as a question about presence rather than about
@@ -776,6 +796,8 @@ struct FieldReceipt: Identifiable, Codable, Hashable, Sendable {
     /// "Only me". Off unless the person turns it on, so the default stays
     /// what it has always been: filed things are shared.
     var isPrivate: Bool = false
+    /// "Hold until", chosen with Only me. Ignored when the receipt is shared.
+    var holdUntil: Date? = nil
     /// A link handed over with the words, from the + card. It travels onto
     /// the filed item, where the link is what gets opened.
     var sourceURL: URL? = nil

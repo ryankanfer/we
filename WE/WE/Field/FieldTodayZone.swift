@@ -75,6 +75,13 @@ struct FieldTodayZone: View {
                 }
                 .padding(.vertical, 12)
 
+                // Only me, on the day its author picked. Only ever on the
+                // author's phone: a private row reaches nobody else.
+                ForEach(store.heldItemsReadyToOffer) { item in
+                    FieldHeldReadyCard(item: item, openItem: $openItem)
+                        .padding(.vertical, 12)
+                }
+
                 if WEFeatureFlags.shareInboxEnabled {
                     WEPrivateTimeItems().environment(store).padding(.vertical, 12)
                     WESharedTimeItems().environment(store).padding(.vertical, 12)
@@ -528,5 +535,79 @@ struct FieldMomentView: View {
     private func begin(_ act: FieldAct) {
         guard store.state.lifeItems.contains(where: { $0.id == moment.id }) else { return }
         actionItem = FieldItemReference(id: moment.id)
+    }
+}
+
+
+// MARK: - Hold until, on the day
+
+/// "You held this for today." The one moment Only me asks anything of
+/// anyone, and it asks its author. Two equal answers: share it, or keep it.
+/// Keeping it clears the day rather than snoozing, because a question asked
+/// twice about the same private thing starts to feel like pressure.
+private struct FieldHeldReadyCard: View {
+    @Environment(FieldStore.self) private var store
+    @Environment(\.weCanvas) private var canvas
+    let item: LifeItem
+    @Binding var openItem: FieldItemReference?
+    @State private var confirmsShare = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                FieldDot(owner: item.owner, isPrivate: true, identity: store.identity)
+                FieldLabel(WEOnlyMeCopy.readyLabel)
+            }
+
+            Button {
+                openItem = FieldItemReference(id: item.id)
+            } label: {
+                Text(item.title)
+                    .font(FieldType.listItemLarge)
+                    .foregroundStyle(.fieldInk(.headline))
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .buttonStyle(.plain)
+
+            Text(WEOnlyMeCopy.readyLine)
+                .font(FieldType.reasoning)
+                .foregroundStyle(.fieldInk(.reasoning))
+
+            HStack(spacing: 12) {
+                Button(WEOnlyMeCopy.readyShare(partner: store.partnerName)) {
+                    confirmsShare = true
+                }
+                .buttonStyle(FieldFilledButtonStyle())
+                .accessibilityIdentifier("field.today.held.share")
+
+                Button(WEOnlyMeCopy.readyKeep) {
+                    store.setHold(item.id, until: nil)
+                }
+                .buttonStyle(FieldOutlinedButtonStyle())
+                .accessibilityIdentifier("field.today.held.keep")
+            }
+        }
+        .padding(FieldMetrics.cardPadding + 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(
+            RoundedRectangle(cornerRadius: FieldMetrics.cardRadius)
+                .strokeBorder(
+                    canvas.ink.opacity(0.3),
+                    style: StrokeStyle(lineWidth: 1, dash: [5, 4])
+                )
+        )
+        .confirmationDialog(
+            "Share with \(store.partnerName)?",
+            isPresented: $confirmsShare,
+            titleVisibility: .visible
+        ) {
+            Button("Share it") { store.share(item.id) }
+            Button("Not yet", role: .cancel) {}
+        } message: {
+            Text("\(store.partnerName) will be able to see it from now on. It can't be made private again.")
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("field.today.held")
     }
 }

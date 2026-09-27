@@ -1300,7 +1300,8 @@ final class FieldStore {
             detail: match == nil ? nil : "Both added it, independently",
             isTimeCritical: false, isDone: false,
             sourceURL: receipt.sourceURL,
-            visibility: receipt.isPrivate ? .private : nil
+            visibility: receipt.isPrivate ? .private : nil,
+            holdUntil: receipt.isPrivate ? receipt.holdUntil : nil
         )
     }
 
@@ -1351,6 +1352,34 @@ final class FieldStore {
     /// only changes what `send()` will do.
     func togglePrivate() {
         lastReceipt?.isPrivate.toggle()
+        if lastReceipt?.isPrivate == false { lastReceipt?.holdUntil = nil }
+    }
+
+    /// "Hold until", on the receipt. Only meaningful with Only me on.
+    func setReceiptHold(_ day: Date?) {
+        guard lastReceipt?.isPrivate == true else { return }
+        lastReceipt?.holdUntil = day
+    }
+
+    /// Sets, moves or clears the day WE offers to share a private item.
+    /// The author's own row, so it travels the same way `share` does.
+    func setHold(_ itemID: String, until day: Date?) {
+        guard let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
+              state.lifeItems[index].visibility == .private
+        else { return }
+        state.lifeItems[index].holdUntil = day
+        let item = state.lifeItems[index]
+        Task { [backend] in try? await backend?.upsert(item) }
+    }
+
+    /// Private things whose day has come, for their author's Today. Never
+    /// anyone else's: a private row is only ever on its author's phone.
+    var onlyMeItems: [LifeItem] {
+        state.lifeItems.filter { $0.visibility == .private && !$0.isDone }
+    }
+
+    var heldItemsReadyToOffer: [LifeItem] {
+        state.lifeItems.filter { $0.isReadyToOffer(on: now) }
     }
 
     /// Lets a partner see something that was "Only me". One way: the
@@ -1360,6 +1389,7 @@ final class FieldStore {
               state.lifeItems[index].visibility == .private
         else { return }
         state.lifeItems[index].visibility = .shared
+        state.lifeItems[index].holdUntil = nil
         if let captureIndex = state.captures.firstIndex(where: { $0.id == itemID }) {
             state.captures[captureIndex].visibility = .shared
         }

@@ -36,6 +36,9 @@ struct FieldChatComposer: View {
 
     @State private var text = ""
     @State private var justMe = false
+    /// "Hold until": the day WE asks whether an Only me thing is ready to
+    /// share. Nil means no day; the thing simply waits until its author says.
+    @State private var holdDay: Date?
     @State private var link: FieldLinkReader?
 
     /// Closes the card without sending.
@@ -94,6 +97,11 @@ struct FieldChatComposer: View {
                 .font(.system(size: 12))
                 .foregroundStyle(.fieldInk(.legend))
                 .fixedSize(horizontal: false, vertical: true)
+
+            if justMe && !isLookup {
+                holdRow
+                    .transition(.opacity)
+            }
         }
         .padding(20)
         .background(canvas.bgElevated, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
@@ -235,6 +243,7 @@ struct FieldChatComposer: View {
         .disabled(isLookup)
         .opacity(isLookup ? 0.4 : 1)
         .animation(.easeInOut(duration: 0.2), value: justMe)
+        .onChange(of: justMe) { _, isOn in if !isOn { holdDay = nil } }
         .accessibilityLabel("Who can see this")
         .accessibilityValue(justMe ? "Only me" : "Both of us")
         .accessibilityHint("Switches between both of you and just you")
@@ -258,8 +267,73 @@ struct FieldChatComposer: View {
     private var footnote: String {
         if isLookup { return "Asking WE. Only you see this." }
         return justMe
-            ? "Only you and WE. \(store.partnerName) won't see this."
+            ? WEOnlyMeCopy.on(partner: store.partnerName)
             : "\(store.partnerName) will see this."
+    }
+
+    // MARK: Hold until
+
+    private static var tomorrow: Date {
+        Calendar.gregorianUS.date(
+            byAdding: .day, value: 1,
+            to: Calendar.gregorianUS.startOfDay(for: Date())
+        ) ?? Date()
+    }
+
+    /// Off until asked for. Once on, a compact date and a way to take it back.
+    @ViewBuilder
+    private var holdRow: some View {
+        if let day = holdDay {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 12))
+                        .accessibilityHidden(true)
+                    DatePicker(
+                        "Ask me on",
+                        selection: Binding(get: { day }, set: { holdDay = $0 }),
+                        in: Self.tomorrow...,
+                        displayedComponents: .date
+                    )
+                    .datePickerStyle(.compact)
+                    .font(.system(size: 13))
+                    Button {
+                        holdDay = nil
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .semibold))
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("No day")
+                }
+                Text(WEOnlyMeCopy.holdSet(day, partner: store.partnerName))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.fieldInk(.legend))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(.fieldInk(.headline))
+            .accessibilityIdentifier("field.composer.hold")
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(WEOnlyMeCopy.why)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.fieldInk(.legend))
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    holdDay = Calendar.gregorianUS.date(byAdding: .day, value: 7, to: Self.tomorrow)
+                } label: {
+                    Label(WEOnlyMeCopy.holdPrompt, systemImage: "calendar.badge.clock")
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(minHeight: 36)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.fieldInk(.headline))
+                .accessibilityIdentifier("field.composer.holdStart")
+            }
+        }
     }
 
     private func send() {
@@ -271,11 +345,15 @@ struct FieldChatComposer: View {
             store.captureDraft = wordsToFile
             store.submitCapture()
             store.attachLink(link?.url)
-            if justMe { store.togglePrivate() }
+            if justMe {
+                store.togglePrivate()
+                store.setReceiptHold(holdDay)
+            }
             store.send()
         }
         text = ""
         link = nil
+        holdDay = nil
         onSent()
     }
 }

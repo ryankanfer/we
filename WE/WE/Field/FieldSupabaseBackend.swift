@@ -90,6 +90,9 @@ private struct LifeItemRow: Codable {
     /// predates `20260906120000_life_item_reached_out` has no such key, and a
     /// build talking to it should still show the couple their Life.
     let reached_out_at: Date?
+    /// Optional, like the two above: a database that predates
+    /// `20260927120000_hold_until` has no such key.
+    let hold_until: String?
 }
 
 /// The links a published share brought with it.
@@ -562,7 +565,8 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             isDone: row.is_done,
             sourceURL: row.source_url.flatMap(URL.init(string:)) ?? sourceURL,
             visibility: row.visibility.flatMap(FieldVisibility.init(rawValue:)),
-            reachedOutAt: row.reached_out_at
+            reachedOutAt: row.reached_out_at,
+            holdUntil: postgresDay(row.hold_until)
         )
     }
 
@@ -795,6 +799,14 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
         // one (a row cached before visibility existed) can never widen it.
         if let visibility = item.visibility {
             payload["visibility"] = .string(visibility.rawValue)
+        }
+        // Only on private rows, where it means something. Explicitly null when
+        // absent so clearing a hold actually clears it. Shared rows never
+        // carry the key, and the database clears it on the crossing anyway.
+        if item.visibility == .private {
+            payload["hold_until"] = item.holdUntil.map {
+                .string(DateFormatter.fieldDay.string(from: $0))
+            } ?? .null
         }
 
         if let timing = item.timing {

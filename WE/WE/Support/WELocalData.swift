@@ -60,6 +60,13 @@ struct WELocalData {
         // offered somebody else's relationship to join.
         defaults.removeObject(forKey: PendingInvitation.defaultsKey)
 
+        // Who the last invitation was for, typed by the person who sent it.
+        // Somebody else's name, and nothing the next account should inherit.
+        defaults.removeObject(forKey: PendingInvitation.inviteeNameKey)
+
+        // A walkthrough owed to an account that is no longer here.
+        defaults.removeObject(forKey: WalkthroughGate.pendingKey)
+
         // Whether this person answered the crossing question (2a). Keyed by
         // user and couple, so the keys are enumerated rather than named — and
         // they have to go, or the next person to sign in on this phone
@@ -83,6 +90,10 @@ struct WELocalData {
     }
 
     var defaultsKeys: [String] {
-        [PendingInvitation.defaultsKey]
+        [
+            PendingInvitation.defaultsKey,
+            PendingInvitation.inviteeNameKey,
+            WalkthroughGate.pendingKey,
+        ]
     }
 }

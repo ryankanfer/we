@@ -81,6 +81,14 @@ final class SupabaseRepository: Repository {
         )
     }
 
+    func resendVerification(email: String) async throws {
+        try await configuredClient().auth.resend(
+            email: normalized(email),
+            type: .signup,
+            emailRedirectTo: Self.emailConfirmationURL
+        )
+    }
+
     func handleAuthCallback(_ url: URL) async throws
         -> AuthCallbackResult
     {

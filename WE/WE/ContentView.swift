@@ -228,11 +228,64 @@ private struct PairingView: View {
     @State private var joinCode = ""
     @State private var showsJoinCode = false
     @FocusState private var codeFocused: Bool
+    /// Set once redemption has failed, or the person asks for the form. From
+    /// then on this is the ordinary pairing screen, with the code and the
+    /// reason in front of them.
+    @State private var showsChoices = false
+    @State private var inviterName: String?
+
+    /// An invited person, whose code is being spent right now. They chose
+    /// who to join a few screens ago, so they should never meet "Invite them"
+    /// while that happens.
+    private var isJoiningHeldCode: Bool {
+        pendingInvitation.code != nil && !showsChoices && session.errorMessage == nil
+    }
+
+    var body: some View {
+        Group {
+            if isJoiningHeldCode {
+                joining
+            } else {
+                choices
+            }
+        }
+        .onChange(of: session.errorMessage) { _, message in
+            if message != nil, pendingInvitation.code != nil { showsChoices = true }
+        }
+    }
+
+    private var joining: some View {
+        FirstRunScreen(
+            title: WEGateCopy.joiningTitle(for: inviterName ?? pendingInvitation.inviterName),
+            subtitle: WEGateCopy.joiningDetail,
+            content: {
+                ProgressView()
+                    .controlSize(.large)
+                    .tint(WECanvas.cream.ink)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel("Joining")
+            },
+            actions: {
+                Button("Use a different code") {
+                    joinCode = pendingInvitation.code ?? ""
+                    showsJoinCode = true
+                    showsChoices = true
+                }
+                .buttonStyle(FirstRunLinkStyle())
+                .accessibilityIdentifier("pairing.joining.differentCode")
+            }
+        )
+        .task(id: pendingInvitation.code) {
+            guard pendingInvitation.inviterName == nil,
+                  let code = pendingInvitation.code else { return }
+            inviterName = await session.invitationGreeting(for: code)?.name
+        }
+    }
 
     /// Two cards, one each way in. Past relationships and Sign out used to
     /// sit under them; both live in Account (top right), where every other
     /// setting is, so this screen asks one question.
-    var body: some View {
+    private var choices: some View {
         FirstRunScreen(
             title: "Your account is ready.",
             subtitle: "Now the person you're making this with.",
@@ -271,7 +324,7 @@ private struct PairingView: View {
                 }
             },
             actions: {
-                Text("Anything you mark Only me stays yours, even after you pair.")
+                Text(WEOnlyMeCopy.pairingNote)
                     .font(.footnote)
                     .foregroundStyle(.fieldInk(.reasoning))
                     .multilineTextAlignment(.center)
@@ -332,7 +385,12 @@ private struct PairingView: View {
                 // Through `PendingInvitation.normalized` rather than inline:
                 // a typed code and a tapped link have to agree.
                 .onChange(of: joinCode) { _, value in
-                    joinCode = PendingInvitation.normalized(value) ?? ""
+                    // Only when it actually differs. Assigning back on every
+                    // keystroke re-enters the field mid edit and drops the
+                    // characters already queued (the same fix as
+                    // `WEInvitationArrival`).
+                    let normalized = PendingInvitation.normalized(value) ?? ""
+                    if normalized != value { joinCode = normalized }
                 }
 
                 Button("Join") { Task { await joinSharedSpace() } }
@@ -364,6 +422,10 @@ private struct PartnerWaitingView: View {
     @EnvironmentObject private var session: AppSession
     @State private var copied = false
     @State private var confirmsWithdrawal = false
+    /// True once this person withdrew the invitation themselves, so they get
+    /// the attributed sentence rather than the neutral "closed" one meant for
+    /// every other way an invitation ends.
+    @State private var withdrewIt = false
 
     /// Who the invitation is for, in their own name.
     ///
@@ -376,7 +438,8 @@ private struct PartnerWaitingView: View {
     /// arrived is a fact about the person doing the inviting, and putting it
     /// on a server before the named person exists would be storing their name
     /// somewhere they never agreed to. It travels no further than this phone.
-    @AppStorage("we.invitee.name") private var inviteeName = ""
+    /// Purged with everything else on sign out (`WELocalData`).
+    @AppStorage(PendingInvitation.inviteeNameKey) private var inviteeName = ""
 
     /// The name, or nothing. `WEGateCopy` writes the unnamed sentences out in
     /// full rather than assembling them around a placeholder, so what it wants
@@ -399,8 +462,12 @@ private struct PartnerWaitingView: View {
         invitationScreen
     }
 
-    private var closedTitle: String { WEGateCopy.invitationClosedTitle }
-    private var closedDetail: String { WEGateCopy.invitationClosedDetail }
+    private var closedTitle: String {
+        withdrewIt ? WEGateCopy.invitationWithdrawnTitle : WEGateCopy.invitationClosedTitle
+    }
+    private var closedDetail: String {
+        withdrewIt ? WEGateCopy.invitationWithdrawnDetail : WEGateCopy.invitationClosedDetail
+    }
 
     /// Who it is for, the code on a card you could read across a table, and
     /// Share where the thumb is. Copying, a fresh code and withdrawing are
@@ -427,7 +494,7 @@ private struct PartnerWaitingView: View {
                             Spacer(minLength: 0)
                             withdrawal
                         }
-                        .sensoryFeedback(.success, trigger: copied)
+                        .sensoryFeedback(.success, trigger: copied) { _, isCopied in isCopied }
 
                         Text("They open it, make their own account, and join you. Nothing is sent until you share it.")
                             .font(.footnote)
@@ -485,10 +552,15 @@ private struct PartnerWaitingView: View {
             sendInvitationButton
         } else {
             Button {
-                Task { await session.createInvitation() }
+                Task {
+                    await session.createInvitation()
+                    if session.errorMessage == nil { withdrewIt = false }
+                }
             } label: {
                 if session.isWorking {
-                    ProgressView().tint(WECanvas.cream.bg)
+                    ProgressView()
+                        .tint(WECanvas.cream.bg)
+                        .accessibilityLabel("Making a new invitation")
                 } else {
                     Text("Make a new invitation")
                 }
@@ -515,7 +587,14 @@ private struct PartnerWaitingView: View {
                 titleVisibility: .visible
             ) {
                 Button("Withdraw", role: .destructive) {
-                    Task { await session.revokeInvitation() }
+                    Task {
+                        await session.revokeInvitation()
+                        guard session.errorMessage == nil else { return }
+                        withdrewIt = true
+                        // Withdrawing usually means "wrong person". Their
+                        // name should not be waiting on the next invitation.
+                        inviteeName = ""
+                    }
                 }
             } message: {
                 Text("The code stops working straight away, for everyone.")
@@ -544,6 +623,12 @@ private struct PartnerWaitingView: View {
         Button {
             UIPasteboard.general.string = code
             copied = true
+            // Back to "Copy code" after a moment, so a second copy gets its
+            // own confirmation and its own tap of feedback.
+            Task {
+                try? await Task.sleep(for: .seconds(2))
+                copied = false
+            }
         } label: {
             Label(copied ? "Copied" : "Copy code", systemImage: copied ? "checkmark" : "doc.on.doc")
         }
@@ -553,16 +638,53 @@ private struct PartnerWaitingView: View {
     }
 }
 
+/// The email round trip, on the same paper as everything around it.
+///
+/// It used to be the backend failure gate with a "Continue" that dropped the
+/// person back on the welcome screen, under copy that said to "sign in
+/// below". Opening the link on this phone signs them straight in (the
+/// callback does it), so this screen only has to cover the other cases: the
+/// mail went somewhere else, it never came, or the address was wrong.
 private struct VerificationPendingView: View {
     @EnvironmentObject private var session: AppSession
+    @Environment(\.openURL) private var openURL
     let email: String
+    @State private var showsSignIn = false
 
     var body: some View {
-        BackendStateView(
-            title: "Check your email.",
-            message: "We sent a verification link to \(email). Open it, then return here to sign in.",
-            retry: { session.returnToSignIn(message: "After verifying, sign in below.") }
+        FirstRunScreen(
+            title: WEGateCopy.verifyTitle,
+            subtitle: WEGateCopy.verifyDetail(email: email),
+            content: {
+                VStack(alignment: .leading, spacing: 12) {
+                    SessionMessageView()
+                    Button("Send it again") {
+                        Task { await session.resendVerification(email: email) }
+                    }
+                    .buttonStyle(FirstRunLinkStyle())
+                    .disabled(session.isWorking)
+                    .accessibilityIdentifier("verify.resend")
+                }
+            },
+            actions: {
+                if let mail = URL(string: "message://") {
+                    Button("Open Mail") { openURL(mail) }
+                        .buttonStyle(FirstRunPrimaryButtonStyle())
+                        .accessibilityIdentifier("verify.openMail")
+                }
+                Button("I verified on another device") { showsSignIn = true }
+                    .buttonStyle(FirstRunSecondaryButtonStyle())
+                    .accessibilityIdentifier("verify.signIn")
+                Button("Use a different email") {
+                    session.returnToSignIn()
+                }
+                .buttonStyle(FirstRunLinkStyle())
+                .accessibilityIdentifier("verify.differentEmail")
+            }
         )
+        .sheet(isPresented: $showsSignIn) {
+            SignInView()
+        }
     }
 }
 

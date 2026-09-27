@@ -57,6 +57,7 @@ struct WEInvitationArrival: View {
 
     @State private var code = ""
     @State private var greeting: InvitationGreeting?
+    @State private var isLookingUp = false
     @FocusState private var isFocused: Bool
 
     private var normalizedCode: String? {
@@ -138,6 +139,28 @@ struct WEInvitationArrival: View {
             WEColourField(state: .mine(.a), identity: identity, height: 168)
                 .frame(maxHeight: .infinity, alignment: .bottom)
                 .ignoresSafeArea(edges: .bottom)
+                .allowsHitTesting(false)
+
+            // A way out that is not an answer. Closing is not declining: no
+            // invitation is touched, and a held code stays held.
+            if asksForCode {
+                Button {
+                    isFocused = false
+                    onDecline()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 18, weight: .regular))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(WECanvas.cream.ink)
+                .accessibilityLabel("Close")
+                .accessibilityIdentifier("welcome.invitation.close")
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(.horizontal, FirstRunMetrics.side - 10)
+                .padding(.top, 12)
+            }
         }
         .animation(.easeInOut(duration: 0.45), value: greeting)
         .environment(\.weCanvas, .cream)
@@ -170,11 +193,20 @@ struct WEInvitationArrival: View {
                 if normalized != value { code = normalized }
             }
 
-            Button(WEGateCopy.useCode) {
+            Button {
                 Task { await lookUp(normalizedCode) }
+            } label: {
+                HStack(spacing: 10) {
+                    if isLookingUp {
+                        ProgressView()
+                            .tint(WECanvas.cream.bg)
+                            .accessibilityHidden(true)
+                    }
+                    Text(isLookingUp ? "Checking the code…" : WEGateCopy.useCode)
+                }
             }
             .buttonStyle(FirstRunPrimaryButtonStyle())
-            .disabled(normalizedCode == nil)
+            .disabled(normalizedCode == nil || isLookingUp)
             .accessibilityIdentifier("welcome.joinCode.continue")
         }
         .onAppear { isFocused = true }
@@ -187,10 +219,13 @@ struct WEInvitationArrival: View {
     /// place that knows the difference. Holding it here means they never have
     /// to find the invitation again.
     private func lookUp(_ candidate: String?) async {
-        guard let candidate else { return }
+        guard let candidate, !isLookingUp else { return }
         isFocused = false
+        isLookingUp = true
+        defer { isLookingUp = false }
         greeting = await session.invitationGreeting(for: candidate)
         pendingInvitation.hold(candidate)
+        pendingInvitation.remember(inviter: greeting?.name)
     }
 
     /// Closes the invitation, forgets the code, and leaves.

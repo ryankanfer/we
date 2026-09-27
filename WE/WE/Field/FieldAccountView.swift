@@ -69,6 +69,9 @@ struct FieldAccountView: View {
                     understanding
                         .padding(.bottom, FieldMetrics.sectionGapLoose)
 
+                    onlyMe
+                        .padding(.bottom, FieldMetrics.sectionGapLoose)
+
                     if WEFeatureFlags.shareInboxEnabled {
                         Button("Needs attention") { showsRecovery = true }
                             .frame(minHeight: 44).padding(.bottom, FieldMetrics.sectionGapLoose)
@@ -605,12 +608,41 @@ struct FieldAccountView: View {
                 .padding(.bottom, 14)
             }
 
-            Text("Try a fictional example: put down a thought, correct its date, and find it in Life. Nothing from the example is saved to your account.")
+            Text("A one minute tour: say something, watch where it lands, choose who sees it, and meet Today and Life. Nothing you type in it is saved.")
                 .font(FieldType.body)
                 .foregroundStyle(.fieldInk(.metadataProse))
                 .fieldLineHeight(1.5, size: 14.5)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    // MARK: Only me
+
+    /// What Only me means, said once, in one place anybody can find it.
+    ///
+    /// Framed as time rather than a wall: private is for what is not ready
+    /// yet, and the way out of it (share it, or pick a day) is part of the
+    /// definition rather than a footnote to it.
+    private var onlyMe: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FieldRuleLine()
+
+            FieldLabel(WEOnlyMeCopy.accountLabel)
+                .padding(.top, 20)
+                .padding(.bottom, 18)
+
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(WEOnlyMeCopy.accountLines(partner: store.partnerName), id: \.self) { line in
+                    Text(line)
+                        .font(FieldType.body)
+                        .foregroundStyle(.fieldInk(.metadataProse))
+                        .fieldLineHeight(1.5, size: 14.5)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("field.account.onlyMe")
     }
 
     // MARK: When it breaks

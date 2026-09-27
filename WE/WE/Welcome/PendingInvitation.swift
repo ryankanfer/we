@@ -24,7 +24,20 @@ final class PendingInvitation: ObservableObject {
     /// Uppercase, alphanumeric, at most 16 characters — or nil.
     @Published private(set) var code: String?
 
+    /// Who sent it, once `invitation_greeting` has answered. In memory only:
+    /// it is somebody else's name, and it is only needed for the next few
+    /// screens (the account form and the joining screen).
+    @Published private(set) var inviterName: String?
+
+    func remember(inviter name: String?) {
+        inviterName = name
+    }
+
     static let defaultsKey = "we.pendingInvitationCode"
+
+    /// The inviter's own note of who an invitation is for. Lives on this
+    /// device only (see `PartnerWaitingView`), and is purged on sign out.
+    static let inviteeNameKey = "we.invitee.name"
 
     private let defaults: UserDefaults
 
@@ -48,6 +61,7 @@ final class PendingInvitation: ObservableObject {
 
     func clear() {
         code = nil
+        inviterName = nil
         defaults.removeObject(forKey: Self.defaultsKey)
     }
 

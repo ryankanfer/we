@@ -12,6 +12,7 @@ struct FieldLifeZone: View {
     @State private var putAwayIsOpen = false
     @State private var shareInboxIsOpen = false
     @State private var recoveryIsOpen = false
+    @State private var onlyMeIsOpen = false
     @State private var intelligence = WEIntelligenceStore.shared
 
     private var items: [LifeItem] { store.lifeStrata.all }
@@ -44,6 +45,7 @@ struct FieldLifeZone: View {
                 header
                 searchHero
                 whereWereHeaded
+                if !store.onlyMeItems.isEmpty { onlyMeRow }
                 if WEFeatureFlags.shareInboxEnabled {
                     if elsewhereWaiting > 0 { fromElsewhere }
                     if !intelligence.issues.isEmpty || store.deliveryStates.values.contains(.needsAttention) {
@@ -73,6 +75,7 @@ struct FieldLifeZone: View {
         .sheet(item: $openItem) { FieldItemSheet(itemID: $0.id).environment(store) }
         .sheet(isPresented: $recoveryIsOpen) { WERecoveryCenter().environment(store) }
         .sheet(isPresented: $putAwayIsOpen) { FieldPutAwaySheet().environment(store) }
+        .sheet(isPresented: $onlyMeIsOpen) { FieldOnlyMeSheet().environment(store) }
         .sheet(isPresented: $goalsAreOpen) {
             FieldGoalsSurface().environment(store).environmentObject(session)
         }
@@ -170,16 +173,16 @@ struct FieldLifeZone: View {
     // MARK: Search, in the middle
 
     /// Life opens on a question. Most of the time somebody comes to Life to
-    /// find one thing — the wine for Dad, the passport date — so the box for
-    /// that sits in the middle of the first screen, and everything else is
-    /// one scroll down.
+    /// find one thing (the wine for Dad, the passport date), so the box for
+    /// that comes first. It used to be centred in 62% of the viewport, which
+    /// pushed everything Life actually holds below the fold; now it sits
+    /// under the title and the rest of the page follows straight after.
     private var searchHero: some View {
-        VStack(spacing: 18) {
-            Spacer(minLength: 0)
+        VStack(alignment: .leading, spacing: 14) {
             Text("What are you looking for?")
-                .font(.system(size: 24, design: .serif))
+                .font(.system(size: 22, design: .serif))
                 .foregroundStyle(.fieldInk(.headline))
-                .multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
 
             Button { store.openSearch() } label: {
                 HStack(spacing: 10) {
@@ -212,16 +215,42 @@ struct FieldLifeZone: View {
                     }
                 }
             }
-            Spacer(minLength: 0)
-            if !items.isEmpty {
-                Label("Everything below", systemImage: "chevron.down")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.fieldInk(.legend))
-                    .accessibilityHidden(true)
-            }
         }
-        .frame(maxWidth: .infinity)
-        .containerRelativeFrame(.vertical) { height, _ in height * 0.62 }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, 8)
+    }
+
+    // MARK: Only me
+
+    /// Your side of the notebook, gathered. Only there while there is
+    /// something in it, and only ever on its author's phone.
+    private var onlyMeRow: some View {
+        let count = store.onlyMeItems.count
+        let ready = store.heldItemsReadyToOffer.count
+        return Button { onlyMeIsOpen = true } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "lock")
+                    .font(.system(size: 16, weight: .regular))
+                    .accessibilityHidden(true)
+                Text("Only me")
+                    .font(.system(size: 16, design: .serif))
+                Text(ready > 0 ? "\(count) · \(ready) ready to share" : "\(count)")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.fieldInk(.reasoning))
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.fieldInk(.reasoning))
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel(
+            ready > 0
+                ? "Only me, \(count) things, \(ready) ready to share"
+                : "Only me, \(count) things"
+        )
+        .accessibilityHint("Things only you can see, and when to share them")
+        .accessibilityIdentifier("field.life.onlyMe")
     }
 
     /// Real things from Life, cycled in the empty box, so it shows what it
@@ -472,6 +501,158 @@ private struct FieldPutAwaySheet: View {
                 .accessibilityIdentifier("field.putAway.bringBack")
         }
         .padding(.vertical, 13)
+        .overlay(alignment: .top) { FieldRuleLine(color: FieldRule.row) }
+    }
+}
+
+// MARK: - Only me
+
+/// Everything you have kept to yourself, for now, in one place.
+///
+/// Held things first, soonest day first, then the ones with no day yet.
+/// Every row carries its way out: share it now, or pick the day WE asks.
+/// Nothing here shares anything on its own.
+struct FieldOnlyMeSheet: View {
+    @Environment(FieldStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @State private var sharing: LifeItem?
+    @State private var openItem: FieldItemReference?
+
+    private var held: [LifeItem] {
+        store.onlyMeItems
+            .filter { $0.holdUntil != nil }
+            .sorted { ($0.holdUntil ?? .distantFuture) < ($1.holdUntil ?? .distantFuture) }
+    }
+
+    private var waiting: [LifeItem] {
+        store.onlyMeItems.filter { $0.holdUntil == nil }
+    }
+
+    private var tomorrow: Date {
+        let calendar = Calendar.gregorianUS
+        return calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: store.now)) ?? store.now
+    }
+
+    var body: some View {
+        ZStack {
+            WECanvas.cream.bgElevated.ignoresSafeArea()
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    FieldLabel(WEOnlyMeCopy.accountLabel)
+
+                    Text(WEOnlyMeCopy.sheetIntro(partner: store.partnerName))
+                        .font(FieldType.body)
+                        .foregroundStyle(.fieldInk(.sectionSubtitle))
+                        .fieldLineHeight(1.6, size: 14.5)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 14)
+                        .padding(.bottom, FieldMetrics.sectionGap)
+
+                    if !held.isEmpty {
+                        section(WEOnlyMeCopy.heldSection, held)
+                    }
+                    if !waiting.isEmpty {
+                        section(WEOnlyMeCopy.waitingSection, waiting)
+                    }
+                }
+                .padding(.top, 48)
+                .padding(.horizontal, FieldMetrics.screenSide)
+                .padding(.bottom, 60)
+            }
+        }
+        .preferredColorScheme(.light)
+        .environment(\.weCanvas, WECanvas.cream)
+        .sheet(item: $openItem) { FieldItemSheet(itemID: $0.id).environment(store) }
+        .confirmationDialog(
+            "Share with \(store.partnerName)?",
+            isPresented: Binding(get: { sharing != nil }, set: { if !$0 { sharing = nil } }),
+            titleVisibility: .visible,
+            presenting: sharing
+        ) { item in
+            Button("Share it") { store.share(item.id) }
+            Button("Not yet", role: .cancel) {}
+        } message: { _ in
+            Text("\(store.partnerName) will be able to see it from now on. It can't be made private again.")
+        }
+        // Closes itself once the last one is shared, like Put away.
+        .onChange(of: store.onlyMeItems.isEmpty) { _, isEmpty in
+            if isEmpty { dismiss() }
+        }
+    }
+
+    private func section(_ title: String, _ items: [LifeItem]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title)
+                .font(.system(size: 15, design: .serif))
+                .foregroundStyle(.fieldInk(.reasoning))
+                .accessibilityAddTraits(.isHeader)
+                .padding(.bottom, 6)
+            ForEach(items) { item in
+                row(item)
+            }
+        }
+        .padding(.bottom, FieldMetrics.sectionGap)
+    }
+
+    private func row(_ item: LifeItem) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button { openItem = FieldItemReference(id: item.id) } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    FieldDot(owner: item.owner, isPrivate: true, identity: store.identity)
+                    Text(item.title)
+                        .font(FieldType.listItemLarge)
+                        .foregroundStyle(.fieldInk(.headline))
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    Text(item.category.word.uppercased())
+                        .font(FieldType.dateCount)
+                        .tracking(FieldTracking.dateCount)
+                        .foregroundStyle(.fieldInk(.dateCount))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if let day = item.holdUntil {
+                HStack(spacing: 10) {
+                    if item.isReadyToOffer(on: store.now) {
+                        Text(WEOnlyMeCopy.readyLine)
+                            .font(FieldType.reasoning)
+                            .foregroundStyle(.fieldInk(.headline))
+                    } else {
+                        DatePicker(
+                            "Ask me on",
+                            selection: Binding(get: { day }, set: { store.setHold(item.id, until: $0) }),
+                            in: tomorrow...,
+                            displayedComponents: .date
+                        )
+                        .datePickerStyle(.compact)
+                        .font(FieldType.reasoning)
+                    }
+                    Button("Clear") { store.setHold(item.id, until: nil) }
+                        .buttonStyle(FieldQuietButtonStyle())
+                        .accessibilityLabel("Clear the day for \(item.title)")
+                }
+            }
+
+            HStack(spacing: 18) {
+                Button(WEOnlyMeCopy.readyShare(partner: store.partnerName)) { sharing = item }
+                    .buttonStyle(FieldQuietButtonStyle())
+                    .accessibilityIdentifier("field.onlyMe.share")
+                if item.holdUntil == nil {
+                    Button {
+                        store.setHold(item.id, until: Calendar.gregorianUS.date(byAdding: .day, value: 7, to: tomorrow))
+                    } label: {
+                        Label(WEOnlyMeCopy.holdPrompt, systemImage: "calendar.badge.clock")
+                    }
+                    .buttonStyle(FieldQuietButtonStyle())
+                    .accessibilityIdentifier("field.onlyMe.hold")
+                }
+            }
+        }
+        .padding(.vertical, 14)
         .overlay(alignment: .top) { FieldRuleLine(color: FieldRule.row) }
     }
 }

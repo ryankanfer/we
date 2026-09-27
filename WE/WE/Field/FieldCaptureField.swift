@@ -447,7 +447,7 @@ struct FieldCaptureField: View {
                     .accessibilityHidden(true)
                 Text(
                     receipt.isPrivate
-                        ? "Only me. \(store.partnerName) won't see this."
+                        ? WEOnlyMeCopy.on(partner: store.partnerName)
                         : "Only me"
                 )
                 .font(FieldType.receiptReasoning)
@@ -464,11 +464,7 @@ struct FieldCaptureField: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Only me")
         .accessibilityValue(receipt.isPrivate ? "On" : "Off")
-        .accessibilityHint(
-            receipt.isPrivate
-                ? "\(store.partnerName) won't see this"
-                : "Keeps this from \(store.partnerName)"
-        )
+        .accessibilityHint(receipt.isPrivate ? "" : "Keeps this to yourself until it's ready")
         .accessibilityAddTraits(receipt.isPrivate ? .isSelected : [])
         .accessibilityIdentifier("field.receipt.private")
     }

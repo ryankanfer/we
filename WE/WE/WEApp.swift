@@ -73,11 +73,13 @@ struct WEApp: App {
                     .accessibilityHidden(walkthrough.isPresented)
                     .allowsHitTesting(!walkthrough.isPresented)
 
-                // Under the splash and over everything else. The collapse is
-                // an arrival and has to finish before anything explains
-                // itself; the walkthrough is the first thing after it.
+                // Under the splash and over everything else. It plays once,
+                // right after an account is created, and again only when
+                // somebody asks for it from Account.
                 if walkthrough.isPresented {
-                    WalkthroughView { walkthrough.finish() }
+                    WalkthroughView(setting: walkthroughSetting) {
+                        walkthrough.finish()
+                    }
                         .transition(.opacity)
                         .zIndex(20)
                 }
@@ -101,6 +103,21 @@ struct WEApp: App {
                 }
             }
             .environmentObject(walkthrough)
+            // First run only after an account exists. The flag is written by
+            // `AppSession.signUp`; this is the first moment it can be spent.
+            .onChange(of: host.session.state, initial: true) { _, state in
+                guard FieldEntry.Mode.current == .live else { return }
+                walkthrough.presentIfPending(for: state)
+                // A held code is only ever spent at `.needsCouple`. Once this
+                // person is in a space of their own, an old one must not wait
+                // around to be redeemed the day they leave it.
+                switch state {
+                case .ready, .waitingForPartner:
+                    pendingInvitation.clear()
+                default:
+                    break
+                }
+            }
             .environment(
                 \.dynamicTypeSize,
                 testConfiguration.dynamicTypeSize ?? dynamicTypeSize
@@ -169,6 +186,39 @@ struct WEApp: App {
                     liveApp
                 }
             }
+    }
+
+    // MARK: The walkthrough
+
+    /// Who is being welcomed, and where the walkthrough hands them off.
+    private var walkthroughSetting: WalkthroughSetting {
+        let session = host.session
+        let snapshot = session.snapshot
+        let firstName = snapshot?.profile.name
+            .split(separator: " ")
+            .first
+            .map(String.init)
+        let userID = session.user?.id
+        let partner = snapshot?.members.first(where: { $0.id != userID })
+        let partnerName = partner?.name
+        let handoff: WalkthroughHandoff
+        if !walkthrough.isFirstRun {
+            handoff = .replay
+        } else {
+            switch session.state {
+            case .needsCouple: handoff = .invite
+            case .waitingForPartner: handoff = .waiting
+            case .ready: handoff = .open
+            default: handoff = .replay
+            }
+        }
+        return WalkthroughSetting(
+            firstName: firstName,
+            partnerName: partnerName,
+            identity: snapshot.map(fieldIdentity) ?? .seed,
+            handoff: handoff,
+            isFirstRun: walkthrough.isFirstRun
+        )
     }
 
     // MARK: The collapse

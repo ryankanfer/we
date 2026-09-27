@@ -47,7 +47,7 @@ enum WEGateCopy {
     static let welcome = "Who are you making this with?"
 
     /// The whole app in one line, in its own two words. Anything longer is
-    /// the walkthrough, which is one tap away.
+    /// the walkthrough, which plays once the account exists.
     static let welcomeLine = "Today is your day together. Life is everything else. Say anything with +."
 
     /// One word. It was "Start a WE space", which names the mechanism, and
@@ -179,10 +179,123 @@ enum WEGateCopy {
         arrival(of: "Dylan"),
         replayPromise,
         interruptions,
-    ]
+        createTitle,
+        createDetail(joining: "Ryan"),
+        createDetail(joining: nil),
+        verifyTitle,
+        verifyDetail(email: "you@example.com"),
+        joiningTitle(for: "Ryan"),
+        joiningTitle(for: nil),
+        joiningDetail,
+    ] + WEOnlyMeCopy.everything
+
+    // MARK: Creating an account
+
+    /// Not "Welcome in.": the walkthrough opens with "Welcome in, Ry." a
+    /// moment later, and the same greeting twice in a row reads as a stutter.
+    static let createTitle = "First, you."
+
+    /// Written for whichever door they came through. An invited person has
+    /// already said who they are joining; telling them to "invite your
+    /// partner, or join them" asks a question they answered one screen ago.
+    static func createDetail(joining inviter: String?) -> String {
+        guard let inviter = trimmed(inviter) else {
+            return "Your own account first. Then bring in your person, or join them."
+        }
+        return "Your own account first. Then you're in with \(inviter)."
+    }
+
+    // MARK: Verifying
+
+    static let verifyTitle = "Check your email."
+
+    static func verifyDetail(email: String) -> String {
+        "We sent a link to \(email). Open it on this phone and you're straight in."
+    }
+
+    // MARK: Joining
+
+    static func joiningTitle(for inviter: String?) -> String {
+        guard let inviter = trimmed(inviter) else { return "Joining your person." }
+        return "Joining \(inviter)."
+    }
+
+    static let joiningDetail = "One moment. Your account is ready, and your invitation is being opened."
 
     private static func trimmed(_ name: String?) -> String? {
         let value = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return value.isEmpty ? nil : value
     }
+}
+
+// MARK: - Only me
+
+/// Only me, framed as time rather than a wall.
+///
+/// Private is for what is not ready yet: a gift idea, a surprise, a thing
+/// still being worked out. Every sentence here says "for now" in some form,
+/// and every surface that says it also offers the way out of it: share it,
+/// or pick a day and WE will ask. That is what keeps it from reading as a
+/// place to keep secrets from the person you share everything else with.
+enum WEOnlyMeCopy {
+    /// One line, for wherever the switch is on.
+    static func on(partner: String) -> String {
+        "Only me, for now. \(partner) won't see it until you share it."
+    }
+
+    /// Under the switch, before it is on.
+    static let why = "For gift ideas, surprises, and things you're still thinking through."
+
+    /// The Hold until control, before a day is picked.
+    static let holdPrompt = "Share it on a day"
+
+    static func holdSet(_ day: Date, partner: String) -> String {
+        "WE will ask you on \(day.formatted(.dateTime.weekday(.wide).month(.wide).day())) if it's time to share it with \(partner)."
+    }
+
+    // Today, on the day.
+    static let readyLabel = "READY TO SHARE"
+    static let readyLine = "You held this for today."
+    static func readyShare(partner: String) -> String { "Share with \(partner)" }
+    static let readyKeep = "Keep it mine"
+
+    // The item sheet.
+    static let itemPrivate = "Only you can see this, for now."
+
+    // The Only me list in Life.
+    static func sheetIntro(partner: String) -> String {
+        "The things you're keeping to yourself for now. Share one with \(partner) whenever it's ready, or pick a day and WE will ask you then."
+    }
+    static let heldSection = "Held for a day"
+    static let waitingSection = "No day yet"
+
+    // Pairing, before there is anyone to keep anything from.
+    static let pairingNote = "Anything you mark Only me stays yours until you choose to share it."
+
+    // Account.
+    static let accountLabel = "Only me"
+    static func accountLines(partner: String) -> [String] {
+        [
+            "Only me is for things that aren't ready yet: a gift idea, a surprise, something you're still working out how to say.",
+            "\(partner) doesn't see it, and WE never uses it in anything you both see.",
+            "When it's ready, share it. Or pick a day, and WE will ask you then. WE never shares anything on its own.",
+            "Sharing goes one way. Once \(partner) can see something, it can't be made private again.",
+        ]
+    }
+
+    static let everything: [String] = [
+        on(partner: "Dylan"),
+        why,
+        holdPrompt,
+        readyLabel,
+        readyLine,
+        readyShare(partner: "Dylan"),
+        readyKeep,
+        itemPrivate,
+        sheetIntro(partner: "Dylan"),
+        heldSection,
+        waitingSection,
+        pairingNote,
+        accountLabel,
+    ] + accountLines(partner: "Dylan")
 }

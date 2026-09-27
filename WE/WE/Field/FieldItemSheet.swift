@@ -406,13 +406,15 @@ struct FieldItemSheet: View {
                     Image(systemName: "lock.fill")
                         .font(FieldType.subLabel)
                         .accessibilityHidden(true)
-                    Text("Only you can see this.")
+                    Text(WEOnlyMeCopy.itemPrivate)
                         .font(FieldType.body)
                 }
                 .foregroundStyle(.fieldInk(.headline))
                 .padding(.top, 18)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("field.item.private")
+
+                holdControl(item)
 
                 Button("Share with \(store.partnerName)") {
                     asksToShare = true
@@ -428,6 +430,55 @@ struct FieldItemSheet: View {
                     .padding(.top, 18)
                     .accessibilityIdentifier("field.item.shared")
             }
+        }
+    }
+
+    // MARK: Hold until
+
+    /// The "yet" in "not ready yet". Picking a day never shares anything; on
+    /// that day WE asks, on this person's Today, whether it is time.
+    @ViewBuilder
+    private func holdControl(_ item: LifeItem) -> some View {
+        let calendar = Calendar.gregorianUS
+        let tomorrow = calendar.date(
+            byAdding: .day, value: 1, to: calendar.startOfDay(for: store.now)
+        ) ?? store.now
+        if let day = item.holdUntil {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    DatePicker(
+                        "Ask me on",
+                        selection: Binding(
+                            get: { day },
+                            set: { store.setHold(item.id, until: $0) }
+                        ),
+                        in: tomorrow...,
+                        displayedComponents: .date
+                    )
+                    .datePickerStyle(.compact)
+                    .font(FieldType.body)
+                    Button("Clear") { store.setHold(item.id, until: nil) }
+                        .buttonStyle(FieldQuietButtonStyle())
+                        .accessibilityLabel("Clear the day")
+                }
+                Text(WEOnlyMeCopy.holdSet(day, partner: store.partnerName))
+                    .font(FieldType.reasoning)
+                    .foregroundStyle(.fieldInk(.reasoning))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(.fieldInk(.headline))
+            .accessibilityIdentifier("field.item.hold")
+        } else {
+            Button {
+                store.setHold(
+                    item.id,
+                    until: calendar.date(byAdding: .day, value: 7, to: tomorrow)
+                )
+            } label: {
+                Label(WEOnlyMeCopy.holdPrompt, systemImage: "calendar.badge.clock")
+            }
+            .buttonStyle(FieldQuietButtonStyle())
+            .accessibilityIdentifier("field.item.holdStart")
         }
     }
 

@@ -8,6 +8,7 @@ struct SignInView: View {
     }
 
     @EnvironmentObject private var session: AppSession
+    @EnvironmentObject private var pendingInvitation: PendingInvitation
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var mode: Mode
@@ -29,8 +30,12 @@ struct SignInView: View {
 
     var body: some View {
         WEAccountSurface(
-            title: mode == .signIn ? "Welcome back." : "Start with you.",
-            subtitle: mode == .signIn ? "Today and Life, right where you left them." : "Your own account first. Then invite your partner, or join them.",
+            title: mode == .signIn ? "Welcome back." : WEGateCopy.createTitle,
+            subtitle: mode == .signIn
+                ? "Today and Life, right where you left them."
+                : WEGateCopy.createDetail(
+                    joining: pendingInvitation.code == nil ? nil : pendingInvitation.inviterName
+                ),
             closeLabel: "Close", onClose: { dismiss() }
         ) {
             VStack(alignment: .leading, spacing: 28) {
@@ -53,7 +58,7 @@ struct SignInView: View {
                         .buttonStyle(.plain).disabled(busy)
                         .accessibilityIdentifier("account.forgotPassword")
                     } else {
-                        Text("We may ask you to verify your email before you pair.")
+                        Text("You'll confirm your email before pairing.")
                             .font(.system(.footnote)).foregroundStyle(.fieldInk(.reasoning))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .fixedSize(horizontal: false, vertical: true)
@@ -306,4 +311,5 @@ struct BackendStateView: View {
 #Preview("Sign in") {
     SignInView()
         .environmentObject(AppSession(repository: PreviewRepository()))
+        .environmentObject(PendingInvitation())
 }

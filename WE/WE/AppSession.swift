@@ -190,6 +190,9 @@ final class AppSession: ObservableObject {
                 email: email,
                 password: password
             )
+            // The account exists now, verified or not. The walkthrough plays
+            // the first time the session lands somewhere with an app behind it.
+            WalkthroughGate.markAccountCreated()
             switch result {
             case .signedIn(let signedInUser):
                 try await self.load(user: signedInUser, allowsCache: false)
@@ -217,6 +220,14 @@ final class AppSession: ObservableObject {
                 password: password
             )
             try await self.load(user: signedInUser, allowsCache: true)
+        }
+    }
+
+    /// Sends the confirmation link again, and stays on the screen that asked.
+    func resendVerification(email: String) async {
+        await working {
+            try await self.repository.resendVerification(email: email)
+            self.noticeMessage = "Sent again. If it isn't there in a minute, check spam."
         }
     }
 
