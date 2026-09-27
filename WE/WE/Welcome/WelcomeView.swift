@@ -41,12 +41,15 @@ struct WelcomeView: View {
         FirstRunScreen(
             title: WEGateCopy.welcome,
             subtitle: WEGateCopy.welcomeLine,
+            lights: .near,
             hero: {
-                // No walkthrough here. It plays once the account exists,
-                // when there is somebody to welcome by name.
-                WelcomeBloom(diameter: 280)
-                    .padding(.top, 12)
-                    .frame(maxWidth: .infinity)
+                // The icon, small, as the mark. The two big lights are the
+                // background; they arrive from the splash already drawn
+                // together. The old bloom had a fixed frame wider than a
+                // phone, which pushed the whole column off both edges.
+                WelcomeMark()
+                    .padding(.top, 40)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             },
             actions: {
                 Button(WEGateCopy.begin) { destination = .createAccount }
@@ -89,6 +92,30 @@ struct WelcomeView: View {
                 )
             }
         }
+    }
+}
+
+/// The app icon's two lights at mark size: burgundy and sage, overlapping.
+private struct WelcomeMark: View {
+    @Environment(\.weCanvas) private var canvas
+
+    var body: some View {
+        ZStack {
+            light(FieldSwatch.burgundy).offset(x: -16)
+            light(FieldSwatch.sage).offset(x: 16)
+        }
+        .frame(width: 120, height: 88)
+        .blendMode(canvas.isDark ? .screen : .multiply)
+        .accessibilityHidden(true)
+    }
+
+    private func light(_ swatch: FieldSwatch) -> some View {
+        Circle()
+            .fill(RadialGradient(
+                colors: [swatch.color(on: canvas).opacity(0.9), swatch.color(on: canvas).opacity(0)],
+                center: .center, startRadius: 0, endRadius: 44
+            ))
+            .frame(width: 88, height: 88)
     }
 }
 

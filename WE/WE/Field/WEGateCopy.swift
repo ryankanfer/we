@@ -44,11 +44,11 @@ enum WEGateCopy {
     /// and then explained the category again underneath, which is a product
     /// introducing itself to a stranger. This one is about the person they
     /// are thinking of.
-    static let welcome = "Who are you making this with?"
+    static let welcome = "Made for two."
 
     /// The whole app in one line, in its own two words. Anything longer is
     /// the walkthrough, which plays once the account exists.
-    static let welcomeLine = "Today is your day together. Life is everything else. Say anything with +."
+    static let welcomeLine = "One place for the life you share. Plans, errands, and the little things, where you both can see them."
 
     /// One word. It was "Start a WE space", which names the mechanism, and
     /// the mechanism is not what anybody is deciding at this moment.

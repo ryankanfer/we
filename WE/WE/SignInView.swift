@@ -60,13 +60,18 @@ struct SignInView: View {
                         .tracking(FieldTracking.mark * 1.4)
                         .accessibilityHidden(true)
                     Spacer()
-                    Button { dismiss() } label: {
+                    Button {
+                        focus = nil
+                        WEAccountInput.dismissKeyboard()
+                        dismiss()
+                    } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 17, weight: .regular))
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .zIndex(1)
                     .accessibilityLabel("Close")
                     .accessibilityIdentifier("account.close")
                 }
@@ -273,7 +278,10 @@ struct SignInView: View {
         let first = question == questions.first
         HStack(spacing: 16) {
             if !first {
-                Button("Back") { step(-1) }
+                // Never disabled: going back is always allowed, even while
+                // something is loading. A stuck request used to strand
+                // people on the password step.
+                Button("Back") { back() }
                     .accessibilityIdentifier("account.back")
             }
             if mode == .signIn {
@@ -283,14 +291,17 @@ struct SignInView: View {
                     showsReset = true
                 }
                 .accessibilityIdentifier("account.forgotPassword")
+                .disabled(busy)
             }
             if first {
                 if mode == .signIn {
                     Button("New here? Create an account") { switchMode(.create) }
                         .accessibilityIdentifier("account.mode.create")
+                        .disabled(busy)
                 } else {
                     Button("Have an account? Sign in") { switchMode(.signIn) }
                         .accessibilityIdentifier("account.mode.signIn")
+                        .disabled(busy)
                 }
             }
         }
@@ -298,7 +309,6 @@ struct SignInView: View {
         .foregroundStyle(.fieldInk(.reasoning))
         .buttonStyle(.plain)
         .frame(minHeight: 44)
-        .disabled(busy)
     }
 
     // MARK: Moving
@@ -317,6 +327,14 @@ struct SignInView: View {
         guard questions.indices.contains(next) else { return }
         session.clearMessages()
         question = questions[next]
+    }
+
+    /// Back a question, or out of the sheet from the first one. Drops focus
+    /// first: with the keyboard up, the field kept the first tap.
+    private func back() {
+        focus = nil
+        WEAccountInput.dismissKeyboard()
+        if question == questions.first { dismiss() } else { step(-1) }
     }
 
     private func switchMode(_ next: Mode) {

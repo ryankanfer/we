@@ -183,7 +183,7 @@ final class WEUITests: XCTestCase {
         XCTAssertTrue(app.buttons["welcome.signIn"].isHittable)
         // One question, and no description of the category underneath it.
         XCTAssertTrue(
-            app.staticTexts["Who are you making this with?"].exists
+            app.staticTexts["Made for two."].exists
         )
         // The point of this screen: nothing is asked for before a door is
         // chosen. No credential field, no capture field.
