@@ -2676,6 +2676,8 @@ final class FieldStore {
         // A live device may only choose the colour for the person holding it.
         // Backend-free gallery/previews still allow both rows to be explored.
         guard canChooseSwatch(for: owner) else { return }
+        // Within your own family only. Warm stays warm, cool stays cool.
+        guard owner != .shared, swatch.inFamily(of: owner) == swatch else { return }
         switch owner {
         case .a: state.identity.personA = swatch
         case .b: state.identity.personB = swatch

@@ -660,6 +660,15 @@ struct FieldAccountView: View {
                     .foregroundStyle(.fieldInk(.headline))
                 Text("Your light is you. Theirs is \(store.partnerName). Where they overlap is what you share.")
                 Text("One light means it\u{2019}s only yours. Leaning in means one of you said yes. Meeting means you decided together.")
+                // Why the colours are assigned, said once and generally: the
+                // difference is the point, not the colour.
+                Text(store.speaker == .b
+                     ? "Yours is cool. \(store.partnerName)\u{2019}s is warm. They\u{2019}re never the same, so you always know who\u{2019}s who, and what you share becomes its own colour."
+                     : "Yours is warm. \(store.partnerName)\u{2019}s is cool. They\u{2019}re never the same, so you always know who\u{2019}s who, and what you share becomes its own colour.")
+                    .padding(.top, 6)
+                Text("Pick a shade of yours.")
+                    .foregroundStyle(.fieldInk(.sectionSubtitle))
+                    .padding(.top, 6)
             }
             .font(FieldType.body)
             .foregroundStyle(.fieldInk(.metadataProse))

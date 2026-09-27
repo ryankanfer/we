@@ -10,15 +10,17 @@ struct WESplashView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
 
-    /// The icon, coming alive: two lights at the corners drift together and
-    /// the app opens around them. Tapping the icon and arriving in Today are
-    /// meant to feel like one continuous move.
-    @State private var pose: WELightsPose = .apart
+    /// The icon, coming alive. Frame zero is the icon itself: burgundy and
+    /// sage overlapping in the middle of the launch surface. Then the two
+    /// lights take on the couple's own colours and settle to the bottom
+    /// edge, where they live for the rest of the app.
+    @State private var pose: WELightsPose = .icon
+    @State private var shownIdentity: FieldIdentity = .seed
 
     var body: some View {
         ZStack {
             WECanvas.surface.bg
-            WELights(identity: identity ?? .seed, pose: pose)
+            WELights(identity: shownIdentity, pose: pose)
             Text("WE")
                 .font(FieldType.mark)
                 .tracking(FieldTracking.mark * 2)
@@ -40,8 +42,12 @@ struct WESplashView: View {
             withAnimation(.easeOut(duration: reduceMotion ? 0.25 : 0.65)) {
                 appeared = true
             }
+            try await Task.sleep(for: .milliseconds(reduceMotion ? 0 : 220))
+            withAnimation(.easeInOut(duration: reduceMotion ? 0.2 : 0.9)) {
+                shownIdentity = identity ?? .seed
+            }
             pose = .near
-            try await Task.sleep(for: .milliseconds(reduceMotion ? 350 : 850))
+            try await Task.sleep(for: .milliseconds(reduceMotion ? 350 : 950))
             let deadline = ContinuousClock.now.advanced(by: WESplashGate.holdCeiling)
             while isWaiting(), ContinuousClock.now < deadline {
                 try await Task.sleep(for: .milliseconds(80))

@@ -25,6 +25,10 @@ extension View {
 /// Where the two people's lights sit. Every screen picks one; the lights
 /// travel between poses, which is most of the app's motion.
 enum WELightsPose: Equatable, Sendable {
+    /// The app icon, exactly: two large lights overlapping in the middle.
+    /// Only the splash uses it, so tapping the icon and the app opening
+    /// read as one continuous move.
+    case icon
     /// Far apart at the bottom corners. Before anything has happened.
     case apart
     /// Drawn toward each other. The resting state of a shared screen.
@@ -45,6 +49,7 @@ enum WELightsPose: Equatable, Sendable {
 
     fileprivate var a: UnitPoint {
         switch self {
+        case .icon: UnitPoint(x: 0.38, y: 0.54)
         case .apart: UnitPoint(x: 0.12, y: 1.06)
         case .near: UnitPoint(x: 0.34, y: 1.04)
         case .lifted: UnitPoint(x: 0.42, y: 0.94)
@@ -58,6 +63,7 @@ enum WELightsPose: Equatable, Sendable {
 
     fileprivate var b: UnitPoint {
         switch self {
+        case .icon: UnitPoint(x: 0.62, y: 0.52)
         case .apart: UnitPoint(x: 0.88, y: 1.06)
         case .near: UnitPoint(x: 0.66, y: 1.04)
         case .lifted: UnitPoint(x: 0.58, y: 0.96)
@@ -72,6 +78,7 @@ enum WELightsPose: Equatable, Sendable {
     fileprivate var scale: CGFloat {
         switch self {
         case .merged: 1.35
+        case .icon: 1.25
         case .lifted: 1.1
         case .wide: 0.9
         default: 1

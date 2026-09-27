@@ -66,6 +66,12 @@ struct FieldZoneShell: View {
     }
 
     var body: some View {
+        lifecycle
+    }
+
+    /// Split out of `body` so the type checker gets three small expressions
+    /// instead of one enormous one.
+    private var layers: some View {
         ZStack {
             // The ground crossfades with the zone. Never a slide: the two
             // canvases are the same room under different light, and sliding
@@ -95,11 +101,11 @@ struct FieldZoneShell: View {
 
             // "Dylan is here." The first time both people are in, once per
             // couple, per phone. Their light rises into place and the two meet.
-            if let arrivingName {
+            if let arrivingPerson = arrivingName {
                 ZStack {
                     store.activeZone.canvas.bg.opacity(0.82).ignoresSafeArea()
                     WEWordReveal(
-                        text: "\(arrivingName) is here.",
+                        text: "\(arrivingPerson) is here.",
                         font: FieldType.hero(48),
                         tracking: -1,
                         alignment: .center
@@ -131,27 +137,9 @@ struct FieldZoneShell: View {
                     .zIndex(20)
             }
         }
-        // The status bar is the one piece of chrome WE does not draw. Every
-        // ground is near-black now, so this no longer varies — but it still
-        // has to be stated, because the default follows the system and a
-        // phone in light mode would paint a black clock onto #0A0A09.
-        .preferredColorScheme(store.activeZone.canvas == .cream ? .light : .dark)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            HStack {
-                Spacer()
-                Button { showsAccount = true } label: {
-                    Text("Account").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
-                }
-                    .accessibilityIdentifier("field.openAccount")
-            }
-            .font(FieldType.body)
-            .foregroundStyle(store.activeZone.canvas.ink)
-            .buttonStyle(.plain)
-            .frame(minHeight: 44)
-            .padding(.horizontal, FieldMetrics.screenSide)
-            .background(store.activeZone.canvas.bg)
-        }
-        .overlay(alignment: .bottom) {
+    }
+
+    @ViewBuilder private var footer: some View {
             if !store.calendarOpen, !store.searchOpen {
                 VStack(spacing: 0) {
                     if let whisper {
@@ -186,13 +174,41 @@ struct FieldZoneShell: View {
                     .allowsHitTesting(false)
                 }
             }
+    }
+
+    private var framed: some View {
+        layers
+        // The status bar is the one piece of chrome WE does not draw. Every
+        // ground is near-black now, so this no longer varies — but it still
+        // has to be stated, because the default follows the system and a
+        // phone in light mode would paint a black clock onto #0A0A09.
+        .preferredColorScheme(store.activeZone.canvas.isDark ? .dark : .light)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HStack {
+                Spacer()
+                Button { showsAccount = true } label: {
+                    Text("Account").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                }
+                    .accessibilityIdentifier("field.openAccount")
+            }
+            .font(FieldType.body)
+            .foregroundStyle(store.activeZone.canvas.ink)
+            .buttonStyle(.plain)
+            .frame(minHeight: 44)
+            .padding(.horizontal, FieldMetrics.screenSide)
+            .background(store.activeZone.canvas.bg)
         }
+        .overlay(alignment: .bottom) { footer }
         .overlay {
             FieldComposerOverlay(isPresented: $showsComposer) { store.go(to: .today) }
                 .preferredColorScheme(WETheme.shared.colorScheme)
                 .environment(\.weCanvas, .surface)
                 .environment(store)
         }
+    }
+
+    private var observed: some View {
+        framed
         .environment(store)
         .onChange(of: Set(store.state.lifeItems.map(\.id)), initial: true) { _, ids in noticeNewItems(ids) }
         .onChange(of: confirmedDecisionIDs, initial: true) { _, ids in noticeDecisions(ids) }
@@ -257,6 +273,10 @@ struct FieldZoneShell: View {
             }
             Task { await store.refreshDailyMoment() }
         }
+    }
+
+    private var lifecycle: some View {
+        observed
         .fullScreenCover(isPresented: $showsAccount) {
             FieldAccountView()
                 .environment(store)

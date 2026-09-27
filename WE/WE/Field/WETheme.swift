@@ -92,7 +92,8 @@ final class WETheme {
     /// the environment only ever reports what the app itself asked for.
     /// The screen's traits are the system's and nobody else's.
     func refreshFromSystem() {
-        let style = UIScreen.main.traitCollection.userInterfaceStyle
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        let style = (scene?.traitCollection ?? UITraitCollection.current).userInterfaceStyle
         systemIsDark = style == .dark
         resolve()
     }

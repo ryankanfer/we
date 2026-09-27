@@ -411,8 +411,8 @@ final class FieldSupabaseBackend: FieldBackend, @unchecked Sendable {
             // hold a colour from before the palette changed, and rawValue
             // returns nil for those, which would send a couple who chose clay
             // and slate silently to the seeded pair.
-            personA: row.flatMap { FieldSwatch(stored: $0.swatch_a) } ?? .burgundy,
-            personB: row.flatMap { FieldSwatch(stored: $0.swatch_b) } ?? .sage,
+            personA: (row.flatMap { FieldSwatch(stored: $0.swatch_a) } ?? .burgundy).inFamily(of: .a),
+            personB: (row.flatMap { FieldSwatch(stored: $0.swatch_b) } ?? .sage).inFamily(of: .b),
             nameA: nameA,
             nameB: nameB,
             livesTogether: row?.lives_together,

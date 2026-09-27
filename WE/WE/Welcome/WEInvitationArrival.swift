@@ -91,7 +91,7 @@ struct WEInvitationArrival: View {
     private var identity: FieldIdentity {
         guard let greeting else { return .seed }
         return FieldIdentity(
-            personA: FieldSwatch(nearest: WEHue(greeting.hue)),
+            personA: FieldSwatch(nearest: WEHue(greeting.hue)).inFamily(of: .a),
             personB: FieldIdentity.seed.personB,
             nameA: greeting.name,
             nameB: FieldIdentity.seed.nameB

@@ -219,7 +219,8 @@ enum FieldPersonPalette: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    /// The first of each is the default — Ryan gets Clay, Dylan gets Slate.
+    /// The first of each is the default: burgundy for whoever starts the
+    /// couple, sage for whoever joins. The pair on the icon.
     var defaultSwatch: FieldSwatch { swatches[0] }
 }
 
@@ -247,7 +248,7 @@ enum FieldPersonPalette: String, CaseIterable, Codable, Sendable {
 ///   · four of the twenty eight possible pairs produce a shared blend closer
 ///     than CIEDE2000 8 to one of its parents. Those are the pairs where
 ///     "yours, theirs, ours" would read as two colours rather than three, and
-///     they are the reason the similar pair rule exists. See `blendIsMuddy`.
+///     they are why the two people draw from different families.
 enum FieldSwatch: String, CaseIterable, Codable, Sendable, Identifiable {
     // Warm
     case burgundy
@@ -364,46 +365,23 @@ enum FieldSwatch: String, CaseIterable, Codable, Sendable, Identifiable {
         self = FieldSwatch(stored: raw) ?? .burgundy
     }
 
-    // MARK: The similar pair rule
+    // MARK: Families
 
-    /// Whether these two produce a shared atmosphere that reads as one of
-    /// them rather than as a third thing.
-    ///
-    /// The lesson of the blend is the mechanism: two colours stay distinct
-    /// and produce a third. Difference is the mechanism, not a problem to be
-    /// resolved. A muddy blend breaks that, so WE offers nearby tonal
-    /// variations — and it does so only *after both people commit*, to both
-    /// of them at the same instant, revealing nothing about who chose what or
-    /// when.
-    static func blendIsMuddy(_ a: FieldSwatch, _ b: FieldSwatch) -> Bool {
-        muddyPairs.contains(Set([a, b]))
+    /// Assigned, not chosen. The person who starts the couple is warm and
+    /// the person who joins is cool, so the two lights are always different
+    /// and their overlap is always a third colour. Each person may pick a
+    /// shade inside their own family; nobody can cross over. Every warm and
+    /// cool pair blends cleanly, which is why there is no similar pair rule.
+    static func family(for owner: FieldOwner) -> FieldPersonPalette {
+        owner == .b ? .cool : .warm
     }
 
-    /// Measured, not guessed. Every pair whose linear light blend sits closer
-    /// than CIEDE2000 8 to either parent.
-    private static let muddyPairs: Set<Set<FieldSwatch>> = [
-        [.burgundy, .rose],
-        [.rose, .rust],
-        [.sage, .moss],
-        [.sage, .teal],
-    ]
-
-    /// What to offer when a pair is too close, for one of the two people.
-    ///
-    /// Nearby rather than opposite: somebody who chose sage wanted a green,
-    /// and answering a near collision by offering them burgundy is the app
-    /// overruling a choice rather than helping with one.
-    var neighbours: [FieldSwatch] {
-        switch self {
-        case .burgundy: [.rust, .amber]
-        case .rose: [.amber, .burgundy]
-        case .rust: [.amber, .burgundy]
-        case .amber: [.rust, .rose]
-        case .sage: [.indigo, .moss]
-        case .moss: [.teal, .indigo]
-        case .teal: [.indigo, .moss]
-        case .indigo: [.teal, .sage]
-        }
+    /// This swatch if it belongs to `owner`'s family, otherwise that
+    /// family's default. Old rows from when anyone could pick anything land
+    /// here instead of breaking the lights.
+    func inFamily(of owner: FieldOwner) -> FieldSwatch {
+        let family = FieldSwatch.family(for: owner)
+        return family.swatches.contains(self) ? self : family.defaultSwatch
     }
 }
 
@@ -433,10 +411,15 @@ struct FieldIdentity: Hashable, Codable, Sendable {
 
     /// Burgundy and sage: the reference pair, and the seeded default.
     ///
-    /// Not the only colours, and not a recommendation — they are the pair the
-    /// system was measured against, and the one the design was drawn with.
-    /// The clay and slate this replaced were the two colours the retired set
-    /// happened to list first.
+    /// Every couple starts here, and it is the pair on the app icon.
+    /// Both people pulled back into their own family.
+    var inFamilies: FieldIdentity {
+        var copy = self
+        copy.personA = personA.inFamily(of: .a)
+        copy.personB = personB.inFamily(of: .b)
+        return copy
+    }
+
     static let seed = FieldIdentity(
         personA: .burgundy,
         personB: .sage,
@@ -1163,14 +1146,10 @@ struct FieldSwatchRow: View {
     /// Called with the tapped swatch. The caller persists.
     var choose: (FieldSwatch) -> Void
 
-    /// Which eight to offer.
-    ///
-    /// All of them, to both people. The warm and cool split was a way of
-    /// keeping two colours from being nearly the same colour, and Pigment
-    /// does that by measurement instead — every pair is at least CIEDE2000 12
-    /// apart. Halving somebody's choice to solve a problem that no longer
-    /// exists is the system deciding for them.
-    private var offered: [FieldSwatch] { FieldSwatch.allCases }
+    /// Your own family only: four warm shades for the person who started
+    /// the couple, four cool ones for the person who joined. The two lights
+    /// can never be the same light.
+    private var offered: [FieldSwatch] { FieldSwatch.family(for: owner).swatches }
 
     var body: some View {
         let current = owner == .a ? identity.personA : identity.personB
