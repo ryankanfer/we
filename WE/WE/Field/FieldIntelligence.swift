@@ -777,7 +777,7 @@ enum FieldClassifier {
             )
         }
 
-        let category = route(lowered, context: context)
+        let category = route(lowered, context: context, original: text)
         return receipt(
             text,
             category: category,
@@ -853,7 +853,8 @@ enum FieldClassifier {
         "weekend in",
     ]
     private static let watchWords = [
-        "watch", "film", "movie", "series", "season", "show", "documentary",
+        "watch", "watching", "rewatch", "binge", "film", "movie", "series",
+        "season", "show", "documentary", "netflix", "hbo", "hulu",
     ]
     private static let eatWords = [
         "steak", "dinner", "lunch", "restaurant", "eat", "hungry", "craving",
@@ -871,6 +872,22 @@ enum FieldClassifier {
         "batteries", "refill", "restock",
     ]
 
+    /// The things people actually type into a shared list most: groceries and
+    /// household supplies. Named, because without them "olive oil" was a film.
+    static let groceryWords = [
+        "milk", "eggs", "bread", "butter", "cheese", "yogurt", "coffee", "tea",
+        "olive oil", "rice", "pasta", "flour", "sugar", "salt", "pepper",
+        "chicken", "salmon", "beef", "tofu", "bananas", "apples", "avocados",
+        "lemons", "limes", "onions", "garlic", "tomatoes", "potatoes", "spinach",
+        "lettuce", "berries", "cereal", "oats", "juice", "seltzer",
+        "wine", "beer", "snacks", "chips", "paper towels", "toilet paper",
+        "tissues", "napkins", "detergent", "dish soap", "soap", "shampoo",
+        "conditioner", "toothpaste", "razors", "deodorant", "sponges",
+        "trash bags", "foil", "ziplocs", "light bulbs", "lightbulbs", "candles",
+        "groceries", "grocery", "costco", "trader joes", "whole foods",
+        "couch", "rug", "lamp", "sheets", "towels", "pillows", "mattress",
+    ]
+
     /// Where a capture goes. A category, always — there is no other kind of
     /// answer this function can give.
     ///
@@ -878,15 +895,54 @@ enum FieldClassifier {
     /// maybe" is a trip you have mentioned, filed in Trips like any other; it
     /// becomes a horizon in Us only when somebody answers the question the app
     /// asks about it. See `FieldPromotion`.
-    static func route(_ lowered: String, context: Context) -> LifeCategory {
-        let hasTaskShape = taskVerbs.contains { lowered.contains($0) }
+    // MARK: Matching words, not letters
+
+    /// Whether `phrase` appears in the sentence as whole words.
+    ///
+    /// Every list here used to be matched with a plain `contains`, which reads
+    /// letters rather than words: "pa**rent**s" filed as Money, "re**turn**"
+    /// as a workout ("run"), "va**cat**ion" as Pets, "s**weat**er" as food,
+    /// "**mom**ent" as family, "**car**ds" as Car. A trailing plural is still
+    /// allowed through. Verbs match on their stem too, so "calling" and
+    /// "booked" still read as the task they are.
+    static func mentions(_ lowered: String, _ phrase: String, stem: Bool = false) -> Bool {
+        let words = tokens(lowered)
+        let target = tokens(phrase)
+        guard !target.isEmpty, words.count >= target.count else { return false }
+        for start in 0...(words.count - target.count) {
+            var matched = true
+            for (offset, want) in target.enumerated() {
+                let word = words[start + offset]
+                let isLast = offset == target.count - 1
+                let ok = word == want
+                    || (isLast && (word == want + "s" || word == want + "es"))
+                    || (isLast && stem && word.hasPrefix(want) && word.count <= want.count + 3)
+                if !ok { matched = false; break }
+            }
+            if matched { return true }
+        }
+        return false
+    }
+
+    static func tokens(_ text: String) -> [String] {
+        text.lowercased()
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .map(String.init)
+    }
+
+    static func route(
+        _ lowered: String,
+        context: Context,
+        original: String? = nil
+    ) -> LifeCategory {
+        let hasTaskShape = taskVerbs.contains { mentions(lowered, $0, stem: true) }
         let hasDay = namesADay(lowered)
-        let isAspiration = aspirationWords.contains { lowered.contains($0) }
+        let isAspiration = aspirationWords.contains { mentions(lowered, $0) }
 
         // A trip named as a wish, or a place already on a horizon, is still a
         // trip. Checked first so "japan in the fall maybe" does not fall into
         // the title heuristic and come out a film.
-        let namesAPlace = placeWords.contains { lowered.contains($0) }
+        let namesAPlace = placeWords.contains { mentions(lowered, $0) }
         if !(hasTaskShape && hasDay),
            matchesHorizon(lowered, context: context) != nil
                || (isAspiration && namesAPlace) {
@@ -914,28 +970,31 @@ enum FieldClassifier {
         // title heuristic and was filed as a film. Appetite words are
         // deliberately excluded here — "steak" is a craving, and only ever a
         // craving, until a verb or a day says otherwise.
-        if careWords.contains(where: { lowered.contains($0) })
-            || moneyWords.contains(where: { lowered.contains($0) })
-            || homeWords.contains(where: { lowered.contains($0) }) {
+        if careWords.contains(where: { mentions(lowered, $0) })
+            || moneyWords.contains(where: { mentions(lowered, $0) })
+            || homeWords.contains(where: { mentions(lowered, $0) }) {
             return lifeCategory(lowered, context: context)
         }
 
         // Explicit signals before the title heuristic, which is deliberately
         // greedy: "steak" is one word with no verb, so it would otherwise be
         // read as a film. Naming the food beats guessing the shape.
-        if watchWords.contains(where: { lowered.contains($0) }) {
+        if watchWords.contains(where: { mentions(lowered, $0) }) {
             return .watchlist
         }
-        if eatWords.contains(where: { lowered.contains($0) }) {
+        if eatWords.contains(where: { mentions(lowered, $0) }) {
             return .food
         }
         if namesAPlace {
             return .trips
         }
-        if buyWords.contains(where: { lowered.contains($0) }) {
+        if buyWords.contains(where: { mentions(lowered, $0) }) {
             return .buys
         }
-        if looksLikeTitle(lowered) {
+        if groceryWords.contains(where: { mentions(lowered, $0) }) {
+            return .buys
+        }
+        if looksLikeTitle(original ?? lowered) {
             return .watchlist
         }
         // A subject with no home. Grown rather than given, so a couple who
@@ -1021,17 +1080,17 @@ enum FieldClassifier {
         _ lowered: String,
         categories: [LifeCategory]
     ) -> LifeCategory {
-        if careWords.contains(where: { lowered.contains($0) }) { return .care }
-        if moneyWords.contains(where: { lowered.contains($0) }) { return .money }
-        if homeWords.contains(where: { lowered.contains($0) }) { return .home }
-        if eatWords.contains(where: { lowered.contains($0) }) { return .food }
+        if careWords.contains(where: { mentions(lowered, $0) }) { return .care }
+        if moneyWords.contains(where: { mentions(lowered, $0) }) { return .money }
+        if homeWords.contains(where: { mentions(lowered, $0) }) { return .home }
+        if eatWords.contains(where: { mentions(lowered, $0) }) { return .food }
 
         // Something they already have a place for, checked before Buys: "buy"
         // and "order" are generic verbs attached to half of what anybody says,
         // and a couple who grew Pets means Pets when they say "order more pets
         // food" — not a shopping list.
         if let existing = categories.first(where: {
-            !$0.isBuiltIn && lowered.contains($0.rawValue)
+            !$0.isBuiltIn && mentions(lowered, $0.rawValue)
         }) {
             return existing
         }
@@ -1039,10 +1098,11 @@ enum FieldClassifier {
         // Checked here as well as in `route`, because "buy" and "order" are
         // task verbs — without this, "buy batteries" reaches invention and
         // grows a category called Batteries.
-        if buyWords.contains(where: { lowered.contains($0) }) { return .buys }
+        if buyWords.contains(where: { mentions(lowered, $0) })
+            || groceryWords.contains(where: { mentions(lowered, $0) }) { return .buys }
 
         if let domain = namedDomains.first(where: { domain in
-            domain.words.contains { lowered.contains($0) }
+            domain.words.contains { mentions(lowered, $0) }
         }), let category = LifeCategory(named: domain.category) {
             return category
         }
@@ -1095,11 +1155,39 @@ enum FieldClassifier {
 
     /// Short, no verb, and not a common noun — the shape of a film or a
     /// restaurant name. "fast and furious", "past lives".
-    private static func looksLikeTitle(_ lowered: String) -> Bool {
-        let words = lowered.split(separator: " ")
-        guard (1...5).contains(words.count) else { return false }
-        return !taskVerbs.contains { lowered.contains($0) }
+    ///
+    /// Typed like one, too: at least two words, and every word longer than
+    /// three letters capitalised ("Past Lives", "Fast and Furious"). A phone
+    /// capitalises the first word of everything, so "Olive oil" and "New
+    /// couch" no longer read as films. Anything short and unplaceable that is
+    /// not typed like a title goes to Notes, where moving it is one tap, and
+    /// Apple Intelligence gets a second look where the phone has it.
+    private static func looksLikeTitle(_ typed: String) -> Bool {
+        let lowered = typed.lowercased()
+        let words = typed.split(separator: " ")
+        guard (2...6).contains(words.count) else { return false }
+        let significant = words.filter { $0.count > 3 }
+        guard !significant.isEmpty,
+              significant.allSatisfy({ $0.first?.isUppercase == true })
+        else { return false }
+        return !taskVerbs.contains { mentions(lowered, $0, stem: true) }
             && !namesADay(lowered)
+    }
+
+    /// Whether the rules had something real to go on: a learned correction,
+    /// a verb, a day, a question, or a word from one of the lists. When they
+    /// did not, the category was a guess, and a guess is what Apple
+    /// Intelligence is asked to look at again.
+    static func isConfident(_ input: String, context: Context) -> Bool {
+        let lowered = input.lowercased()
+        if learnedCategory(for: lowered, context: context) != nil { return true }
+        if namesADay(lowered) || isQuestion(lowered) { return true }
+        if matchesHorizon(lowered, context: context) != nil { return true }
+        if taskVerbs.contains(where: { mentions(lowered, $0, stem: true) }) { return true }
+        let lists = [careWords, moneyWords, homeWords, eatWords, watchWords,
+                     placeWords, buyWords, groceryWords]
+            + namedDomains.map(\.words)
+        return lists.contains { $0.contains { mentions(lowered, $0) } }
     }
 
     private static func matchesHorizon(

@@ -709,10 +709,42 @@ struct FieldClassifierTests {
     @Test
     func aFilmTitleGoesToTheWatchlist() {
         let receipt = FieldClassifier.classify(
-            "fast and furious",
+            "Fast and Furious",
             context: context
         )
         #expect(receipt.category == .watchlist)
+    }
+
+    /// Short things that are not typed like titles are not films. Groceries
+    /// go to Buys; anything else unplaceable waits in Notes.
+    @Test
+    func shortThingsAreNotFilms() {
+        for (input, expected) in [
+            ("Olive oil", LifeCategory.buys), ("paper towels", .buys),
+            ("New couch", .buys), ("pick up milk", .buys),
+        ] {
+            #expect(
+                FieldClassifier.classify(input, context: context).category == expected,
+                "\(input) was misfiled"
+            )
+        }
+        #expect(FieldClassifier.classify("olive oil", context: context).category != .watchlist)
+    }
+
+    /// Words, not letters: none of these contain the list word they used to
+    /// be filed under.
+    @Test
+    func listsMatchWholeWords() {
+        for (input, wrong) in [
+            ("call my parents", LifeCategory.money),
+            ("plan our vacation", LifeCategory(rawValue: "pets")),
+            ("new sweater", .food),
+        ] {
+            #expect(
+                FieldClassifier.classify(input, context: context).category != wrong,
+                "\(input) matched inside a word"
+            )
+        }
     }
 
     /// The app never invents a plan, and it never invents an occasion either.
@@ -2470,7 +2502,7 @@ struct FieldStoreTests {
         let store = FieldStore()
         let before = store.state.lifeItems.count
 
-        store.captureDraft = "past lives"
+        store.captureDraft = "Past Lives"
         store.submitCapture()
 
         #expect(store.lastReceipt != nil)
@@ -2529,7 +2561,7 @@ struct FieldStoreTests {
     @Test
     func theCorrectionPickerCanBeLeftWithoutMovingAnything() {
         let store = FieldStore()
-        store.captureDraft = "past lives"
+        store.captureDraft = "Past Lives"
         store.submitCapture()
         let original = store.lastReceipt
         store.beginCorrection()
@@ -2568,7 +2600,7 @@ struct FieldStoreTests {
     @Test
     func forTodayIsRefusedWhereADateWouldBeALie() {
         let store = FieldStore()
-        store.captureDraft = "past lives"
+        store.captureDraft = "Past Lives"
         store.submitCapture()
         #expect(store.lastReceipt?.category.carriesDates == false)
 
@@ -2626,7 +2658,7 @@ struct FieldStoreTests {
         let store = FieldStore()
         let before = store.state.lifeItems.count
 
-        store.captureDraft = "past lives"
+        store.captureDraft = "Past Lives"
         store.submitCapture()
         store.send()
 
@@ -2634,7 +2666,7 @@ struct FieldStoreTests {
         #expect(store.lastReceipt == nil)
         #expect(
             store.state.lifeItems.contains {
-                $0.title == "Past lives" && $0.category == .watchlist
+                $0.title.lowercased() == "past lives" && $0.category == .watchlist
             }
         )
     }
@@ -2650,14 +2682,14 @@ struct FieldStoreTests {
         let backend = FieldMemoryBackend(state: .seed)
         let store = FieldStore(state: .seed, backend: backend)
 
-        store.captureDraft = "past lives"
+        store.captureDraft = "Past Lives"
         store.submitCapture()
         store.send()
 
         // "Past lives", not "past lives" — what gets filed is the tidied
         // thought, and sentence case is part of tidying it.
         guard let filed = store.state.lifeItems.first(where: {
-            $0.title == "Past lives"
+            $0.title.lowercased() == "past lives"
         }) else {
             Issue.record("expected it in the local list")
             return
@@ -2763,7 +2795,7 @@ struct FieldStoreTests {
         let store = FieldStore()
         let before = store.state.lifeItems.count
 
-        store.captureDraft = "past lives"
+        store.captureDraft = "Past Lives"
         store.submitCapture()
         store.dismissReceipt()
 

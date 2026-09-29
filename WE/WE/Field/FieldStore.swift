@@ -1233,6 +1233,7 @@ final class FieldStore {
         // again if this capture really does bring a group back.
         lastRevival = nil
         materialise(receipt)
+        askIntelligenceAbout(receipt)
 
         // Corrections are training signal about the classifier, and they are
         // held back with everything else until the moment of crossing.
@@ -1808,6 +1809,51 @@ final class FieldStore {
     /// records a `FieldCorrection` exactly as `correct(to:)` does for a
     /// receipt.
     private(set) var itemSaveError: String?
+
+    /// A second look from Apple Intelligence at a capture the rules guessed
+    /// at. Only when the phone has it, only for a guess, never over a
+    /// correction, and only into a list this couple already has. The move is
+    /// not recorded as a correction: corrections are what the people said,
+    /// and this is not that.
+    private func askIntelligenceAbout(_ receipt: FieldReceipt) {
+        guard FieldSmartClassifier.isAvailable,
+              !receipt.wasCorrected,
+              !FieldClassifier.isConfident(receipt.input, context: classifierContext)
+        else { return }
+        let candidates = lifeCategories + (lifeCategories.contains(.notes) ? [] : [.notes])
+        let itemID = receipt.id
+        let guessed = receipt.category
+        Task { [weak self] in
+            guard let better = await FieldSmartClassifier.category(
+                for: receipt.input, among: candidates
+            ), better != guessed else { return }
+            self?.moveWithoutCorrection(itemID, to: better, from: guessed)
+        }
+    }
+
+    private func moveWithoutCorrection(
+        _ itemID: String,
+        to category: LifeCategory,
+        from guessed: LifeCategory
+    ) {
+        guard let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
+              state.lifeItems[index].category == guessed
+        else { return }
+        var item = state.lifeItems[index]
+        item.category = category
+        if !category.carriesDates {
+            item.dueOn = nil
+            item.closesAt = nil
+        }
+        guard stageItemChange([.upsertItem(item)]) else { return }
+        state.lifeItems[index] = item
+        if outbox != nil {
+            refreshDeliveryStates()
+            Task { await flushPending() }
+            return
+        }
+        Task { [backend] in try? await backend?.upsert(item) }
+    }
 
     func refile(_ itemID: String, to category: LifeCategory) {
         guard !isLegacyExternalRow(itemID),

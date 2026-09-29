@@ -40,6 +40,10 @@ struct FieldChatComposer: View {
     /// share. Nil means no day; the thing simply waits until its author says.
     @State private var holdDay: Date?
     @State private var link: FieldLinkReader?
+    /// A list the person picked by hand. Wins over the guess, and is sent as
+    /// a correction, so the app learns it for next time.
+    @State private var chosenCategory: LifeCategory?
+    @State private var choosingCategory = false
 
     /// Closes the card without sending.
     var onClose: () -> Void = {}
@@ -78,12 +82,8 @@ struct FieldChatComposer: View {
                     .transition(reduceMotion ? .opacity : .scale(scale: 0.96).combined(with: .opacity))
             }
 
-            if let destination = destinationLine {
-                Text(destination)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.fieldInk(.legend))
-                    .contentTransition(.opacity)
-                    .accessibilityIdentifier("field.composer.destination")
+            if let destination = destinationCategory {
+                destinationRow(destination)
             }
 
             HStack(spacing: 10) {
@@ -201,11 +201,87 @@ struct FieldChatComposer: View {
         Task { await reader.read() }
     }
 
-    private var destinationLine: String? {
-        guard !isLookup, link?.phase != .reading,
-              let category = store.previewDestination(for: wordsToFile, link: link?.url)
-        else { return nil }
-        return "Goes to \(category.word)"
+    /// The list it will go to: the one picked by hand, or the guess.
+    private var destinationCategory: LifeCategory? {
+        guard !isLookup, link?.phase != .reading, !wordsToFile.isEmpty else { return nil }
+        return chosenCategory ?? store.previewDestination(for: wordsToFile, link: link?.url)
+    }
+
+    // MARK: Where it goes
+
+    /// "Goes to Watchlist ⌄". One tap opens every list as a row of chips;
+    /// one more picks. Nothing else on the card moves.
+    private func destinationRow(_ category: LifeCategory) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                withAnimation(reduceMotion ? nil : .spring(duration: 0.3)) {
+                    choosingCategory.toggle()
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Text("Goes to")
+                        .foregroundStyle(.fieldInk(.legend))
+                    Text(category.word)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.fieldInk(.headline))
+                        .contentTransition(.opacity)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.fieldInk(.legend))
+                        .rotationEffect(.degrees(choosingCategory ? 180 : 0))
+                }
+                .font(.system(size: 13))
+                .padding(.vertical, 6)
+                .padding(.horizontal, 10)
+                .background(canvas.ink.opacity(0.06), in: Capsule())
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Goes to \(category.word). Change list")
+            .accessibilityIdentifier("field.composer.destination")
+
+            if choosingCategory {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(categoryChoices(including: category), id: \.self) { option in
+                            let selected = option == category
+                            Button {
+                                withAnimation(reduceMotion ? nil : .spring(duration: 0.3)) {
+                                    chosenCategory = option
+                                    choosingCategory = false
+                                }
+                            } label: {
+                                Text(option.word)
+                                    .font(.system(size: 14, weight: selected ? .semibold : .regular))
+                                    .foregroundStyle(selected ? canvas.bg : canvas.ink)
+                                    .padding(.vertical, 8)
+                                    .padding(.horizontal, 14)
+                                    .background(
+                                        selected ? AnyShapeStyle(canvas.ink) : AnyShapeStyle(canvas.ink.opacity(0.06)),
+                                        in: Capsule()
+                                    )
+                                    .contentShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(selected ? .isSelected : [])
+                            .accessibilityIdentifier("field.composer.list.\(option.rawValue)")
+                        }
+                    }
+                }
+                .scrollClipDisabled()
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .sensoryFeedback(.selection, trigger: chosenCategory)
+    }
+
+    /// Every list this couple has, plus Notes for anything that fits none,
+    /// plus the guess itself when it would be a brand new list.
+    private func categoryChoices(including current: LifeCategory) -> [LifeCategory] {
+        var lists = store.lifeCategories
+        if !lists.contains(current) { lists.insert(current, at: 0) }
+        if !lists.contains(.notes) { lists.append(.notes) }
+        return lists
     }
 
     // MARK: Who sees it, and send
@@ -347,6 +423,9 @@ struct FieldChatComposer: View {
         } else {
             store.captureDraft = wordsToFile
             store.submitCapture()
+            if let chosenCategory, chosenCategory != store.lastReceipt?.category {
+                store.correct(to: chosenCategory)
+            }
             store.attachLink(link?.url)
             if justMe {
                 store.togglePrivate()
@@ -357,6 +436,8 @@ struct FieldChatComposer: View {
         text = ""
         link = nil
         holdDay = nil
+        chosenCategory = nil
+        choosingCategory = false
         onSent()
     }
 }
