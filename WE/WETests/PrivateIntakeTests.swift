@@ -63,7 +63,7 @@ struct PrivateIntakeTests {
         )
         #expect(
             FieldLookupPolicy.catalogue(for: .trips).map(\.label)
-                == ["GET THERE", "STAY", "DO", "RESEARCH"]
+                == ["GET THERE", "STAY", "THINGS TO DO", "RESEARCH"]
         )
         #expect(
             FieldLookupPolicy.catalogue(for: .watchlist).map(\.label)

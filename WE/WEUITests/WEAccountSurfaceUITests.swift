@@ -22,6 +22,26 @@ final class WEAccountSurfaceUITests: XCTestCase {
         return app
     }
 
+    /// The review modes exist so every screen can be seen without an account.
+    /// Account used to trap in them: only the live launch provided the
+    /// external-surface controller it reads.
+    func testAccountOpensInTheSeededReviewMode() {
+        let app = XCUIApplication()
+        WEUITestLaunchSupport.configure(app)
+        app.launchEnvironment["WE_FIELD"] = "seeded"
+        app.launchEnvironment["WE_REPOSITORY"] = "preview"
+        app.launchEnvironment["WE_SKIP_PROMISE"] = "1"
+        app.launchEnvironment["WE_SKIP_WALKTHROUGH"] = "1"
+        app.launchEnvironment["WE_DISABLE_CREDENTIAL_PROMPTS"] = "1"
+        app.launchArguments += ["-hasSeenLivingConfluencePromise", "YES", "-hasSeenWalkthrough", "YES"]
+        app.launch()
+        let account = app.buttons["field.openAccount"]
+        XCTAssertTrue(account.waitForExistence(timeout: 15))
+        account.tap()
+        XCTAssertTrue(app.buttons["field.account.done"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     func testSignInRevealAndSubmit() {
         let app = launch()
         keepScreenshot(of: app, named: "sign-in")

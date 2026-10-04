@@ -97,7 +97,45 @@ struct FieldCalendarSurface: View {
                 .font(FieldType.dateCount)
                 .tracking(FieldTracking.dateCount)
                 .foregroundStyle(.fieldInk(.headerMeta))
+                .padding(.trailing, 6)
+
+            // The swipe still works; these say that there is more than one
+            // month, which a swipe on its own never told anybody.
+            monthStep(-1, symbol: "chevron.left", label: "Previous month")
+            monthStep(1, symbol: "chevron.right", label: "Next month")
         }
+    }
+
+    private func monthStep(_ delta: Int, symbol: String, label: String) -> some View {
+        Button { monthOffset += delta } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.fieldInk(.label))
+                .frame(width: 36, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(delta < 0 ? "field.calendar.previous" : "field.calendar.next")
+    }
+
+    /// The first span that covers this day, and whether the day is its first
+    /// or last. A trip is drawn as one hairline across its days, so "Nov 1 to
+    /// 5" reads as a stretch rather than five unrelated dots.
+    private func span(on date: Date, in items: [LifeItem]) -> (item: LifeItem, starts: Bool, ends: Bool)? {
+        for item in items where !item.isDone {
+            guard let timing = item.objectTiming, timing.precision == .day,
+                  let first = WEObjectTiming.day(timing.startDay),
+                  let last = WEObjectTiming.day(timing.endDay),
+                  last > first
+            else { continue }
+            return (
+                item,
+                calendar.isDate(first, inSameDayAs: date),
+                calendar.isDate(last, inSameDayAs: date)
+            )
+        }
+        return nil
     }
 
     private var weekdayRow: some View {
@@ -177,6 +215,18 @@ struct FieldCalendarSurface: View {
             }
             .frame(height: 44)
             .frame(maxWidth: .infinity)
+            .overlay(alignment: .bottom) {
+                if inMonth, let stretch = span(on: date, in: items) {
+                    Rectangle()
+                        .fill(store.identity.color(for: stretch.item.owner, on: WECanvas.surface).opacity(0.7))
+                        .frame(height: 1.5)
+                        .clipShape(Capsule())
+                        .padding(.leading, stretch.starts ? 12 : 0)
+                        .padding(.trailing, stretch.ends ? 12 : 0)
+                        .padding(.bottom, 2)
+                        .accessibilityHidden(true)
+                }
+            }
             .background {
                 if isSelected {
                     Rectangle().fill(WECanvas.surface.ink.opacity(0.07))

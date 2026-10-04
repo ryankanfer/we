@@ -2,19 +2,22 @@
 //  FieldTodayZone.swift
 //  WE
 //
-//  WE / Today — the intelligent clearing. Option 5a.
+//  WE / Today, as a short brief.
 //
-//  **Nothing is ever stored here.** Every item is drawn from Life or Us at the
-//  moment of viewing, which is why this view reads `store.todaySelection` (a
-//  computed property) rather than any field.
+//  **Nothing is ever stored here.** Every section is read from Life at the
+//  moment of viewing through `FieldTodayBriefBuilder`, so editing or deleting
+//  an item changes every place it appears.
 //
-//  Three states, all designed:
-//    (a) Today is clear — the state to be proud of.
-//    (b) Something needs you — one thing, full screen.
-//    (c) A question toward Us — two equal-weight tinted choices.
+//  The page used to be a transcript: a greeting bubble, each addition as a
+//  bubble, WE's reply to each, and private look ups as exchanges. That made
+//  a list of shared things read like a chat room with a third speaker in it.
+//  It reads top to bottom now and then stops:
 //
-//  Every one of them closes with the honest remainder, and every one carries a
-//  reason.
+//    the date · what matters now · what they kept · what is coming ·
+//    what still needs deciding · keep something, or ask
+//
+//  Look ups open in Ask WE (`FieldAskSheet`). Saving says where it went from
+//  the bar (`FieldZoneShell.savedLine`). Neither is written into the page.
 //
 
 import SwiftUI
@@ -23,84 +26,69 @@ struct FieldTodayZone: View {
     @Environment(FieldStore.self) private var store
     @EnvironmentObject private var session: AppSession
 
-    /// 6d, reached from "What I'm watching".
+    /// 6d, reached from the held line.
     @State private var showsDeferral = false
     /// The shared question, opened from its line. Us is no longer a zone.
     @State private var showsSharedQuestion = false
-
-    /// The watched line somebody tapped, when that line is reading a filed
-    /// thing back.
+    /// Whatever section somebody tapped.
     @State private var openItem: FieldItemReference?
 
     var body: some View {
+        let brief = FieldTodayBriefBuilder.build(store: store)
+
         FieldZoneScaffold(
             zone: .today,
             showsZoneLabel: false
         ) {
             VStack(alignment: .leading, spacing: 0) {
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text("Today").font(FieldType.pageHeadline)
-                        Spacer()
-                        todayDate
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Today").font(FieldType.pageHeadline)
-                        todayDate
-                    }
-                }
-                .foregroundStyle(.fieldInk(.headline))
-                .padding(.bottom, 24)
+                TodayEditorialHeader()
+                    .padding(.bottom, 36)
 
                 if let error = store.itemSaveError {
-                    Text(error).font(FieldType.body)
+                    Label(error, systemImage: "exclamationmark.circle")
+                        .font(FieldType.body)
                         .foregroundStyle(.fieldInk(.headline))
-                        .padding(.bottom, 20)
+                        .padding(.bottom, 24)
                         .accessibilityIdentifier("field.today.saveError")
                 }
-                FieldDayConversationView(
-                    part: .opening,
-                    openItem: $openItem,
-                    showsDeferral: $showsDeferral
-                )
-                .padding(.bottom, 8)
 
-                Group {
-                    switch store.todaySelection {
-                    case .resolved(let headline, let detail, _):
-                        resolvedHero(headline, detail)
-                    case .needsYou(let moment):
-                        FieldMomentView(moment: moment)
-                    }
-                }
-                .padding(.vertical, 12)
+                lead(brief.lead)
+                    .padding(.bottom, FieldMetrics.sectionGap)
 
                 // Only me, on the day its author picked. Only ever on the
                 // author's phone: a private row reaches nobody else.
                 ForEach(store.heldItemsReadyToOffer) { item in
                     FieldHeldReadyCard(item: item, openItem: $openItem)
-                        .padding(.vertical, 12)
+                        .padding(.bottom, FieldMetrics.sectionGap)
+                }
+
+                if let discovery = brief.discovery {
+                    TodayPartnerDiscovery(entry: discovery, openItem: $openItem)
+                }
+
+                if let ahead = brief.ahead {
+                    TodayLookingAhead(entry: ahead, openItem: $openItem)
+                }
+
+                if !brief.proposalIDs.isEmpty {
+                    TodayProposals(messageIDs: brief.proposalIDs, openItem: $openItem)
                 }
 
                 if WEFeatureFlags.shareInboxEnabled {
                     WEPrivateTimeItems().environment(store).padding(.vertical, 12)
                     WESharedTimeItems().environment(store).padding(.vertical, 12)
                 }
+
                 if sharedQuestionIsReady {
                     sharedJourneyHandoff
-                        .padding(.top, FieldMetrics.sectionGapLoose)
                 }
 
-                // The day's conversation: what either of you added today, WE's
-                // replies, decisions, and this person's private look-ups. It
-                // replaces the watching list and the separate chat.
-                FieldDayConversationView(
-                    part: .thread,
-                    openItem: $openItem,
-                    showsDeferral: $showsDeferral
-                )
-                .padding(.top, FieldMetrics.sectionGap)
-                .padding(.bottom, FieldMetrics.sectionGap)
+                FieldRuleLine()
+                    .padding(.bottom, 4)
+                TodayRemainder(moreItemIDs: brief.moreItemIDs, showsDeferral: $showsDeferral)
+                TodayCaptureBar()
+                    .padding(.top, 12)
+                    .padding(.bottom, FieldMetrics.sectionGap)
             }
         }
         .sheet(item: $openItem) { reference in
@@ -120,14 +108,18 @@ struct FieldTodayZone: View {
                 .environment(store)
                 .environmentObject(session)
         }
-
     }
 
-    private var todayDate: some View {
-        Text(store.now, format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
-            .font(FieldType.body)
-            .foregroundStyle(.fieldInk(.reasoning))
-            .fixedSize()
+    @ViewBuilder
+    private func lead(_ lead: FieldTodayBrief.Lead) -> some View {
+        switch lead {
+        case .moment(let moment, let fact, let sourceURL):
+            FieldMomentView(moment: moment, fact: fact, sourceURL: sourceURL)
+        case .discovery(let entry):
+            TodayDiscoveryLead(entry: entry, openItem: $openItem)
+        case .clear(let headline, let detail):
+            TodayClearLead(headline: headline, detail: detail)
+        }
     }
 
     private var sharedQuestionIsReady: Bool {
@@ -160,169 +152,10 @@ struct FieldTodayZone: View {
             .padding(.vertical, 16)
             .contentShape(Rectangle())
             .overlay(alignment: .top) { FieldRuleLine() }
-            .overlay(alignment: .bottom) { FieldRuleLine(color: FieldRule.row) }
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("field.today.sharedJourney")
     }
-
-    // MARK: (a) Today is clear
-    //
-    // "This screen must feel like a resolution, not an empty state." Which is
-    // why the sentence is one — an absence phrased as an absence reads as the
-    // app having nothing to offer, and it has cleared the day.
-
-    /// The resolved headline — a real state, and the only thing above the
-    /// capture field. What the app is watching, and the horizon, follow the
-    /// capture rather than separating it from the headline.
-    ///
-    /// Both strings are derived, so this renders whatever the intelligence
-    /// found true: a clear day, or an account it is still learning.
-    private func resolvedHero(
-        _ headline: String,
-        _ detail: String
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(spacing: 26) {
-
-                VStack(spacing: 16) {
-                    WEWordReveal(
-                        text: headline,
-                        font: FieldType.hero,
-                        tracking: FieldTracking.hero,
-                        lineSpacing: 4,
-                        alignment: .center
-                    )
-                    .foregroundStyle(.fieldInk(.headline))
-
-                    Text(detail)
-                        .font(FieldType.body)
-                        .foregroundStyle(.fieldInk(.sectionSubtitle))
-                        .fieldLineHeight(1.6, size: 15)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 270)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .weArrival(delay: 0.45)
-                }
-                // The combine stops here rather than wrapping the mark with
-                // it. The mark used to be inside this element and
-                // `accessibilityHidden(true)` besides — correct while it was
-                // decoration, and wrong the moment it became the only control
-                // on this screen. A button folded into a combined label is not
-                // a button to VoiceOver.
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(headline) \(detail)")
-            }
-            .frame(maxWidth: .infinity)
-        }
-    }
-
-    private func watchingBlock(_ items: [FieldWatchItem]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            FieldRuleLine()
-
-            // 6d is reached from the label rather than from a new control.
-            //
-            // "What I'm watching" is already the sentence the deferral screen
-            // elaborates on, so the heading *is* the affordance and the zone
-            // gains nothing to look at. Shown only when something is actually
-            // held back — a heading that opens an empty screen is worse than a
-            // heading that does nothing.
-            Group {
-                if store.heldTopics.isEmpty {
-                    FieldLabel("What's being watched")
-                } else {
-                    Button {
-                        showsDeferral = true
-                    } label: {
-                        FieldLabel("What's being watched")
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("Shows what is being held back, and why")
-                    .accessibilityIdentifier("field.today.watching.open")
-                }
-            }
-            .padding(.top, 18)
-            .padding(.bottom, 14)
-
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                    if index > 0 {
-                        FieldRuleLine(color: FieldRule.watching)
-                    }
-
-                    watchingRow(item)
-                }
-            }
-            .padding(.bottom, 4)
-
-            FieldRuleLine()
-        }
-        .accessibilityElement(children: .contain)
-    }
-
-    /// One watched line — and, when the line is reading a filed thing back,
-    /// the way into it.
-    ///
-    /// The rows all looked alike and none of them did anything, so the section
-    /// read as a printout. A line about an open question is a line about an
-    /// item that exists, and tapping it opens that item where every other
-    /// surface opens it. A line about a horizon question or a held topic has
-    /// no item behind it and stays exactly as it was.
-    @ViewBuilder
-    private func watchingRow(_ item: FieldWatchItem) -> some View {
-        if let itemID = item.itemID,
-            store.state.lifeItems.contains(where: { $0.id == itemID })
-        {
-            Button {
-                openItem = FieldItemReference(id: itemID)
-            } label: {
-                watchingRowBody(item)
-            }
-            .buttonStyle(.plain)
-            .accessibilityHint("Opens where it was filed")
-            .accessibilityIdentifier("field.watching.row")
-        } else {
-            watchingRowBody(item)
-        }
-    }
-
-    private func watchingRowBody(_ item: FieldWatchItem) -> some View {
-        HStack(alignment: .top, spacing: 11) {
-            FieldDot(
-                owner: item.owner,
-                identity: store.identity,
-                size: FieldDotSize.list,
-                baselineNudge: 6,
-                opacity: item.isDeferred ? 0.55 : 1
-            )
-
-            Text(item.text)
-                .font(.system(size: 14, design: .serif))
-                .foregroundStyle(
-                    // The deferred line is dimmed because it is being held,
-                    // not because it matters less.
-                    item.isDeferred
-                        ? .fieldInk(.deemphasisedItem)
-                        : .fieldInk(.legend)
-                )
-                .fieldLineHeight(1.6, size: 14)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, 11)
-        .contentShape(Rectangle())
-    }
-
-    // The horizon is not repeated here.
-    //
-    // Us states it larger, with its thesis and its evidence attached, and a
-    // second rendering of the same sentence taught people that Today was where
-    // the long view lived. Today is about now; the horizon is the one thing on
-    // this app that explicitly is not. The old copy also carried a hardcoded
-    // "To tickets" sub-label, which was true of exactly one horizon.
 }
 
 // MARK: - (b) and (c)
@@ -335,6 +168,10 @@ struct FieldMomentView: View {
     @Environment(FieldStore.self) private var store
     @State private var actionItem: FieldItemReference?
     let moment: FieldMoment
+    /// One factual sentence under the headline, read from the item itself.
+    var fact: String? = nil
+    /// The page the item arrived as. The only source of its picture.
+    var sourceURL: URL? = nil
 
     private var accentColor: Color {
         moment.accent == .shared
@@ -348,7 +185,7 @@ struct FieldMomentView: View {
                 WEPrivacyLabel(text: store.privacyLabel(for: item)).padding(.bottom, 8)
             }
             FieldLabel(moment.source)
-                .padding(.bottom, 22)
+                .padding(.bottom, 18)
 
             // Presence (6b): when one partner is unreachable the day's item is
             // addressed to the other by name, and the override is still there.
@@ -360,6 +197,13 @@ struct FieldMomentView: View {
                     .padding(.bottom, 14)
             }
 
+            // The one large picture on the page, when the thing came from a
+            // page that has one. Its frame is reserved before it arrives.
+            if let sourceURL {
+                FieldPreviewPlate(url: sourceURL, aspect: 3 / 2)
+                    .padding(.bottom, 22)
+            }
+
             WEWordReveal(
                 text: moment.headline,
                 font: FieldType.hero,
@@ -367,24 +211,17 @@ struct FieldMomentView: View {
                 lineSpacing: 4
             )
             .foregroundStyle(.fieldInk(.headline))
-            .padding(.bottom, 22)
+            .padding(.bottom, 14)
 
-            if case .question(let question) = moment.shape {
-                Text(question.stakes)
+            if let fact {
+                Text(fact)
                     .font(FieldType.body)
                     .foregroundStyle(.fieldInk(.sectionSubtitle))
                     .fieldLineHeight(1.6, size: 15)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.bottom, 20)
+                    .padding(.bottom, 24)
+                    .accessibilityIdentifier("field.today.lead.fact")
             }
-
-            DisclosureGroup("Why this?") {
-                FieldReasoning(text: moment.reasoning, accent: accentColor)
-                    .padding(.top, 12)
-            }
-            .font(FieldType.body)
-            .foregroundStyle(.fieldInk(.headline))
-            .padding(.bottom, 24)
 
             // The app opened the phone and does not know how it went. Asked
             // once, above the usual actions, and never asked again today.
@@ -395,7 +232,15 @@ struct FieldMomentView: View {
 
             actions
 
-
+            // Why this, and not something else. Quiet, and after the action:
+            // the reason is there for whoever wants it, not in the way.
+            DisclosureGroup("Why this?") {
+                FieldReasoning(text: moment.reasoning, accent: accentColor)
+                    .padding(.top, 12)
+            }
+            .font(FieldType.reasoning)
+            .foregroundStyle(.fieldInk(.reasoning))
+            .padding(.top, 20)
         }
         .accessibilityIdentifier("field.today.moment")
         // Where anything outward gets confirmed. It is a sheet rather than an

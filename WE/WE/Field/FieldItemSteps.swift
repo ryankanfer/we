@@ -235,7 +235,10 @@ enum FieldLookupQuery {
 // MARK: - The next useful step
 
 enum FieldItemPurpose: Equatable {
-    case decision, task, reference
+    /// `plan` is a trip with days on it: something you are going to, not
+    /// something to tick off. It keeps its date editor and has no completion
+    /// control while the days are still ahead.
+    case decision, task, reference, plan
 
     static func resolve(_ item: LifeItem) -> Self {
         // A domain such as choose.com is a reference, not the verb “choose”.
@@ -243,6 +246,9 @@ enum FieldItemPurpose: Equatable {
             .map { String($0).trimmingCharacters(in: .punctuationCharacters) }
         if ["decide", "choose", "pick"].contains(first ?? "") {
             return .decision
+        }
+        if item.category == .trips, item.objectTiming?.isResolved == true {
+            return .plan
         }
         if item.explicitTask == true { return .task }
         if item.dueOn == nil,
@@ -257,6 +263,7 @@ enum FieldItemPurpose: Equatable {
         switch resolve(item) {
         case .decision: return "Make a decision"
         case .reference: return "Explore this"
+        case .plan: return "Open trip"
         case .task:
             if item.title.lowercased().hasPrefix("send ") { return "Prepare to share" }
             switch FieldTodaySelector.primaryAct(for: item) {
@@ -268,6 +275,24 @@ enum FieldItemPurpose: Equatable {
             case .order: return "Find options"
             case .none: return "Open plan"
             }
+        }
+    }
+
+    /// What finishing it is called, in the item's own verb. Read aloud by
+    /// the complete icon and said back by its undo line, so finishing "Call
+    /// mom" says "Called", not "Completed".
+    static func completionVerb(_ item: LifeItem) -> String {
+        if item.category == .trips { return "We went" }
+        if item.category == .watchlist { return "Watched" }
+        if item.category == .buys { return "Bought" }
+        switch FieldTodaySelector.primaryAct(for: item) {
+        case .call: return "Called"
+        case .message, .email: return "Sent"
+        case .book: return "Booked"
+        case .schedule: return "Scheduled"
+        case .pay: return "Paid"
+        case .order: return "Ordered"
+        case .none: return "Done"
         }
     }
 

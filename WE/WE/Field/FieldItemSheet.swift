@@ -37,6 +37,9 @@ struct FieldItemSheet: View {
     let itemID: String
 
     @State private var asksToRemove = false
+    /// The few seconds after finishing something, when it can be taken back
+    /// from a line at the foot of the sheet.
+    @State private var offersUndo = false
     @State private var isPickingDay = false
     @State private var asksToShare = false
     /// Everything past the item's own work, folded until asked for.
@@ -95,22 +98,26 @@ struct FieldItemSheet: View {
                         // send a list had to read past a calendar to do it.
                         if item.sourceURL != nil { FieldItemHelp(item: item, sourceOnly: true) }
 
+                        // A dated thing was opened for its date more often
+                        // than anything else, so the date is the first thing
+                        // under the title, editable where it is read.
+                        if showsWhenUpTop(item) {
+                            when(item)
+                                .padding(.bottom, 24)
+                        }
+
                         FieldItemActionPanel(item: item)
                             .id(itemID)
-
-                        if FieldItemPurpose.resolve(item) == .task {
-                            Button("Mark complete") { store.complete(itemID) }
-                                .buttonStyle(FieldWorkspacePrimaryStyle())
-                                .padding(.bottom, 28)
-                                .disabled(item.isDone)
-                                .accessibilityIdentifier("field.item.complete")
-                        }
 
                         DisclosureGroup(isExpanded: $showsMore) {
                             VStack(alignment: .leading, spacing: 0) {
                                 FieldItemHelp(item: item)
 
-                                if FieldItemPurpose.resolve(item) != .reference {
+                                // Undated, and able to carry a date: this is
+                                // where a note gets put on the calendar.
+                                if !showsWhenUpTop(item),
+                                   FieldItemPurpose.resolve(item) != .reference
+                                       || item.category.carriesDates {
                                     when(item)
                                         .padding(.bottom, 24)
                                 }
@@ -154,6 +161,19 @@ struct FieldItemSheet: View {
             }
         }
         .overlay(alignment: .topTrailing) { doneButton }
+        .overlay(alignment: .bottom) {
+            if offersUndo, let item, item.isDone {
+                undoLine(item)
+                    .padding(.horizontal, FieldMetrics.screenSide)
+                    .padding(.bottom, 20)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .task(id: offersUndo) {
+            guard offersUndo else { return }
+            try? await Task.sleep(for: .seconds(5))
+            withAnimation(.fieldZone(reduceMotion)) { offersUndo = false }
+        }
         .sheet(item: Binding(
             get: { store.pendingOutreach },
             set: { if $0 == nil { store.dismissOutreach() } }
@@ -212,6 +232,104 @@ struct FieldItemSheet: View {
         }
     }
 
+    // MARK: Finishing it
+
+    /// Tasks, and a trip once its days are behind it. Never a reference, and
+    /// never a trip still ahead: you do not tick off somewhere you are going.
+    private func offersCompletion(_ item: LifeItem) -> Bool {
+        switch FieldItemPurpose.resolve(item) {
+        case .task: return true
+        case .plan:
+            guard let timing = item.objectTiming,
+                  let last = WEObjectTiming.day(timing.endDay) ?? timing.anchor
+            else { return false }
+            return Calendar.gregorianUS.startOfDay(for: last)
+                < Calendar.gregorianUS.startOfDay(for: store.now)
+        case .decision, .reference: return false
+        }
+    }
+
+    private func showsWhenUpTop(_ item: LifeItem) -> Bool {
+        item.objectTiming != nil && FieldItemPurpose.resolve(item) != .reference
+    }
+
+    /// An empty circle that fills. It replaced a full width "Mark complete"
+    /// button that sat between the thing and its tools and read as the page's
+    /// main action, which for most things it is not. Tapping it again takes
+    /// it back.
+    private func completeIcon(_ item: LifeItem) -> some View {
+        let tint = store.identity.color(for: item.owner, on: WECanvas.surface)
+        return Button {
+            withAnimation(.fieldZone(reduceMotion)) {
+                if item.isDone {
+                    store.reopen(itemID)
+                    offersUndo = false
+                } else {
+                    store.complete(itemID)
+                    offersUndo = true
+                }
+            }
+        } label: {
+            ZStack {
+                Circle()
+                    .strokeBorder(tint.opacity(item.isDone ? 0 : 0.9), lineWidth: 1.5)
+                Circle()
+                    .fill(tint)
+                    .opacity(item.isDone ? 1 : 0)
+                    .scaleEffect(item.isDone ? 1 : 0.4)
+                Image(systemName: "checkmark")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(WECanvas.surface.bgElevated)
+                    .opacity(item.isDone ? 1 : 0)
+            }
+            .frame(width: 28, height: 28)
+            .frame(width: 44, height: 44)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .sensoryFeedback(.success, trigger: item.isDone) { _, done in done }
+        .accessibilityLabel(FieldItemPurpose.completionVerb(item))
+        .accessibilityValue(item.isDone ? "Done" : "Not done")
+        .accessibilityHint(
+            item.isDone
+                ? "Reopens it"
+                : (item.isSharedPresence ? "Marks it done for you and \(store.partnerName)" : "Marks it done")
+        )
+        .accessibilityAddTraits(item.isDone ? .isSelected : [])
+        .accessibilityIdentifier("field.item.complete")
+    }
+
+    /// Said once, at the foot of the sheet, while it can still be taken back.
+    private func undoLine(_ item: LifeItem) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(store.identity.color(for: item.owner, on: WECanvas.surface))
+            Text(
+                item.isSharedPresence
+                    ? "\(FieldItemPurpose.completionVerb(item)). Done for you and \(store.partnerName)."
+                    : "\(FieldItemPurpose.completionVerb(item))."
+            )
+            .font(.system(.subheadline))
+            .foregroundStyle(.fieldInk(.headline))
+            .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button("Undo") {
+                withAnimation(.fieldZone(reduceMotion)) {
+                    store.reopen(itemID)
+                    offersUndo = false
+                }
+            }
+            .font(.system(.subheadline, weight: .semibold))
+            .foregroundStyle(.fieldInk(.headline))
+            .frame(minHeight: 44)
+            .accessibilityIdentifier("field.item.undo")
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 8)
+        .weGlass(in: Capsule())
+        .accessibilityElement(children: .contain)
+    }
+
     private var doneButton: some View {
         Button {
             dismiss()
@@ -246,21 +364,38 @@ struct FieldItemSheet: View {
 
                 Text(item.title)
                     .font(FieldType.hero)
-                    .foregroundStyle(.fieldInk(.headline))
+                    .foregroundStyle(.fieldInk(item.isDone ? .quietListItem : .headline))
                     .fixedSize(horizontal: false, vertical: true)
 
                 Spacer(minLength: 0)
+
+                if offersCompletion(item) {
+                    completeIcon(item)
+                }
             }
 
             WEPrivacyLabel(text: store.privacyLabel(for: item))
             Text(whose(item))
                 .font(.system(.footnote))
                 .foregroundStyle(.fieldInk(.reasoning))
+
+            // A dated trip lives in three places at once. Saying where is what
+            // makes the other two findable.
+            if store.tripHorizons.contains(where: { $0.linkedLifeItemIDs.contains(item.id) }) {
+                Label("On the calendar, and in where you\u{2019}re headed", systemImage: "calendar")
+                    .font(.system(.footnote))
+                    .foregroundStyle(.fieldInk(.reasoning))
+                    .accessibilityIdentifier("field.item.tripHorizon")
+            }
         }
     }
 
     private func whose(_ item: LifeItem) -> String {
         let owner = store.identity.name(for: item.owner)
+        if let timing = item.timing, timing.precision == .day,
+           let start = WEObjectTiming.day(timing.startDay) {
+            return "\(owner) · \(FieldPhrasing.spanLabel(start, WEObjectTiming.day(timing.endDay)))"
+        }
         guard let dueOn = item.dueOn else { return owner }
         return "\(owner) · \(DateFormatter.fieldDayMonth.string(from: dueOn))"
     }
@@ -730,9 +865,9 @@ private struct FieldItemActionPanel: View {
                     .accessibilityIdentifier("field.item.action.begin")
                 }
 
-                DisclosureGroup(item.sourceURL != nil ? "Thoughts to share" : purpose == .reference ? "Add a note" : "Write the next step") {
+                DisclosureGroup(item.sourceURL != nil ? "Thoughts to share" : "Add a note") {
                     VStack(alignment: .leading, spacing: 14) {
-                        TextField(item.sourceURL != nil ? "What caught your eye? What would you like to talk about?" : "What would help you move this forward?", text: $note, axis: .vertical)
+                        TextField(item.sourceURL != nil ? "What caught your eye? What would you like to talk about?" : "Anything worth remembering about it", text: $note, axis: .vertical)
                             .font(FieldType.body)
                             .lineLimit(3...8)
                             .padding(14)

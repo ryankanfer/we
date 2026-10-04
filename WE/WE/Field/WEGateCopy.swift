@@ -247,7 +247,7 @@ enum WEOnlyMeCopy {
     static let why = "For gift ideas, surprises, and things you're still thinking through."
 
     /// The Hold until control, before a day is picked.
-    static let holdPrompt = "Share it on a day"
+    static let holdPrompt = "Ask me on a day"
 
     static func holdSet(_ day: Date, partner: String) -> String {
         "You'll be asked on \(day.formatted(.dateTime.weekday(.wide).month(.wide).day())) if it's time to share it with \(partner)."

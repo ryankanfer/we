@@ -27,6 +27,9 @@ enum FieldPhrasing {
         var title: String
         /// The day the phrasing named, resolved against now.
         var dueOn: Date?
+        /// The last day, when what was named was a span — "nov 1 to 5".
+        /// Nil for a single day, and always after `dueOn` when set.
+        var endsOn: Date? = nil
     }
 
     /// Openers, longest first — "remind me to" must win over "remind me".
@@ -90,8 +93,13 @@ enum FieldPhrasing {
         let original = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !original.isEmpty else { return Result(title: input, dueOn: nil) }
 
-        var words = original.split(separator: " ").map(String.init)
-        let day = extractDay(&words, now: now, calendar: calendar)
+        var words = splitRanges(original.split(separator: " ").map(String.init))
+        // A date somebody wrote out beats a weekday word: "dinner fri nov 7"
+        // is on the seventh, whatever Friday that is. The weekday is still
+        // lifted out, so it does not linger in the title.
+        let named = extractNamedDate(&words, now: now, calendar: calendar)
+        let weekday = extractDay(&words, now: now, calendar: calendar)
+        let day = named?.start ?? weekday
         stripOpener(&words)
         stripHedges(&words)
 
@@ -101,10 +109,224 @@ enum FieldPhrasing {
         // Everything was scaffolding — "reminder for tomorrow" with nothing
         // attached. The input is all there is, so file that.
         guard title.count >= 2 else {
-            return Result(title: sentenceCased(original), dueOn: day)
+            return Result(title: sentenceCased(original), dueOn: day, endsOn: named?.end)
         }
 
-        return Result(title: sentenceCased(title), dueOn: day)
+        return Result(title: sentenceCased(title), dueOn: day, endsOn: named?.end)
+    }
+
+    /// The written-out date in a sentence, if there is one, without tidying
+    /// anything. For routing, which needs to know "Bermuda nov 1-5" names a
+    /// stretch of days before it decides where Bermuda goes.
+    static func namedDate(
+        in input: String,
+        now: Date,
+        calendar: Calendar = .gregorianUS
+    ) -> (start: Date, end: Date?)? {
+        var words = splitRanges(input.split(separator: " ").map(String.init))
+        return extractNamedDate(&words, now: now, calendar: calendar)
+    }
+
+    /// "Nov 1", "Nov 1 to 5", "Nov 28 to Dec 3". How a span is said back,
+    /// everywhere it is said back, so the composer, the calendar and Us agree.
+    static func spanLabel(
+        _ start: Date,
+        _ end: Date?,
+        calendar: Calendar = .gregorianUS
+    ) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MMM d"
+        let first = formatter.string(from: start)
+        guard let end, !calendar.isDate(end, inSameDayAs: start) else { return first }
+        let sameMonth = calendar.component(.month, from: start) == calendar.component(.month, from: end)
+        formatter.dateFormat = sameMonth ? "d" : "MMM d"
+        return "\(first) to \(formatter.string(from: end))"
+    }
+
+    // MARK: Written-out dates
+    //
+    // "nov 1", "november 1st", "11/1", "the 14th", and spans of them: "nov 1
+    // to 5", "nov 1-5", "nov 28 to dec 3", "11/1-11/5". Weekday words were the
+    // only dates this file understood, so a trip typed the way people type
+    // trips had nowhere to put its days and lost them.
+
+    private static let months: [String: Int] = [
+        "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3,
+        "apr": 4, "april": 4, "may": 5, "jun": 6, "june": 6, "jul": 7,
+        "july": 7, "aug": 8, "august": 8, "sep": 9, "sept": 9, "september": 9,
+        "oct": 10, "october": 10, "nov": 11, "november": 11, "dec": 12,
+        "december": 12,
+    ]
+
+    /// Words that join the two ends of a span.
+    private static let rangeJoiners: Set<String> = [
+        "to", "through", "thru", "until", "til", "till", "-", "–", "—",
+    ]
+
+    /// "1-5" and "11/1–11/5" as three words, so a span reads the same
+    /// whichever way it was typed. Only where it is plainly a date — after a
+    /// month, or written with a slash — so "2-3 people" keeps its hyphen.
+    private static func splitRanges(_ words: [String]) -> [String] {
+        var result: [String] = []
+        for (index, word) in words.enumerated() {
+            let afterMonth = index > 0 && months[cleaned(words[index - 1])] != nil
+            let parts = word.split(
+                omittingEmptySubsequences: false,
+                whereSeparator: { "-–—".contains($0) }
+            ).map(String.init)
+            guard parts.count == 2,
+                  afterMonth || word.contains("/"),
+                  parts.allSatisfy({ $0.first?.isNumber == true })
+            else {
+                result.append(word)
+                continue
+            }
+            result += [parts[0], "-", parts[1]]
+        }
+        return result
+    }
+
+    /// What a number before it is measuring. "1/2 cup" is half a cup, not
+    /// the second of January.
+    private static let measures: Set<String> = [
+        "cup", "cups", "tsp", "tbsp", "lb", "lbs", "oz", "kg", "g", "inch",
+        "inches", "in", "ft", "mile", "miles", "dozen", "gallon", "gallons",
+    ]
+
+    /// A day of the month, "5", "5th", "21st". Nil for anything else.
+    private static func dayNumber(_ word: String, ordinalOnly: Bool = false) -> Int? {
+        var text = cleaned(word)
+        let suffixes = ["st", "nd", "rd", "th"]
+        let hadSuffix = suffixes.contains { text.hasSuffix($0) }
+        if hadSuffix { text.removeLast(2) }
+        guard !ordinalOnly || hadSuffix,
+              !text.isEmpty, text.allSatisfy(\.isNumber),
+              let value = Int(text), (1...31).contains(value)
+        else { return nil }
+        return value
+    }
+
+    /// One written-out date starting at `index`: the month and day it names,
+    /// a year if one was given, and how many words it took.
+    private static func dateAt(
+        _ index: Int,
+        in words: [String]
+    ) -> (month: Int, day: Int, year: Int?, length: Int)? {
+        guard index < words.count else { return nil }
+        let word = cleaned(words[index])
+
+        // "nov 1", "november 1st", "nov 1 2027".
+        if let month = months[word], index + 1 < words.count,
+           let day = dayNumber(words[index + 1]) {
+            if index + 2 < words.count, let year = yearNumber(words[index + 2]) {
+                return (month, day, year, 3)
+            }
+            return (month, day, nil, 2)
+        }
+
+        // "1 nov", "1st of november".
+        if let day = dayNumber(words[index]), index + 1 < words.count {
+            if let month = months[cleaned(words[index + 1])] {
+                return (month, day, nil, 2)
+            }
+            if cleaned(words[index + 1]) == "of", index + 2 < words.count,
+               let month = months[cleaned(words[index + 2])] {
+                return (month, day, nil, 3)
+            }
+        }
+
+        // "11/1", "11/1/27".
+        let numeric = word.split(separator: "/").map(String.init)
+        let measured = index + 1 < words.count && measures.contains(cleaned(words[index + 1]))
+        if !measured, (2...3).contains(numeric.count),
+           let month = Int(numeric[0]), (1...12).contains(month),
+           let day = Int(numeric[1]), (1...31).contains(day) {
+            let year = numeric.count == 3 ? Int(numeric[2]).map { $0 < 100 ? 2000 + $0 : $0 } : nil
+            return (month, day, year, 1)
+        }
+        return nil
+    }
+
+    private static func yearNumber(_ word: String) -> Int? {
+        let text = cleaned(word)
+        guard text.count == 4, let value = Int(text), (2000...2100).contains(value)
+        else { return nil }
+        return value
+    }
+
+    /// Removes the first written-out date, or span of them, and returns the
+    /// days it names. A date with no year that has already gone by this year
+    /// is next year's: nobody plans a trip for last November.
+    private static func extractNamedDate(
+        _ words: inout [String],
+        now: Date,
+        calendar: Calendar
+    ) -> (start: Date, end: Date?)? {
+        let today = calendar.startOfDay(for: now)
+        let thisYear = calendar.component(.year, from: today)
+
+        for index in words.indices {
+            var startParts: (month: Int, day: Int, year: Int?, length: Int)?
+            if let found = dateAt(index, in: words) {
+                startParts = found
+            } else if cleaned(words[index]) == "the", index + 1 < words.count,
+                      let day = dayNumber(words[index + 1], ordinalOnly: true) {
+                // "the 14th": this month's, or next month's once it has passed.
+                let month = calendar.component(.month, from: today)
+                let past = day < calendar.component(.day, from: today)
+                startParts = (past ? month % 12 + 1 : month, day, nil, 2)
+            }
+            guard let start = startParts else { continue }
+
+            var consumed = start.length
+            var endParts: (month: Int, day: Int, year: Int?)?
+            let joinerIndex = index + consumed
+            if joinerIndex < words.count, rangeJoiners.contains(cleaned(words[joinerIndex])) {
+                if let end = dateAt(joinerIndex + 1, in: words) {
+                    endParts = (end.month, end.day, end.year)
+                    consumed += 1 + end.length
+                } else if joinerIndex + 1 < words.count,
+                          let day = dayNumber(words[joinerIndex + 1]) {
+                    // "nov 28 to 3" runs into the next month.
+                    let month = day < start.day ? start.month % 12 + 1 : start.month
+                    endParts = (month, day, nil)
+                    consumed += 2
+                }
+            }
+
+            func resolve(_ month: Int, _ day: Int, _ year: Int) -> Date? {
+                let date = calendar.date(from: DateComponents(year: year, month: month, day: day))
+                // Refuses "feb 31" rather than quietly filing March 3.
+                guard let date, calendar.component(.day, from: date) == day else { return nil }
+                return calendar.startOfDay(for: date)
+            }
+
+            var year = start.year ?? thisYear
+            guard var startDate = resolve(start.month, start.day, year) else { continue }
+            var endDate: Date?
+            if let endParts {
+                let endYear = endParts.year ?? (endParts.month < start.month ? year + 1 : year)
+                endDate = resolve(endParts.month, endParts.day, endYear)
+            }
+            if start.year == nil, (endDate ?? startDate) < today {
+                year += 1
+                startDate = resolve(start.month, start.day, year) ?? startDate
+                endDate = endDate.flatMap { calendar.date(byAdding: .year, value: 1, to: $0) }
+            }
+            if let end = endDate, end <= startDate { endDate = nil }
+
+            // "from nov 1", "on the 14th": the word that only held the date
+            // goes with it.
+            var from = index
+            if from > 0, (dayPrepositions + ["from"]).contains(cleaned(words[from - 1])) {
+                from -= 1
+            }
+            words.removeSubrange(from..<(index + consumed))
+            return (startDate, endDate)
+        }
+        return nil
     }
 
     // MARK: The day

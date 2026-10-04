@@ -967,7 +967,8 @@ struct FieldClassifierTests {
             "mark hotel event tomorrow",
             context: context
         )
-        #expect(receipt.category.rawValue == "travel")
+        // Travel folded into Trips: one list for going somewhere.
+        #expect(receipt.category == .trips)
         #expect(receipt.dueOn != nil)
         #expect(receipt.category.rawValue != "mark")
     }

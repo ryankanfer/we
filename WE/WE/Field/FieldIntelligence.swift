@@ -837,6 +837,12 @@ enum FieldClassifier {
             !$0.contains(" ") && (words.contains($0) || words.contains($0 + "s"))
         }
     }
+    /// A weekday word, or a date written out — "nov 1", "11/1", "the 14th".
+    /// Detection only, so the clock it is read against does not matter.
+    static func namesADate(_ lowered: String) -> Bool {
+        namesADay(lowered) || FieldPhrasing.namedDate(in: lowered, now: .now) != nil
+    }
+
     /// How a question opens when it is one. Checked alongside a literal "?",
     /// because most people do not type the mark on a phone.
     private static let questionOpeners = [
@@ -936,13 +942,26 @@ enum FieldClassifier {
         original: String? = nil
     ) -> LifeCategory {
         let hasTaskShape = taskVerbs.contains { mentions(lowered, $0, stem: true) }
-        let hasDay = namesADay(lowered)
+        let named = FieldPhrasing.namedDate(
+            in: original ?? lowered,
+            now: context.now,
+            calendar: context.calendar
+        )
+        let hasDay = namesADay(lowered) || named != nil
         let isAspiration = aspirationWords.contains { mentions(lowered, $0) }
 
         // A trip named as a wish, or a place already on a horizon, is still a
         // trip. Checked first so "japan in the fall maybe" does not fall into
         // the title heuristic and come out a film.
         let namesAPlace = placeWords.contains { mentions(lowered, $0) }
+
+        // A stretch of days with nothing to do in it is somewhere you are
+        // going. "Bermuda nov 1-5" names no place this app knows, and before
+        // this it was read as a film title and lost its dates; a span is a
+        // stronger signal than any list of places could be.
+        if !hasTaskShape, let named, named.end != nil || namesAPlace {
+            return .trips
+        }
         if !(hasTaskShape && hasDay),
            matchesHorizon(lowered, context: context) != nil
                || (isAspiration && namesAPlace) {
@@ -1022,7 +1041,9 @@ enum FieldClassifier {
                   "walker", "kibble", "shots"]),
         ("car", ["car", "oil change", "tires", "tyres", "registration", "dmv",
                  "parking", "gas", "mechanic", "inspection"]),
-        ("travel", ["flight", "flights", "passport", "visa", "hotel", "airbnb",
+        // Trips, not a second list beside it. This used to grow Travel, and a
+        // couple ended up with Trips and Travel holding the same Lisbon.
+        ("trips", ["flight", "flights", "passport", "visa", "hotel", "airbnb",
                     "airport", "packing", "pack", "itinerary", "boarding"]),
         ("work", ["deck", "standup", "stand up", "review", "offsite", "client",
                   "invoice", "deadline", "interview", "resume", "onboarding"]),
@@ -1113,7 +1134,7 @@ enum FieldClassifier {
         // couple ends up with thirty categories of one item each.
         //
         // Not everything needs a new category. This is the line.
-        if namesADay(lowered) { return .notes }
+        if namesADate(lowered) { return .notes }
 
         return invented(from: lowered) ?? .notes
     }
@@ -1171,7 +1192,7 @@ enum FieldClassifier {
               significant.allSatisfy({ $0.first?.isUppercase == true })
         else { return false }
         return !taskVerbs.contains { mentions(lowered, $0, stem: true) }
-            && !namesADay(lowered)
+            && !namesADate(lowered)
     }
 
     /// Whether the rules had something real to go on: a learned correction,
@@ -1181,7 +1202,7 @@ enum FieldClassifier {
     static func isConfident(_ input: String, context: Context) -> Bool {
         let lowered = input.lowercased()
         if learnedCategory(for: lowered, context: context) != nil { return true }
-        if namesADay(lowered) || isQuestion(lowered) { return true }
+        if namesADate(lowered) || isQuestion(lowered) { return true }
         if matchesHorizon(lowered, context: context) != nil { return true }
         if taskVerbs.contains(where: { mentions(lowered, $0, stem: true) }) { return true }
         let lists = [careWords, moneyWords, homeWords, eatWords, watchWords,
@@ -1216,7 +1237,7 @@ enum FieldClassifier {
         // started — that is the whole point of routing it here — and because
         // the only thing the person needs to know is that the date landed.
         if category == .notes,
-           namesADay(lowered),
+           namesADate(lowered),
            let dueOn = FieldPhrasing.tidy(
                lowered,
                now: context.now,
@@ -1269,6 +1290,15 @@ enum FieldClassifier {
                 return "You're already headed for \(title), so this sits with "
                     + "the rest of it — in Trips, where you can see it, not "
                     + "filed away somewhere you'd have to remember to look."
+            }
+
+            if let named = FieldPhrasing.namedDate(
+                in: lowered,
+                now: context.now,
+                calendar: context.calendar
+            ) {
+                return "\(FieldPhrasing.spanLabel(named.start, named.end, calendar: context.calendar)), "
+                    + "so it's on the calendar. Shared, it joins where you're headed."
             }
 
             var sentence = "A place, not a plan. It sits in Trips with no date "
@@ -1438,6 +1468,7 @@ enum FieldClassifier {
             input: input,
             title: phrasing.title,
             dueOn: category.carriesDates ? phrasing.dueOn : nil,
+            endsOn: category.carriesDates ? phrasing.endsOn : nil,
             category: category,
             reasoning: reasoning,
             // The receipt's 2pt left border takes the speaker's colour.
@@ -1462,13 +1493,13 @@ enum FieldClassifier {
         // Moving into a category that keeps dates recovers the day the
         // phrasing named; moving into one that does not drops it, rather than
         // putting a due date on a film.
-        corrected.dueOn = category.carriesDates
-            ? FieldPhrasing.tidy(
-                receipt.input,
-                now: context.now,
-                calendar: context.calendar
-            ).dueOn
-            : nil
+        let phrasing = FieldPhrasing.tidy(
+            receipt.input,
+            now: context.now,
+            calendar: context.calendar
+        )
+        corrected.dueOn = category.carriesDates ? phrasing.dueOn : nil
+        corrected.endsOn = category.carriesDates ? phrasing.endsOn : nil
         corrected.reasoning = "Moved. Things like this go here from "
             + "now on, and you'll see what it changed."
 
@@ -2099,10 +2130,13 @@ enum FieldPromotion {
     static let minimumMentions = 2
 
     static func proposal(_ context: FieldTodaySelector.Context) -> Proposal? {
-        // Only from the categories that hold no dates. A thing with a date is
-        // already a plan; asking whether you plan to do it would be absurd.
+        // Only from things with no date. A thing with a date is already a
+        // plan; asking whether you plan to do it would be absurd. A dated trip
+        // goes straight to Us on its own (`FieldStore.horizons`); an undated
+        // one is exactly what this asks about.
         let candidates = context.lifeItems.filter {
-            !$0.isDone && !$0.category.carriesDates
+            !$0.isDone && $0.objectTiming == nil
+                && (!$0.category.carriesDates || $0.category == .trips)
         }
 
         var bySubject: [String: [LifeItem]] = [:]
