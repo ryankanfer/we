@@ -1237,6 +1237,15 @@ final class FieldStore {
     /// backend has always had `upsert` for exactly this and nothing called it.
     private(set) var captureSaveError: String?
 
+    /// What was just saved, said back once above the bar: where it went, its
+    /// date, and who can see it. Saving closes the card onto Today, where the
+    /// new thing is usually below the fold; this is the shortest distance
+    /// between doing it and seeing it was done. Cleared by the shell after a
+    /// few seconds, or by opening it.
+    private(set) var lastSaved: FieldSavedNotice?
+
+    func clearSavedNotice() { lastSaved = nil }
+
     func send() {
         captureSaveError = nil
         guard let receipt = lastReceipt else { return }
@@ -1284,6 +1293,12 @@ final class FieldStore {
         lastRevival = nil
         materialise(receipt)
         askIntelligenceAbout(receipt)
+        lastSaved = FieldSavedNotice(
+            itemID: receipt.id,
+            place: receipt.category.word,
+            when: receipt.dueOn.map { FieldPhrasing.spanLabel($0, receipt.endsOn) },
+            isPrivate: receipt.isPrivate
+        )
 
         // Corrections are training signal about the classifier, and they are
         // held back with everything else until the moment of crossing.

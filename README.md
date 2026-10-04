@@ -11,9 +11,11 @@ material only; native development has no parity or maintenance obligation to it.
 
 The iPhone app has two places and one way in, fixed at the bottom: **Today · + · Life**.
 
-- **Today** is the day's conversation. WE opens with one thing worth doing now; below it, what each of you added today and where WE filed it. It starts fresh each morning, and a question like "what did we get for dad?" is answered privately, with links to real records only.
-- **+** opens a card in the middle of the screen: say something, or paste a link. WE reads a link on the phone (title, site, picture) and says where it will go before it goes. Two circles send it to both of you; one circle keeps it Only me.
+- **Today** is the day's conversation. WE opens with one thing worth doing now; below it, what each of you added today and where WE filed it. It starts fresh each morning, and a question like "what did we get for dad?" is answered privately, with links to real records only. A plan is never read as a question: "remind me to call mom tomorrow" is saved, "remind me what we got dad" is asked, and the card offers **Save instead** when it guesses wrong.
+- **+** opens a card in the middle of the screen: say something, or paste a link. WE reads a link on the phone (title, site, picture) and says where it will go, and on what day, before it goes ("Goes to Trips · Nov 1 to 5"). Two circles send it to both of you; one circle keeps it Only me. After sending, a line above the bar says where it went and who can see it, with **Open**.
 - **Life** is where everything lives. It opens on search, in the middle of the screen. Below that is **Where we're headed** (goals), then an icon bar: All, then each group (Care, Food, Trips, Watchlist, Buys…). Calendar is in the header.
+- **Dates** are read as people type them: weekdays, "oct 18", "11/1", "the 14th", and spans like "Bermuda nov 1-5". A date someone typed is kept in every list except Watchlist and Talk, so it reaches the calendar. A dated trip is three readings of one row: an item in Trips, a span on the calendar, and (when shared) a horizon under **Coming up** in Where we're headed. Nothing is copied, so moving or removing the trip moves or removes all three.
+- **Finishing** something is the circle beside its title. It fills, says the item's own verb (Called, Bought, We went), and can be undone for a few seconds.
 
 **Only me** is a property of any item, not a place. Anything can be kept private, and sharing it later is one way: private can become shared, never the reverse. Nothing your partner sees is shaped by it. Yours, the separate private space, is retired; its writing moved into Life as private notes (`docs/archive/CIRCLE.md`).
 
@@ -141,6 +143,6 @@ are outside this milestone.
 
 ## Private beta implementation
 
-The current beta work and verification gates are tracked in [docs/PRIVATE_BETA.md](docs/PRIVATE_BETA.md). The walkthrough follows one fictional thought through capture, date correction and retrieval. It is offered, never automatic, and replayable.
+The current beta work and verification gates are tracked in [docs/PRIVATE_BETA.md](docs/PRIVATE_BETA.md). The walkthrough is five beats: hello, the three buttons, who sees it (chosen before anything is saved, because shared stays shared), saying it (the real classifier files a practice sentence, and the card opens the real list picker), and the promises. It is offered, never automatic, replayable, and never writes to an account.
 
 The main places are Today and Life, with + between them; see Native product above.

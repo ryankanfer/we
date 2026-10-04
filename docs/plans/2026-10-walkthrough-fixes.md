@@ -191,20 +191,20 @@ Change:
 6. Replace the generic **Do** action label with the concrete verb from
    `FieldItemPurpose.actionLabel`.
 
-## Phase 3 · Confidence at the moment of saving
+## Phase 3 · Confidence at the moment of saving · implemented
 
 ### 3.1 The read back line, before sending
 
-Under the draft in the composer, one line built from the receipt: **Trips · Nov 1 to 5
-· You and Dylan**. Each part is tappable: list opens the picker, date opens the timing
-editor, audience flips the switch. This is the fix for 1.1 and 1.4 that remains
-useful after the rules improve, because rules will always miss something and the
-person should catch it before it lands.
+Built into the existing destination control: **Goes to Trips · Nov 1 to 5 ⌄**. The list
+opens the picker; the audience pill beside it flips Both of us and Only me; the date
+is read back so a wrong reading is caught before it lands. Editing the date itself
+happens on the saved item, where the date editor now sits first. A tappable date in
+the card is a possible follow up if the read back proves not to be enough.
 
 ### 3.2 The receipt, after sending
 
-After `send()`, Today shows a quiet line pinned above the composer for four seconds:
-**Saved to Trips · Shared with Dylan** with **Open**. Announced to VoiceOver. No light
+After `send()`, a quiet line sits above the bar for four seconds:
+**Saved to Trips · Nov 1 to 5 · Shared with Dylan** with **Open**, which opens the item. Announced to VoiceOver. No light
 behaviour: saving your own thing is not a moment between two people, so it does not
 pass the sentence test, and the lights stay out of it.
 

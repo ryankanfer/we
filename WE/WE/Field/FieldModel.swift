@@ -819,6 +819,21 @@ struct FieldReceipt: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
+/// "Saved to Trips · Nov 1 to 5 · Shared with Dylan", once, after a save.
+struct FieldSavedNotice: Identifiable, Hashable, Sendable {
+    var id = UUID()
+    let itemID: String
+    let place: String
+    let when: String?
+    let isPrivate: Bool
+
+    func sentence(partner: String) -> String {
+        ["Saved to \(place)", when, isPrivate ? "Only you" : "Shared with \(partner)"]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+    }
+}
+
 /// A pill under the capture field — something caught this week.
 struct FieldCapture: Identifiable, Codable, Hashable, Sendable {
     let id: String

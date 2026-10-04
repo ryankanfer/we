@@ -1,5 +1,7 @@
 # Us portrait and glass capture
 
+> **Historical.** Us is no longer a place: goals live in Life as **Where we're headed**, dated trips appear there under **Coming up**, and capture is the **+** card. See `README.md` for the current app. Kept for its reasoning.
+
 The supplied brief and images informed the native implementation. The existing privacy and deliberate-sharing rules remain in effect: dismissing capture retains its draft; it does not silently publish it.
 
 - Us now presents connected **So Us** and **New to Us** territories. Shared agreements and recurring rhythms establish concepts; open shared plans remain emerging. Weight blends bounded recurrence, agreements, connections, and known recent activity. Generic single-word concepts are excluded, and duplicate titles cannot inflate prominence.

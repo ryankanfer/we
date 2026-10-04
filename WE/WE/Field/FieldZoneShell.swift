@@ -139,9 +139,47 @@ struct FieldZoneShell: View {
         }
     }
 
+    /// Where the thing just saved went, with the way to it. Quiet, on the
+    /// same glass as the bar, and gone in a few seconds: a confirmation, not
+    /// a notification. No light moves for it; saving your own thing is not a
+    /// moment between the two of you.
+    private func savedLine(_ saved: FieldSavedNotice) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: saved.isPrivate ? "lock.fill" : "checkmark")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(store.identity.color(for: store.speaker, on: store.activeZone.canvas))
+            Text(saved.sentence(partner: store.partnerName))
+                .font(.system(.footnote, weight: .medium))
+                .foregroundStyle(store.activeZone.canvas.ink)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 6)
+            Button("Open") {
+                intentPlan = FieldItemReference(id: saved.itemID)
+                store.clearSavedNotice()
+            }
+            .font(.system(.footnote, weight: .semibold))
+            .foregroundStyle(store.activeZone.canvas.ink)
+            .frame(minWidth: 44, minHeight: 40)
+            .accessibilityIdentifier("field.saved.open")
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 8)
+        .frame(minHeight: 44)
+        .weGlass(in: Capsule())
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("field.saved")
+    }
+
     @ViewBuilder private var footer: some View {
             if !store.calendarOpen, !store.searchOpen {
                 VStack(spacing: 0) {
+                    if let saved = store.lastSaved {
+                        savedLine(saved)
+                            .padding(.horizontal, FieldMetrics.screenSide)
+                            .padding(.bottom, 12)
+                            .transition(.opacity.combined(with: .offset(y: 8)))
+                    }
                     if let whisper {
                         Text(whisper)
                             .font(.system(.footnote, weight: .medium))
@@ -224,6 +262,13 @@ struct FieldZoneShell: View {
             if WEFeatureFlags.shareInboxEnabled { WEIntelligenceStore.shared.reload(); await WEIntelligenceStore.shared.synchronize() }
         }
         .sheet(item: $intentPlan) { FieldItemSheet(itemID: $0.id).environment(store) }
+        .animation(.fieldZone(reduceMotion), value: store.lastSaved?.id)
+        .task(id: store.lastSaved?.id) {
+            guard let saved = store.lastSaved else { return }
+            AccessibilityNotification.Announcement(AttributedString(saved.sentence(partner: store.partnerName))).post()
+            try? await Task.sleep(for: .seconds(4))
+            if store.lastSaved?.id == saved.id { store.clearSavedNotice() }
+        }
         .task(id: planNavigation.pendingID) {
             guard let id = planNavigation.pendingID else { return }
             await store.retryLoad()

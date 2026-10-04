@@ -312,6 +312,23 @@ struct FieldDatedTripTests {
         #expect(item.map(FieldItemPurpose.resolve) == .reference)
     }
 
+    /// Saving says where it went, once, with the way to it.
+    @Test
+    func savingSaysWhereItWent() {
+        let (store, item) = capture("Bermuda nov 1-5")
+        #expect(store.lastSaved?.itemID == item?.id)
+        #expect(
+            store.lastSaved?.sentence(partner: "Dylan")
+                == "Saved to Trips \u{00B7} Nov 1 to 5 \u{00B7} Shared with Dylan"
+        )
+
+        let (privateStore, _) = capture("Gift idea for dad", privately: true)
+        #expect(privateStore.lastSaved?.sentence(partner: "Dylan").hasSuffix("Only you") == true)
+
+        store.clearSavedNotice()
+        #expect(store.lastSaved == nil)
+    }
+
     @Test
     func theComposerSaysTheDayBackBeforeSending() {
         let store = FieldStore()
