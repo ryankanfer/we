@@ -44,6 +44,7 @@ compares, scores or streaks. The lights react to what happens between the two
 people, never to how much either of them does.
 
 Current vocabulary (keep new work inside it or extend it deliberately):
+- icon: the app icon itself, large and overlapping; the splash only
 - apart: before anything, or not yet decided
 - near: the resting state of a shared screen
 - lifted: nothing has been added yet

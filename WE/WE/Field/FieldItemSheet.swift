@@ -110,7 +110,8 @@ struct FieldItemSheet: View {
                             VStack(alignment: .leading, spacing: 0) {
                                 FieldItemHelp(item: item)
 
-                                if FieldItemPurpose.resolve(item) != .reference {
+                                if FieldItemPurpose.resolve(item) != .reference,
+                                   item.category.takesAChosenDate {
                                     when(item)
                                         .padding(.bottom, 24)
                                 }

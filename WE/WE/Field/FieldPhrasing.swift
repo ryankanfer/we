@@ -27,6 +27,10 @@ enum FieldPhrasing {
         var title: String
         /// The day the phrasing named, resolved against now.
         var dueOn: Date?
+        /// True when that day was written out ("nov 1", "10/31",
+        /// "Halloween") rather than said relative to now ("friday"). A trip
+        /// takes a date only this way: see `LifeCategory.takesAChosenDate`.
+        var dateWasWritten = false
     }
 
     /// Openers, longest first — "remind me to" must win over "remind me".
@@ -89,9 +93,16 @@ enum FieldPhrasing {
     ) -> Result {
         let original = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !original.isEmpty else { return Result(title: input, dueOn: nil) }
+        let written = namedDate(
+            in: original.split(separator: " ").map(String.init),
+            now: now, calendar: calendar
+        ) != nil
 
         var words = original.split(separator: " ").map(String.init)
-        let day = extractDay(&words, now: now, calendar: calendar)
+        // A date somebody wrote out ("nov 1", "10/31", "Halloween") is more
+        // specific than a relative day, so it is looked for first.
+        let day = extractNamedDate(&words, now: now, calendar: calendar)
+            ?? extractDay(&words, now: now, calendar: calendar)
         stripOpener(&words)
         stripHedges(&words)
 
@@ -101,10 +112,12 @@ enum FieldPhrasing {
         // Everything was scaffolding — "reminder for tomorrow" with nothing
         // attached. The input is all there is, so file that.
         guard title.count >= 2 else {
-            return Result(title: sentenceCased(original), dueOn: day)
+            return Result(
+                title: sentenceCased(original), dueOn: day, dateWasWritten: written
+            )
         }
 
-        return Result(title: sentenceCased(title), dueOn: day)
+        return Result(title: sentenceCased(title), dueOn: day, dateWasWritten: written)
     }
 
     // MARK: The day
@@ -237,6 +250,259 @@ enum FieldPhrasing {
         let current = calendar.component(.weekday, from: today)
         let delta = (weekday - current + 7) % 7
         return calendar.date(byAdding: .day, value: delta, to: today)
+    }
+
+    // MARK: Dates written out
+    //
+    // The relative words above were the only dates this file knew, so
+    // "Ryan in Bermuda nov 1-5" and "Jake's Halloween party" filed with no
+    // day at all and the calendar stayed empty. A person writing a trip or a
+    // party names the date the way a calendar would; this reads that.
+    //
+    // What is lifted out of the title and what stays:
+    //  - one day ("dinner at Lilia nov 14") is lifted, like "friday" is
+    //  - a span ("nov 1-5") stays in the title, because the item carries one
+    //    day and the last day would otherwise be thrown away; it is dated to
+    //    the first
+    //  - a holiday stays, because "Halloween" in "Halloween party" is the
+    //    name of the thing as much as its day
+
+    private static let months: [String: Int] = [
+        "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3,
+        "apr": 4, "april": 4, "may": 5, "jun": 6, "june": 6, "jul": 7,
+        "july": 7, "aug": 8, "august": 8, "sep": 9, "sept": 9,
+        "september": 9, "oct": 10, "october": 10, "nov": 11, "november": 11,
+        "dec": 12, "december": 12,
+    ]
+
+    /// Longest first, so "christmas eve" wins over "christmas".
+    private static let holidays: [(phrase: [String], month: Int, day: Int)] = [
+        (["new", "year's", "eve"], 12, 31), (["new", "years", "eve"], 12, 31),
+        (["new", "year's", "day"], 1, 1), (["new", "years", "day"], 1, 1),
+        (["fourth", "of", "july"], 7, 4), (["4th", "of", "july"], 7, 4),
+        (["valentine's", "day"], 2, 14), (["valentines", "day"], 2, 14),
+        (["christmas", "eve"], 12, 24),
+        (["christmas"], 12, 25), (["xmas"], 12, 25),
+        (["halloween"], 10, 31), (["nye"], 12, 31),
+        (["valentine's"], 2, 14), (["valentines"], 2, 14),
+    ]
+
+    private static let rangeWords: Set<String> = [
+        "-", "–", "—", "to", "through", "thru", "until", "til", "till",
+    ]
+
+    private struct NamedDate {
+        var start: Date
+        /// The words to take out of the title, or nil to leave them.
+        var lift: Range<Int>?
+    }
+
+    private static func extractNamedDate(
+        _ words: inout [String],
+        now: Date,
+        calendar: Calendar
+    ) -> Date? {
+        guard let found = namedDate(in: words, now: now, calendar: calendar)
+        else { return nil }
+        if let lift = found.lift { words.removeSubrange(lift) }
+        return found.start
+    }
+
+    private static func namedDate(
+        in words: [String],
+        now: Date,
+        calendar: Calendar
+    ) -> NamedDate? {
+        let today = calendar.startOfDay(for: now)
+        let w = words.map(normalized)
+
+        for i in w.indices {
+            // "nov 1", "november 1st", "nov 1-5", "nov 1 to 5",
+            // "oct 30 - nov 2", "nov 1, 2026"
+            if let month = months[w[i]], i + 1 < w.count {
+                var end: (month: Int, day: Int)?
+                var last = i + 1
+                let startDay: Int
+                if let span = daySpan(w[i + 1]) {
+                    startDay = span.0
+                    end = (month, span.1)
+                } else if let day = dayNumber(w[i + 1]) {
+                    startDay = day
+                    if i + 3 < w.count, rangeWords.contains(w[i + 2]) {
+                        if let to = dayNumber(w[i + 3]) {
+                            end = (month, to); last = i + 3
+                        } else if i + 4 < w.count, let toMonth = months[w[i + 3]],
+                                  let to = dayNumber(w[i + 4]) {
+                            end = (toMonth, to); last = i + 4
+                        }
+                    }
+                } else {
+                    continue
+                }
+                var year: Int?
+                if last + 1 < w.count, let y = yearNumber(w[last + 1]) {
+                    year = y; last += 1
+                }
+                guard let start = resolve(
+                    month: month, day: startDay, end: end, year: year,
+                    today: today, calendar: calendar
+                ) else { continue }
+                return NamedDate(
+                    start: start,
+                    lift: end == nil ? liftRange(i...last, in: w) : nil
+                )
+            }
+
+            // "31st oct", "1st of november"
+            if w[i].count > 2, let day = dayNumber(w[i]),
+               w[i].last?.isLetter == true {
+                var at = i + 1
+                if at < w.count, w[at] == "of" { at += 1 }
+                if at < w.count, let month = months[w[at]],
+                   let start = resolve(
+                       month: month, day: day, end: nil, year: nil,
+                       today: today, calendar: calendar
+                   ) {
+                    return NamedDate(start: start, lift: liftRange(i...at, in: w))
+                }
+            }
+
+            // "10/31", "10/31/26", "11/1-11/5", "11/1-5". Only where it
+            // reads as a date: with a year, held by "on"/"by", or last. "3/4
+            // cup flour" is a measure, and lifting it filed "Cup flour" due
+            // in March.
+            if let numeric = numericDate(w[i]),
+               numeric.year != nil || i == w.count - 1
+                || (i > 0 && dayPrepositions.contains(w[i - 1])),
+               let start = resolve(
+                   month: numeric.month, day: numeric.day, end: numeric.end,
+                   year: numeric.year, today: today, calendar: calendar
+               ) {
+                return NamedDate(
+                    start: start,
+                    lift: numeric.end == nil ? liftRange(i...i, in: w) : nil
+                )
+            }
+        }
+
+        for holiday in holidays {
+            let n = holiday.phrase.count
+            guard w.count >= n else { continue }
+            for start in 0...(w.count - n) where Array(w[start..<(start + n)]) == holiday.phrase {
+                // "last christmas" is a memory, not a plan.
+                if start > 0, w[start - 1] == "last" { continue }
+                if let date = resolve(
+                    month: holiday.month, day: holiday.day, end: nil,
+                    year: nil, today: today, calendar: calendar
+                ) {
+                    return NamedDate(start: date, lift: nil)
+                }
+            }
+        }
+        return nil
+    }
+
+    /// The date's words plus a preposition that only held it: "on nov 14".
+    private static func liftRange(
+        _ span: ClosedRange<Int>,
+        in words: [String]
+    ) -> Range<Int> {
+        let from = span.lowerBound > 0
+            && dayPrepositions.contains(words[span.lowerBound - 1])
+            ? span.lowerBound - 1 : span.lowerBound
+        return from..<(span.upperBound + 1)
+    }
+
+    /// A month and day with no year means the coming one: "nov 1" typed in
+    /// December is next November. A span that is still going counts as
+    /// coming, so a trip typed on its third day stays this year.
+    private static func resolve(
+        month: Int,
+        day: Int,
+        end: (month: Int, day: Int)?,
+        year: Int?,
+        today: Date,
+        calendar: Calendar
+    ) -> Date? {
+        func make(_ y: Int, _ m: Int, _ d: Int) -> Date? {
+            let parts = DateComponents(year: y, month: m, day: d)
+            guard let date = calendar.date(from: parts),
+                  calendar.dateComponents([.year, .month, .day], from: date) == parts
+            else { return nil }
+            return date
+        }
+        if let year { return make(year, month, day) }
+
+        let thisYear = calendar.component(.year, from: today)
+        guard let start = make(thisYear, month, day) else {
+            // Feb 29 in a year without one: try the next year that has it.
+            return make(thisYear + 1, month, day)
+        }
+        var last = start
+        if let end {
+            // "dec 30 - jan 2" ends in the following year.
+            let endYear = end.month < month ? thisYear + 1 : thisYear
+            if let e = make(endYear, end.month, end.day), e >= start { last = e }
+        }
+        return last < today ? make(thisYear + 1, month, day) : start
+    }
+
+    private static func dayNumber(_ word: String) -> Int? {
+        var digits = word
+        for suffix in ["st", "nd", "rd", "th"] where digits.hasSuffix(suffix) {
+            digits.removeLast(suffix.count)
+            break
+        }
+        guard digits.count <= 2, digits.allSatisfy(\.isNumber),
+              let value = Int(digits), (1...31).contains(value)
+        else { return nil }
+        return value
+    }
+
+    /// "1-5", "1st–5th".
+    private static func daySpan(_ word: String) -> (Int, Int)? {
+        let parts = word.split(whereSeparator: { "-–—".contains($0) })
+        guard parts.count == 2,
+              let a = dayNumber(String(parts[0])),
+              let b = dayNumber(String(parts[1])), b >= a
+        else { return nil }
+        return (a, b)
+    }
+
+    private static func yearNumber(_ word: String) -> Int? {
+        guard word.count == 4, word.allSatisfy(\.isNumber),
+              let value = Int(word), (2000...2100).contains(value)
+        else { return nil }
+        return value
+    }
+
+    private static func numericDate(
+        _ word: String
+    ) -> (month: Int, day: Int, year: Int?, end: (month: Int, day: Int)?)? {
+        let pattern = #"^(\d{1,2})/(\d{1,2})(?:/(\d{2}|\d{4}))?(?:[-–—](?:(\d{1,2})/)?(\d{1,2}))?$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(
+                  in: word, range: NSRange(word.startIndex..., in: word)
+              )
+        else { return nil }
+        func group(_ n: Int) -> Int? {
+            guard let range = Range(match.range(at: n), in: word) else { return nil }
+            return Int(word[range])
+        }
+        guard let month = group(1), (1...12).contains(month),
+              let day = group(2), (1...31).contains(day)
+        else { return nil }
+        let year = group(3).map { $0 < 100 ? 2000 + $0 : $0 }
+        var end: (month: Int, day: Int)?
+        if let endDay = group(5) {
+            end = (group(4) ?? month, endDay)
+        }
+        return (month, day, year, end)
+    }
+
+    /// Lowercased, outer punctuation off, curly apostrophes made straight.
+    private static func normalized(_ word: String) -> String {
+        cleaned(word.replacingOccurrences(of: "’", with: "'"))
     }
 
     // MARK: Openers and hedges

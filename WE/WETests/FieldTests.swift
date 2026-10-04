@@ -1168,6 +1168,76 @@ struct FieldPhrasingTests {
         #expect(result.dueOn == FieldSampleData.date(2025, 8, 16))
     }
 
+    /// A date written out is a date. Only relative words used to be read,
+    /// so "Bermuda nov 1-5" and "Halloween party" filed with no day and the
+    /// calendar stayed empty.
+    @Test
+    func aWrittenDateIsLifted() {
+        let single = FieldPhrasing.tidy("dinner at Lilia on nov 14", now: now)
+        #expect(single.title == "Dinner at Lilia")
+        #expect(single.dueOn == FieldSampleData.date(2025, 11, 14))
+        #expect(single.dateWasWritten)
+
+        let ordinal = FieldPhrasing.tidy("dentist October 2nd", now: now)
+        #expect(ordinal.title == "Dentist")
+        #expect(ordinal.dueOn == FieldSampleData.date(2025, 10, 2))
+
+        let numeric = FieldPhrasing.tidy("pay the invoice 9/15", now: now)
+        #expect(numeric.title == "Pay the invoice")
+        #expect(numeric.dueOn == FieldSampleData.date(2025, 9, 15))
+
+        let relative = FieldPhrasing.tidy("pay the rent on friday", now: now)
+        #expect(relative.dateWasWritten == false)
+    }
+
+    /// A measure is not a date.
+    @Test
+    func aFractionIsNotADate() {
+        let result = FieldPhrasing.tidy("3/4 cup flour", now: now)
+        #expect(result.title == "3/4 cup flour")
+        #expect(result.dueOn == nil)
+    }
+
+    /// A span keeps its words, because the item holds one day and the last
+    /// one would be lost. It is dated to the first.
+    @Test
+    func aSpanIsDatedToItsFirstDayAndKeepsItsWords() {
+        let trip = FieldPhrasing.tidy("Ryan in Bermuda nov 1-5", now: now)
+        #expect(trip.title == "Ryan in Bermuda nov 1-5")
+        #expect(trip.dueOn == FieldSampleData.date(2025, 11, 1))
+
+        let spelled = FieldPhrasing.tidy("cabin dec 30 to jan 2", now: now)
+        #expect(spelled.dueOn == FieldSampleData.date(2025, 12, 30))
+    }
+
+    /// A holiday dates the thing and stays in its name.
+    @Test
+    func aHolidayDatesTheThingAndStaysInTheName() {
+        let party = FieldPhrasing.tidy("Jake\u{2019}s Halloween party", now: now)
+        #expect(party.title == "Jake\u{2019}s Halloween party")
+        #expect(party.dueOn == FieldSampleData.date(2025, 10, 31))
+
+        let memory = FieldPhrasing.tidy("remember last christmas", now: now)
+        #expect(memory.dueOn == nil)
+    }
+
+    /// No year means the coming one. A date already behind us this year is
+    /// next year's.
+    @Test
+    func aPastMonthAndDayMeansNextYear() {
+        let result = FieldPhrasing.tidy("renew passport march 3", now: now)
+        #expect(result.dueOn == FieldSampleData.date(2026, 3, 3))
+    }
+
+    /// Month words that are also ordinary words are only dates with a day
+    /// beside them.
+    @Test
+    func aMonthWordAloneIsNotADate() {
+        let result = FieldPhrasing.tidy("we may need a new couch", now: now)
+        #expect(result.dueOn == nil)
+        #expect(result.title == "We may need a new couch")
+    }
+
     /// "a weekend" is a thing, not a time. Lifting it filed "What about a
     /// away?" with a Saturday nobody named.
     @Test

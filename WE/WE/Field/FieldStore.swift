@@ -2181,7 +2181,7 @@ final class FieldStore {
     func redate(_ itemID: String, to day: Date?) {
         guard !isLegacyExternalRow(itemID),
               let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
-              state.lifeItems[index].category.carriesDates
+              state.lifeItems[index].category.takesAChosenDate
         else { return }
 
         var item = state.lifeItems[index]

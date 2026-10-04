@@ -1437,7 +1437,9 @@ enum FieldClassifier {
             id: UUID().uuidString,
             input: input,
             title: phrasing.title,
-            dueOn: category.carriesDates ? phrasing.dueOn : nil,
+            dueOn: category.carriesDates
+                || (phrasing.dateWasWritten && category.takesAChosenDate)
+                ? phrasing.dueOn : nil,
             category: category,
             reasoning: reasoning,
             // The receipt's 2pt left border takes the speaker's colour.
@@ -1462,13 +1464,14 @@ enum FieldClassifier {
         // Moving into a category that keeps dates recovers the day the
         // phrasing named; moving into one that does not drops it, rather than
         // putting a due date on a film.
+        let phrasing = FieldPhrasing.tidy(
+            receipt.input,
+            now: context.now,
+            calendar: context.calendar
+        )
         corrected.dueOn = category.carriesDates
-            ? FieldPhrasing.tidy(
-                receipt.input,
-                now: context.now,
-                calendar: context.calendar
-            ).dueOn
-            : nil
+            || (phrasing.dateWasWritten && category.takesAChosenDate)
+            ? phrasing.dueOn : nil
         corrected.reasoning = "Moved. Things like this go here from "
             + "now on, and you'll see what it changed."
 
@@ -2102,7 +2105,7 @@ enum FieldPromotion {
         // Only from the categories that hold no dates. A thing with a date is
         // already a plan; asking whether you plan to do it would be absurd.
         let candidates = context.lifeItems.filter {
-            !$0.isDone && !$0.category.carriesDates
+            !$0.isDone && !$0.category.carriesDates && $0.dueOn == nil
         }
 
         var bySubject: [String: [LifeItem]] = [:]

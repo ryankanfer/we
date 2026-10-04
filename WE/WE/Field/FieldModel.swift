@@ -196,6 +196,16 @@ struct LifeCategory: RawRepresentable, Codable, Hashable, Sendable, Identifiable
 
     var carriesDates: Bool { !Self.dateless.contains(self) }
 
+    /// Whether a date somebody gave on purpose is kept.
+    ///
+    /// Wider than `carriesDates` by one: trips. "Japan someday" stays
+    /// dateless, which is what lets `FieldPromotion` ask about it. But
+    /// "Bermuda nov 1-5" was written with its dates, and a trip picked onto a
+    /// day in the item sheet was put there by hand. Dropping either left the
+    /// calendar empty and the sheet's When control doing nothing. A film and
+    /// a conversation still never take one.
+    var takesAChosenDate: Bool { carriesDates || self == .trips }
+
     var id: String { rawValue }
 
     var word: String {

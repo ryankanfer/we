@@ -395,8 +395,15 @@ struct FieldCalendarSurface: View {
     ///
     /// Today is unaffected: `FieldTodaySelector.rank` drops completed items on
     /// its own, so nothing finished can resurface as something that needs you.
+    ///
+    /// Read from the same items Life draws, not `intelligenceEligibleLifeItems`.
+    /// That gate drops every shared item whenever the load state is anything
+    /// but `.loaded`, which is every foreground (`retryLoad` sets `.loading`),
+    /// every trip to the background, and any moment offline. Life kept drawing
+    /// the cached items through all of it while the calendar went blank.
+    /// Showing a date is not handing anything to intelligence.
     private var dated: [LifeItem] {
-        store.intelligenceEligibleLifeItems.filter { $0.objectTiming?.isResolved == true }
+        store.state.lifeItems.filter { $0.objectTiming?.isResolved == true }
     }
 
     /// What the header counts: the six weeks actually drawn, not the calendar
