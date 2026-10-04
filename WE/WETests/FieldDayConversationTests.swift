@@ -99,48 +99,6 @@ struct FieldDayConversationTests {
         )
     }
 
-    // MARK: The thread
-
-    /// WE answers this person's own additions and never narrates the
-    /// partner's — they already saw where it went.
-    @Test
-    func weRepliesOnlyToYourOwnAdditions() {
-        var state = FieldState.seed
-        state.lifeItems = [
-            item("mine", "Air filter", owner: .a),
-            item("theirs", "Gift for dad", owner: .b),
-        ]
-        state.captures = [
-            FieldCapture(id: "mine", text: "air filter", owner: .a, capturedAt: FieldSampleData.today),
-            FieldCapture(id: "theirs", text: "gift for dad", owner: .b, capturedAt: FieldSampleData.today),
-        ]
-        state.conversation = []
-        let store = FieldStore(state: state, now: FieldSampleData.today)
-
-        let thread = FieldDayConversation.thread(store: store)
-        let filed = thread.compactMap { entry -> String? in
-            if case .filed(let id) = entry.kind { return id }
-            return nil
-        }
-        #expect(filed == ["mine"])
-        #expect(thread.contains { if case .capture(_, mine: false) = $0.kind { return true }; return false })
-    }
-
-    /// The day starts fresh: yesterday's additions are not in the thread,
-    /// only in the morning line's link.
-    @Test
-    func theThreadIsOnlyToday() {
-        var state = FieldState.seed
-        let yesterday = Calendar.gregorianUS.date(byAdding: .day, value: -1, to: FieldSampleData.today)!
-        state.lifeItems = [item("old", "Old thing")]
-        state.captures = [FieldCapture(id: "old", text: "old thing", owner: .a, capturedAt: yesterday)]
-        state.conversation = []
-        let store = FieldStore(state: state, now: FieldSampleData.today)
-
-        #expect(FieldDayConversation.thread(store: store).isEmpty)
-        #expect(FieldDayConversation.yesterdayItemIDs(store: store) == ["old"])
-    }
-
     // MARK: Decisions
 
     /// A private thing can never be put to the partner as a decision.

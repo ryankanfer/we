@@ -75,7 +75,7 @@ final class SignUpDemoUITests: XCTestCase {
 
         // The Promise is performed live on both phones at arrival; it needs
         // the server's ceremony record, which the preview does not have.
-        XCTAssertTrue(app.buttons["Add something"].waitForExistence(timeout: 12))
+        XCTAssertTrue(app.buttons["Keep something"].waitForExistence(timeout: 12))
         beat(5)
     }
 

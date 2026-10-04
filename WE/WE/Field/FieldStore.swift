@@ -388,6 +388,14 @@ final class FieldStore {
     /// make every existing `if store.calendarOpen` a pattern match, and the
     /// two surfaces have nothing else in common.
     var searchOpen = false
+
+    /// The + card. Held here rather than in the shell so Today's own
+    /// "Keep something" line opens the same card the bar does.
+    var composerOpen = false
+
+    /// Ask WE: the private question surface. Look-ups used to be written into
+    /// Today as an exchange; they now open here and stay here, on this phone.
+    var askOpen = false
     var activeClusterIndex = 0
     var captureDraft = "" { didSet { persistCaptureDraft() } }
     var lastReceipt: FieldReceipt? { didSet { persistCaptureDraft() } }

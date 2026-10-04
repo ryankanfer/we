@@ -2,28 +2,17 @@
 //  FieldDayConversation.swift
 //  WE
 //
-//  The day's conversation, as data.
-//
-//  Today is a conversation now: WE says what matters, each of you adds things
-//  in your own words, and WE answers each addition with where it went.
-//  Nothing here is stored as a conversation. Every line is derived, on each
-//  phone, from what already exists — the moment, today's captures, today's
-//  decision proposals, and this person's own private look-ups — so "Today is
-//  derived, never stored" still holds.
-//
-//  Two rules keep it from becoming either a manager or a chatbot:
+//  Look ups and proposed decisions: the two things that used to make Today
+//  a transcript, kept as rules now that neither is drawn there.
 //
 //  1. Anything typed is added to Life, and appears to the partner because it
 //     is now a shared thing, not a message. The one thing stored as a message
 //     is a proposed decision, because a decision needs the other person to
 //     agree and that agreement has to be a record.
 //  2. WE only says what it knows. The one kind of question it answers is a
-//     look-up, and a look-up can only point at real records. It never
+//     look up, and a look up can only point at real records. It never
 //     composes an answer, and it says "decided" only about a confirmed
-//     decision.
-//
-//  It starts fresh every morning. Yesterday is not a scroll-back; it already
-//  lives in Life, and the morning line links there.
+//     decision. Look ups are answered in Ask WE (`FieldAskSheet`).
 //
 
 import Foundation
@@ -130,35 +119,6 @@ enum FieldLookupEngine {
 // MARK: - What WE says
 
 enum FieldDayCopy {
-    static func greeting(name: String, hour: Int) -> String {
-        let part = switch hour {
-        case 5..<12: "Morning"
-        case 12..<17: "Afternoon"
-        default: "Evening"
-        }
-        return name.isEmpty ? "\(part)." : "\(part), \(name)."
-    }
-
-    static func filed(_ item: LifeItem, dayWord: String?) -> String {
-        let place = item.category.word
-        if item.visibility == .private {
-            return dayWord.map { "Kept in \(place) for \($0), just for you." }
-                ?? "Kept in \(place), just for you."
-        }
-        return dayWord.map { "Added to \(place), \($0)." } ?? "Added to \(place)."
-    }
-
-    static func yesterday(count: Int) -> String {
-        count == 1
-            ? "Yesterday you added one thing."
-            : "Yesterday you added \(count.spelled) things."
-    }
-
-    static func proposal(by name: String?, title: String) -> String {
-        name.map { "\($0) suggests deciding on \(title)." }
-            ?? "You suggested deciding on \(title)."
-    }
-
     static func decided(_ title: String) -> String {
         "You both decided on \(title)."
     }
@@ -172,98 +132,6 @@ enum FieldDayCopy {
     static let nothingFound = "That isn't in Life."
     static let found = "Here's what's in Life:"
     static let saveForUs = "Save it for us to talk about"
-    static let lookupPrivacy = "Only you see this"
-}
-
-// MARK: - The day, assembled
-
-/// One line of the day's conversation.
-struct FieldDayEntry: Identifiable, Hashable {
-    enum Kind: Hashable {
-        /// WE's greeting, for this person only.
-        case greeting(String)
-        /// "Yesterday you added three things." Item ids to open.
-        case yesterday(count: Int, itemIDs: [String])
-        /// Something added today, by either of you.
-        case capture(FieldCapture, mine: Bool)
-        /// WE's reply to one of this person's own additions.
-        case filed(itemID: String)
-        /// A proposed or confirmed decision.
-        case decision(FieldChatMessage)
-        /// A private look-up and what WE found.
-        case lookup(FieldLookup)
-        /// "I'm holding two things back." Opens the deferral screen.
-        case holding(count: Int)
-    }
-
-    let id: String
-    let kind: Kind
-    /// Only the thread is ordered by time; the opening lines have none.
-    let at: Date?
-}
-
-@MainActor
-enum FieldDayConversation {
-    /// Everything in the thread, in the order it happened today.
-    ///
-    /// The opening lines — greeting, yesterday, the moment — are drawn by the
-    /// view above this list, because they are about the day rather than
-    /// events in it.
-    static func thread(store: FieldStore) -> [FieldDayEntry] {
-        let calendar = Calendar.gregorianUS
-        let now = store.now
-        let isToday: (Date) -> Bool = { calendar.isDate($0, inSameDayAs: now) }
-
-        var entries: [FieldDayEntry] = []
-
-        for capture in store.state.captures where isToday(capture.capturedAt) {
-            let mine = capture.owner == store.speaker
-            entries.append(.init(
-                id: "capture:\(capture.id)",
-                kind: .capture(capture, mine: mine),
-                at: capture.capturedAt
-            ))
-            // WE answers each of this person's own additions. It does not
-            // narrate the partner's: they already saw where it went.
-            if mine, store.state.lifeItems.contains(where: { $0.id == capture.id }) {
-                entries.append(.init(
-                    id: "filed:\(capture.id)",
-                    kind: .filed(itemID: capture.id),
-                    at: capture.capturedAt.addingTimeInterval(0.001)
-                ))
-            }
-        }
-
-        for message in store.chatMessages where message.decision && isToday(message.createdAt) {
-            entries.append(.init(
-                id: "decision:\(message.id)",
-                kind: .decision(message),
-                at: message.createdAt
-            ))
-        }
-
-        for lookup in store.lookups where isToday(lookup.askedAt) {
-            entries.append(.init(
-                id: "lookup:\(lookup.id)",
-                kind: .lookup(lookup),
-                at: lookup.askedAt
-            ))
-        }
-
-        return entries.sorted { ($0.at ?? .distantPast) < ($1.at ?? .distantPast) }
-    }
-
-    /// Life items added yesterday by either of you, visible to this person.
-    static func yesterdayItemIDs(store: FieldStore) -> [String] {
-        let calendar = Calendar.gregorianUS
-        guard let yesterday = calendar.date(byAdding: .day, value: -1, to: store.now)
-        else { return [] }
-        let itemIDs = Set(store.state.lifeItems.map(\.id))
-        return store.state.captures
-            .filter { calendar.isDate($0.capturedAt, inSameDayAs: yesterday) }
-            .map(\.id)
-            .filter { itemIDs.contains($0) }
-    }
 }
 
 // MARK: - The store's side

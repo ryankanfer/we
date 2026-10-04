@@ -407,7 +407,7 @@ struct WalkthroughView: View {
             display("Say it like a text.")
 
             HStack(alignment: .bottom, spacing: 12) {
-                TextField("Say something\u{2026}", text: $draft, axis: .vertical)
+                TextField("Keep something\u{2026}", text: $draft, axis: .vertical)
                     .font(FieldType.hero(21))
                     .lineLimit(1...4)
                     .focused($composing)
@@ -956,7 +956,7 @@ private struct WalkthroughPlusCard: View {
                         Text("Saved to Food.")
                             .foregroundStyle(.fieldInk(.reasoning))
                     } else if text.isEmpty {
-                        Text("Say something\u{2026}")
+                        Text("Keep something\u{2026}")
                             .foregroundStyle(.fieldInk(.label))
                     } else {
                         Text(text)

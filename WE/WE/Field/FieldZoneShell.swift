@@ -37,8 +37,6 @@ struct FieldZoneShell: View {
     @State private var showsAccount = false
     @State private var planNavigation = WEPlanNavigation.shared
     @State private var intentPlan: FieldItemReference?
-    /// The + card.
-    @State private var showsComposer = false
     @State private var footerHeight: CGFloat = 240
 
     // The two lights, as a language. Each of these is a real event between
@@ -238,7 +236,10 @@ struct FieldZoneShell: View {
         }
         .overlay(alignment: .bottom) { footer }
         .overlay {
-            FieldComposerOverlay(isPresented: $showsComposer) { store.go(to: .today) }
+            FieldComposerOverlay(isPresented: $store.composerOpen) {
+                // A question opens Ask WE over wherever you are; a kept thing
+                // stays put, and the saved line says where it went.
+            }
                 .preferredColorScheme(WETheme.shared.colorScheme)
                 .environment(\.weCanvas, .surface)
                 .environment(store)
@@ -262,6 +263,7 @@ struct FieldZoneShell: View {
             if WEFeatureFlags.shareInboxEnabled { WEIntelligenceStore.shared.reload(); await WEIntelligenceStore.shared.synchronize() }
         }
         .sheet(item: $intentPlan) { FieldItemSheet(itemID: $0.id).environment(store) }
+        .sheet(isPresented: $store.askOpen) { FieldAskSheet().environment(store) }
         .animation(.fieldZone(reduceMotion), value: store.lastSaved?.id)
         .task(id: store.lastSaved?.id) {
             guard let saved = store.lastSaved else { return }
@@ -544,7 +546,7 @@ struct FieldZoneShell: View {
     /// place — it replaced a composer that lived only on Today.
     private var addButton: some View {
         Button {
-            showsComposer = true
+            store.composerOpen = true
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 22, weight: .light))
@@ -554,7 +556,7 @@ struct FieldZoneShell: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Add something")
+        .accessibilityLabel("Keep something")
         .accessibilityIdentifier("field.capture.open")
     }
 

@@ -226,7 +226,7 @@ struct FieldCaptureField: View {
                     .scrollContentBackground(.hidden)
                     .frame(minHeight: compact ? 110 : 150, maxHeight: 220)
                     .focused($isFocused)
-                    .accessibilityLabel("Say something")
+                    .accessibilityLabel("Keep something")
                     .accessibilityIdentifier("field.capture.input")
                 if let completion {
                     (Text(store.captureDraft).foregroundColor(FieldInk.headline.color(on: .surface)) +

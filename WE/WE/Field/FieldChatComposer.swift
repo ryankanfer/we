@@ -73,7 +73,7 @@ struct FieldChatComposer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            TextField(link == nil ? "Say something…" : "Add a note, or send as is", text: $text, axis: .vertical)
+            TextField(link == nil ? "Keep something…" : "Add a note, or send as is", text: $text, axis: .vertical)
                 .font(.system(size: 19, design: .serif))
                 .foregroundStyle(.fieldInk(.headline))
                 .lineLimit(1...6)
@@ -455,7 +455,10 @@ struct FieldChatComposer: View {
         guard canSend else { return }
 
         if isLookup {
+            // Asked, not kept: the answer opens in Ask WE, on this phone
+            // only, and Today is never written into.
             store.lookUp(trimmed)
+            store.askOpen = true
         } else {
             store.captureDraft = wordsToFile
             store.submitCapture()
