@@ -11,9 +11,11 @@
 //
 //    Hello            the two lights, apart
 //    Three buttons    Today, +, Life. Tapping + opens the real card
-//    Say it           a sentence types itself; the send button glows; the
-//                     real classifier files it and the lights swell
-//    Shared or yours  one card, one switch; Only me turns their light off
+//    Shared or yours  one switch, chosen before anything is saved; Only me
+//                     turns their light off
+//    Say it           a sentence types itself under the choice; the send
+//                     button glows; the real classifier files it, and the
+//                     card can be moved with the real list picker
 //    Three promises   lit one at a time; "I'm in" merges the two lights
 //
 //  The Promise used to be a separate live ceremony on both phones. It lives
@@ -76,7 +78,11 @@ struct WalkthroughView: View {
     }
 
     private enum Step: Int, CaseIterable {
-        case hello, places, say, yours, promises
+        // Who sees it comes before saying it, because that is the order the
+        // app keeps: the choice is made before saving, and a shared thing is
+        // never made private again. Teaching it the other way round showed a
+        // saved card switching back to Only me, which nothing in WE can do.
+        case hello, places, yours, say, promises
     }
 
     @State private var step: Step = .hello
@@ -95,6 +101,8 @@ struct WalkthroughView: View {
     @State private var typingTask: Task<Void, Never>?
     @State private var pulse = 0
     @FocusState private var composing: Bool
+    /// The real list picker, open under the filed card.
+    @State private var isMoving = false
 
     // Shared or yours
     @State private var isPrivate = false
@@ -120,7 +128,7 @@ struct WalkthroughView: View {
         switch step {
         case .hello: .apart
         case .places: .near
-        case .say: receipt == nil ? .near : .lifted
+        case .say: isPrivate ? .alone : (receipt == nil ? .near : .lifted)
         case .yours: isPrivate ? .alone : .near
         case .promises: agreed ? .merged : .near
         }
@@ -355,7 +363,7 @@ struct WalkthroughView: View {
             .task(id: step) { await cycleTabs() }
 
             Spacer(minLength: 20)
-            glassButton("Next") { go(.say) }
+            glassButton("Next") { go(.yours) }
         }
     }
 
@@ -428,6 +436,12 @@ struct WalkthroughView: View {
             .weGlass(in: RoundedRectangle(cornerRadius: 28, style: .continuous))
             .padding(.top, 28)
 
+            if receipt == nil {
+                audienceLine
+                    .padding(.top, 12)
+                    .padding(.leading, 6)
+            }
+
             if sendIsWaiting {
                 HStack(spacing: 6) {
                     Text("Tap send")
@@ -445,7 +459,7 @@ struct WalkthroughView: View {
             if receipt == nil {
                 borrow.padding(.top, 16)
             } else if let receipt {
-                filedCard(receipt, audience: nil)
+                filedCard(receipt)
                     .padding(.top, 22)
                     .transition(
                         reduceMotion ? .opacity
@@ -457,7 +471,7 @@ struct WalkthroughView: View {
             }
 
             Spacer(minLength: 16)
-            glassButton("Next", enabled: receipt != nil) { go(.yours) }
+            glassButton("Next", enabled: receipt != nil) { go(.promises) }
                 .accessibilityHint(receipt == nil ? "Send the sentence first" : "")
         }
         .task(id: step) {
@@ -528,48 +542,166 @@ struct WalkthroughView: View {
                 corrections: []
             )
         )
+        var saved = filed
+        saved.isPrivate = isPrivate
         withAnimation(motion) {
-            receipt = filed
+            receipt = saved
             draft = ""
+            isMoving = false
         }
         pulse += 1
     }
 
-    private func filedCard(_ receipt: FieldReceipt, audience: String?) -> some View {
+    /// The same context `file()` used, so a move recovers the same date.
+    private var practiceContext: FieldClassifier.Context {
+        FieldClassifier.Context(
+            identity: identity,
+            speaker: .a,
+            now: WalkthroughSeed.anchor(Date()),
+            lifeItems: [],
+            horizons: [],
+            rhythms: [],
+            corrections: []
+        )
+    }
+
+    /// Who will see it, said under the sentence before it is sent. One tap
+    /// changes it, here, before saving: the only moment it can go both ways.
+    private var audienceLine: some View {
+        Button {
+            withAnimation(motion) { isPrivate.toggle() }
+        } label: {
+            HStack(spacing: 8) {
+                audienceMark
+                Text(isPrivate ? "Only me" : "You and \(setting.partnerWord)")
+                    .font(.system(.footnote, weight: .medium))
+                    .contentTransition(.opacity)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.fieldInk(.label))
+            }
+            .padding(.horizontal, 12)
+            .frame(minHeight: 34)
+            .overlay(Capsule().strokeBorder(canvas.ink.opacity(isPrivate ? 0.35 : 0.14), style: StrokeStyle(lineWidth: 1, dash: isPrivate ? [4, 3] : [])))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Who sees it")
+        .accessibilityValue(isPrivate ? "Only me" : "You and \(setting.partnerWord)")
+        .accessibilityHint("Changes who will see it, before you send")
+        .accessibilityIdentifier("walkthrough.audience")
+    }
+
+    /// Two lights, or one: the same mark the switch draws.
+    private var audienceMark: some View {
+        ZStack(alignment: .leading) {
+            Circle().fill(setting.identity.personB.color(on: canvas))
+                .frame(width: 8, height: 8)
+                .offset(x: 7)
+                .opacity(isPrivate ? 0 : 1)
+            Circle().fill(setting.identity.personA.color(on: canvas))
+                .frame(width: 8, height: 8)
+        }
+        .frame(width: 16, alignment: .leading)
+    }
+
+    private func filedCard(_ receipt: FieldReceipt) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(receipt.category.label)
-                Spacer()
-                Text(audience ?? "SORTED FOR YOU")
+            // The card is the real control: tapping it opens the same list
+            // picker the app uses, and a move refiles it the way the app does.
+            Button {
+                withAnimation(motion) { isMoving.toggle() }
+            } label: {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text(receipt.category.label)
+                        Spacer()
+                        Text(receipt.isPrivate ? "ONLY ME" : "SHARED")
+                    }
+                    .font(FieldType.subLabel)
+                    .tracking(2.2)
+                    .foregroundStyle(.fieldInk(.label))
+                    .contentTransition(.opacity)
+
+                    Text(receipt.title)
+                        .font(FieldType.hero(30))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if receipt.category.carriesDates, let due = receipt.dueOn {
+                        Text(
+                            receipt.endsOn.map { FieldPhrasing.spanLabel(due, $0) }
+                                ?? due.formatted(.dateTime.weekday(.wide).month(.wide).day())
+                        )
+                        .font(FieldType.body)
+                        .foregroundStyle(.fieldInk(.reasoning))
+                        .contentTransition(.opacity)
+                    }
+                }
+                .contentShape(Rectangle())
             }
-            .font(FieldType.subLabel)
-            .tracking(2.2)
-            .foregroundStyle(.fieldInk(.label))
-            .contentTransition(.opacity)
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityHint("Moves it to another list")
+            .accessibilityIdentifier("walkthrough.savedItem")
 
-            Text(receipt.title)
-                .font(FieldType.hero(30))
-                .fixedSize(horizontal: false, vertical: true)
+            Rectangle().fill(canvas.ink.opacity(0.08)).frame(height: 1).padding(.top, 4)
 
-            if receipt.category.carriesDates, let due = receipt.dueOn {
-                Text(due, format: .dateTime.weekday(.wide).month(.wide).day())
-                    .font(FieldType.body)
-                    .foregroundStyle(.fieldInk(.reasoning))
-            }
-
-            if audience == nil {
-                Rectangle().fill(canvas.ink.opacity(0.08)).frame(height: 1).padding(.top, 4)
-                Text("Wrong spot? Tap it and move it.")
+            if isMoving {
+                FieldCategoryPicker(
+                    options: LifeCategory.builtIn + [.notes],
+                    choose: { move(to: $0) },
+                    name: { name in
+                        guard let category = LifeCategory(named: name) else { return nil }
+                        move(to: category)
+                        return category
+                    },
+                    cancel: { withAnimation(motion) { isMoving = false } },
+                    selected: receipt.category,
+                    selectedTint: setting.identity.personA.color(on: canvas)
+                )
+                .transition(.opacity)
+            } else {
+                Text(receipt.wasCorrected ? "Moved. WE learns from that." : "Wrong spot? Tap it and move it.")
                     .font(FieldType.reasoning)
                     .italic()
                     .foregroundStyle(.fieldInk(.reasoning))
+                    .contentTransition(.opacity)
             }
+
+            // The rule, said once, at the moment it starts to apply.
+            Text(
+                receipt.isPrivate
+                    ? "Only you, for now. Share it when it\u{2019}s ready."
+                    : "Shared stays shared. Choose Only me before you send."
+            )
+            .font(.system(.footnote))
+            .foregroundStyle(.fieldInk(.label))
+            .fixedSize(horizontal: false, vertical: true)
         }
         .padding(22)
         .frame(maxWidth: .infinity, alignment: .leading)
         .weGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("walkthrough.savedItem")
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(
+                    canvas.ink.opacity(receipt.isPrivate ? 0.3 : 0),
+                    style: StrokeStyle(lineWidth: 1, dash: [5, 4])
+                )
+        }
+    }
+
+    /// A move, made the way the app makes one. Nothing is recorded: the
+    /// walkthrough touches no account.
+    private func move(to category: LifeCategory) {
+        guard var current = receipt else { return }
+        let keepsPrivate = current.isPrivate
+        current = FieldClassifier.correct(current, to: category, context: practiceContext).receipt
+        current.isPrivate = keepsPrivate
+        withAnimation(motion) {
+            receipt = current
+            isMoving = false
+        }
     }
 
     // MARK: Shared or yours
@@ -579,43 +711,21 @@ struct WalkthroughView: View {
             kicker("Who sees it")
             display("Shared, or just yours.")
 
-            if let receipt {
-                VStack(alignment: .leading, spacing: 14) {
-                    filedCardBody(receipt)
-                    HStack(spacing: 10) {
-                        ZStack(alignment: .leading) {
-                            Circle().fill(setting.identity.personB.color(on: canvas))
-                                .frame(width: 10, height: 10)
-                                .offset(x: 9)
-                                .opacity(isPrivate ? 0 : 1)
-                            Circle().fill(setting.identity.personA.color(on: canvas))
-                                .frame(width: 10, height: 10)
-                        }
-                        .frame(width: 22, alignment: .leading)
-                        Text(isPrivate ? "Only you, for now" : "You and \(setting.partnerWord)")
-                            .font(FieldType.body)
-                            .contentTransition(.opacity)
-                        Spacer()
-                        Image(systemName: isPrivate ? "lock.fill" : "person.2")
-                            .imageScale(.small)
-                            .foregroundStyle(.fieldInk(.label))
-                            .contentTransition(.symbolEffect(.replace))
-                    }
-                }
-                .padding(22)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .weGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .strokeBorder(
-                            canvas.ink.opacity(isPrivate ? 0.3 : 0),
-                            style: StrokeStyle(lineWidth: 1, dash: [5, 4])
-                        )
-                }
-                .padding(.top, 26)
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("walkthrough.savedItem")
+            // Chosen first, before there is anything to save. That is the
+            // order the app keeps, so it is the order taught.
+            HStack(spacing: 10) {
+                audienceMark
+                Text(isPrivate ? "Only you, for now" : "You and \(setting.partnerWord)")
+                    .font(FieldType.body)
+                    .contentTransition(.opacity)
+                Spacer()
+                Image(systemName: isPrivate ? "lock.fill" : "person.2")
+                    .imageScale(.small)
+                    .foregroundStyle(.fieldInk(.label))
+                    .contentTransition(.symbolEffect(.replace))
             }
+            .padding(.top, 26)
+            .accessibilityElement(children: .combine)
 
             visibilitySwitch.padding(.top, 16)
 
@@ -631,25 +741,21 @@ struct WalkthroughView: View {
             .contentTransition(.opacity)
             .padding(.top, 16)
 
-            Spacer(minLength: 16)
-            glassButton("Next") { go(.promises) }
-        }
-    }
-
-    private func filedCardBody(_ receipt: FieldReceipt) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(receipt.category.label)
-                Spacer()
-                Text(isPrivate ? "ONLY ME" : "SHARED")
-                    .contentTransition(.opacity)
+            // The one way rule, plainly. Private can become shared; shared
+            // never goes back.
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "arrow.right")
+                    .imageScale(.small)
+                Text("You choose before you send. Only me can be shared later. Shared stays shared.")
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .font(FieldType.subLabel)
-            .tracking(2.2)
+            .font(.system(.footnote, weight: .medium))
             .foregroundStyle(.fieldInk(.label))
-            Text(receipt.title)
-                .font(FieldType.hero(30))
-                .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 18)
+            .accessibilityElement(children: .combine)
+
+            Spacer(minLength: 16)
+            glassButton("Next") { go(.say) }
         }
     }
 
@@ -692,7 +798,7 @@ struct WalkthroughView: View {
     // MARK: Promises
 
     private let promiseLines: [(title: String, line: String)] = [
-        ("Yours stays yours.", "Anything you mark Only me, only you see."),
+        ("Yours stays yours.", "Anything you mark Only me, only you see. Share it when you\u{2019}re ready; shared stays shared."),
         ("Nothing moves without you.", "Nothing private is shared unless you say yes."),
         ("Big things, decided together.", "You both answer. Neither of you sees the other first."),
     ]
@@ -760,7 +866,7 @@ struct WalkthroughView: View {
     private var finaleTitle: String {
         switch setting.handoff {
         case .invite: "Now, bring in your person."
-        case .waiting: "Your invitation is out."
+        case .waiting: "Your invitation is ready."
         case .open: "You\u{2019}re in, together."
         case .replay: "That\u{2019}s WE."
         }
@@ -769,7 +875,7 @@ struct WalkthroughView: View {
     private var handoffTitle: String {
         switch setting.handoff {
         case .invite: "Bring in \(setting.partnerWord)"
-        case .waiting: "Start adding"
+        case .waiting: "Back to your invitation"
         case .open: "Open WE"
         case .replay: "Done"
         }

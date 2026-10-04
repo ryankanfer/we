@@ -69,23 +69,33 @@ final class WalkthroughUITests: XCTestCase {
         XCTAssertTrue(plus.waitForExistence(timeout: 5))
         next.tap()
 
-        // Say it: Next waits for send.
+        // Shared or yours, chosen before anything is saved.
+        let onlyMe = app.buttons["walkthrough.visibility.private"]
+        XCTAssertTrue(onlyMe.waitForExistence(timeout: 5))
+        onlyMe.tap()
+        XCTAssertTrue(onlyMe.isSelected)
+        next.tap()
+
+        // Say it: the choice is carried under the sentence, and Next waits
+        // for send.
         let send = app.buttons["walkthrough.send"]
         XCTAssertTrue(send.waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons["walkthrough.audience"].value as? String, "Only me")
         XCTAssertFalse(next.isEnabled, "Next should wait until the sentence is sent")
         let enabled = NSPredicate(format: "isEnabled == true")
         expectation(for: enabled, evaluatedWith: send)
         waitForExpectations(timeout: 6)
         send.tap()
-        XCTAssertTrue(app.otherElements["walkthrough.savedItem"].waitForExistence(timeout: 5)
-            || app.staticTexts["walkthrough.savedItem"].exists)
-        next.tap()
+        let saved = app.buttons["walkthrough.savedItem"]
+        XCTAssertTrue(saved.waitForExistence(timeout: 5))
+        XCTAssertFalse(
+            app.buttons["walkthrough.visibility.shared"].exists,
+            "A saved card is never offered back to shared or private"
+        )
 
-        // Shared or yours.
-        let onlyMe = app.buttons["walkthrough.visibility.private"]
-        XCTAssertTrue(onlyMe.waitForExistence(timeout: 5))
-        onlyMe.tap()
-        XCTAssertTrue(onlyMe.isSelected)
+        // The card is the real control: tapping it opens the list picker.
+        saved.tap()
+        XCTAssertTrue(app.staticTexts["WHERE SHOULD IT GO?"].waitForExistence(timeout: 3))
         next.tap()
 
         // Three promises, lit one at a time, then the handoff.
@@ -107,7 +117,7 @@ final class WalkthroughUITests: XCTestCase {
         XCTAssertFalse(back.exists, "The first screen has nowhere to go back to")
 
         next.tap(); next.tap()
-        XCTAssertTrue(app.buttons["walkthrough.send"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["walkthrough.visibility.private"].waitForExistence(timeout: 5))
         back.tap()
         XCTAssertTrue(app.buttons["walkthrough.plus"].waitForExistence(timeout: 5))
         back.tap()

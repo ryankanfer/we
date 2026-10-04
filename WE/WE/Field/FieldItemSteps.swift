@@ -278,6 +278,24 @@ enum FieldItemPurpose: Equatable {
         }
     }
 
+    /// What finishing it is called, in the item's own verb. Read aloud by
+    /// the complete icon and said back by its undo line, so finishing "Call
+    /// mom" says "Called", not "Completed".
+    static func completionVerb(_ item: LifeItem) -> String {
+        if item.category == .trips { return "We went" }
+        if item.category == .watchlist { return "Watched" }
+        if item.category == .buys { return "Bought" }
+        switch FieldTodaySelector.primaryAct(for: item) {
+        case .call: return "Called"
+        case .message, .email: return "Sent"
+        case .book: return "Booked"
+        case .schedule: return "Scheduled"
+        case .pay: return "Paid"
+        case .order: return "Ordered"
+        case .none: return "Done"
+        }
+    }
+
     static func decisionTitle(_ item: LifeItem, choice: String) -> String {
         let subject = item.title.split(separator: " ").dropFirst().joined(separator: " ")
         let heading = subject.isEmpty ? "Plan" : subject.prefix(1).uppercased() + subject.dropFirst()

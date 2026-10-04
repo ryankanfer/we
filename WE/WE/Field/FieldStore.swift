@@ -1540,6 +1540,20 @@ final class FieldStore {
         deliverStagedItem(item)
     }
 
+    /// Takes back a finish. The same path `complete` takes, the other way:
+    /// finishing something by mistake should cost one tap, not a re-entry.
+    func reopen(_ itemID: String) {
+        guard !isLegacyExternalRow(itemID),
+              let index = state.lifeItems.firstIndex(where: { $0.id == itemID }),
+              state.lifeItems[index].isDone
+        else { return }
+        var item = state.lifeItems[index]
+        item.isDone = false
+        guard stageItemChange([.upsertItem(item)]) else { return }
+        state.lifeItems[index] = item
+        deliverStagedItem(item)
+    }
+
     @discardableResult func keepChatGoal(_ suggestion: FieldGoalSuggestion, title: String) -> Bool {
         guard FieldConversationPolicy.noticesAllowed(state.chatPreferences ?? []), !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, title.count <= 120 else { return false }
         let ids = Set(suggestion.items.map(\.id))

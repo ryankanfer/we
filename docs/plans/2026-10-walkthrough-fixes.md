@@ -134,16 +134,16 @@ Tests: `Bermuda nov 1-5` → Trips, Nov 1 to 5 · `Dune` → Watchlist · `Dune 
 friday` → Watchlist, dated · `flight to lisbon dec 3` → Trips, Dec 3 · `dinner with
 the Parks oct 18` → Food or Notes, dated, on calendar.
 
-## Phase 2 · Teaching and words
+## Phase 2 · Teaching and words · implemented
 
 ### 2.1 Tutorial privacy is chosen before saving
 
-`WalkthroughView` currently files the card, then offers the switch on the saved card.
-Reorder: the draft card carries **Both of us / Only me** while it still reads NOT
-SAVED; the person chooses, then saves. After saving a shared card, the switch is gone
-and one line says it plainly: *"Shared stays shared. Choose Only me before you save."*
-Add the rule to the promises list: *"Private can become shared. Shared never goes
-back."* Matches `README.md` and Account, which already say so.
+The beats are reordered so the tutorial keeps the app's order: **Who sees it** comes
+before **Try it**. The choice is made on its own screen, carried under the practice
+sentence as a small audience pill that can still be flipped, and fixed once sent. The
+saved card shows SHARED or ONLY ME and says the rule at the moment it applies:
+*"Shared stays shared. Choose Only me before you send."* The first promise now says
+it too.
 
 ### 2.2 "Wrong spot? Tap it and move it" works
 

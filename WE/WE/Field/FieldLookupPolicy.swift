@@ -259,7 +259,7 @@ enum FieldLookupPolicy {
             [
                 .init("trips.getThere", "GET THERE", purpose: .go, destination: .maps),
                 .init("trips.stay", "STAY", purpose: .find, destination: .web, querySuffix: "places to stay"),
-                .init("trips.do", "DO", purpose: .find, destination: .maps, querySuffix: "things to do"),
+                .init("trips.do", "THINGS TO DO", purpose: .find, destination: .maps, querySuffix: "things to do"),
                 .init("trips.research", "RESEARCH", purpose: .understand, destination: .web),
             ]
         case .watchlist:
