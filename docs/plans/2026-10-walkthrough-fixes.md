@@ -71,19 +71,49 @@ Change:
    `dueOn` kept as its start for existing callers.
 2. **Model.** Rename the meaning of `dateless` to "never *infer* a date here." A typed
    date survives in every category. Remove the two erasures in `FieldStore`.
-3. **Trips specifically.** A Trips item with a span is still a Trips item; it draws on
-   the calendar across every day of the span. `FieldPromotion` still owns whether it
-   becomes a horizon in Us. Update the doc comments that say "a trip with a date is
-   not a list item at all any more," since that is the rule being retired.
-4. **Purpose.** `FieldItemPurpose.resolve` treats any `dueOn` as a task, so a dated
-   trip would suddenly grow Mark complete. Add `.plan` for dated Trips (and dated
-   Watchlist): date first, no completion button until the span has passed.
+3. **Trips specifically.** A dated Trips item lives in three places at once, each a
+   reading of the same record: the Trips list, the calendar (across every day of its
+   span), and Us as a horizon. See 1.4.
+4. **Purpose.** `FieldItemPurpose.resolve` treats any `dueOn` as a task. Add `.plan`
+   for dated Trips (and dated Watchlist): date first, and the complete icon (2.5)
+   appears only once the span has passed.
 5. **Calendar.** `FieldCalendarSurface` already draws anything with resolved
    `objectTiming`, so it needs no filtering change, only span rendering (a hairline
    across the days, owner colour, no fill) and small previous and next month arrows
    beside the swipe.
 
-### 1.4 "Bermuda nov 1 to 5" is a trip
+### 1.4 A dated trip is also a horizon
+
+`FieldHorizon` already has the fields this needs: `title`, `window`, `targetDate` and
+`linkedLifeItemIDs`, whose comment says a horizon is "a reading of things already
+written down, not a new copy." So the dated trip horizon is **derived, not stored**:
+
+1. `FieldStore` exposes horizons as the stored ones plus one derived horizon per
+   shared, undone Trips item with resolved timing. Title is the trip title ("Bermuda"),
+   `window` is the span ("Nov 1 to 5"), `targetDate` is its first day, and
+   `linkedLifeItemIDs` is the item. A stored horizon already linked to that item wins,
+   so nothing appears twice.
+2. Because it is derived, it cannot drift: change the dates on the trip and the
+   horizon and the calendar move together; delete the trip and both are gone. No new
+   table, no migration, no second write to sync.
+3. **Only me trips do not become horizons.** Us is shared furniture, so a private trip
+   appears on the owner's calendar only. The moment it is shared it appears in Us for
+   both, which is exactly the one way crossing the privacy contract allows.
+4. A derived horizon never takes the primary slot on its own; the couple's chosen
+   primary stays primary. When none exists, the soonest dated trip may lead.
+5. After the span ends it leaves Us. The Trips item stays, ready for **We went**.
+6. `FieldPromotion` is unchanged: undated trips mentioned twice still get the
+   question. Its "a thing with a date is already a plan" rule now has a home: dated
+   trips skip the question and go straight to Us.
+7. Retire the `LifeCategory.dateless` comment that says "a trip with a date is not a
+   list item at all any more"; it now is both.
+
+Tests: shared `Bermuda nov 1-5` produces one horizon with window Nov 1 to 5 and one
+calendar span · the same item Only me produces a calendar span and no horizon ·
+editing the dates moves both · deleting the trip removes both · a stored horizon
+linked to the item suppresses the derived one.
+
+### 1.5 "Bermuda nov 1 to 5" is a trip
 
 Cause: no place word matches, no weekday matches, so `route` falls to
 `looksLikeTitle` and files a Watchlist film.
@@ -140,17 +170,24 @@ What they actually do today:
    appends to `detail`. It is a note wearing a task's name.
 
 Change:
-1. Completion speaks the item's own verb: **Called**, **Booked**, **Bought**,
-   **Watched**, **We went**, falling back to **Done**. Under it on a shared item:
-   *"Done for you and Dylan."* Five seconds of **Undo**, backed by a new
-   `FieldStore.reopen(_:)` through the same outbox path as `complete`.
-2. Rename Write the next step to **Add a note**, everywhere, so the label matches the
+1. **Remove the Mark complete button.** In its place, a **complete icon**: an empty
+   circle at the top trailing edge of the item sheet, beside the title, 44pt hit area.
+   Tap it and it fills with a check, the title settles to the done style, and a
+   five second **Undo** appears, backed by a new `FieldStore.reopen(_:)` through the
+   same outbox path as `complete`.
+2. The icon is silent but its label is not. VoiceOver reads the item's own verb
+   (**Called**, **Booked**, **Bought**, **Watched**, **We went**, falling back to
+   **Done**), and on a shared item adds *"for you and Dylan"*, so finishing something
+   for both people is never a surprise.
+3. It appears on tasks, and on plans once their date has passed. Reference items
+   (links, notes, undated Watchlist) have no icon, as they have no button today.
+4. Rename Write the next step to **Add a note**, everywhere, so the label matches the
    button and the result. Links keep **Thoughts to share**.
-3. For a dated item, the date sits at the top of the sheet and is editable in place
+5. For a dated item, the date sits at the top of the sheet and is editable in place
    (`WEObjectTimingEditor` already exists), ahead of external search suggestions.
    Any undated item gets **Add a date**, which is how a note reaches the calendar
    when the parser could not.
-4. Replace the generic **Do** action label with the concrete verb from
+6. Replace the generic **Do** action label with the concrete verb from
    `FieldItemPurpose.actionLabel`.
 
 ## Phase 3 · Confidence at the moment of saving
@@ -182,16 +219,14 @@ Replace the single word answer in `FieldSmartClassifier` with a Foundation Model
 on device call returns everything the read back line shows, and the confidence decides
 whether the line is quiet or asks for a tap. The rules stay the floor and keep two
 absolute authorities the model never overrides: privacy, and turning anything into a
-search. It is feasible on iOS 26 today, but it needs an evaluation set (the test
+search. It is feasible on iOS 26 today, but it needs a set of test sentences to measure against (the test
 sentences above are the start of it) before it ships, and it does nothing on phones
 without Apple Intelligence, which is why it sits after Phases 1 to 3 rather than
 instead of them.
 
-## Decisions taken by default
+## Decision taken by default
 
-1. Dated Trips stay in Trips and draw on the calendar; promotion to a horizon is
-   unchanged. Reversible if Ryan wants dated trips to be horizons only.
-2. While waiting for a partner the handoff returns to the invitation. Solo adding
+1. While waiting for a partner the handoff returns to the invitation. Solo adding
    (Only me items before the partner joins) is a product decision, not a copy fix,
    and is left out until Ryan chooses it.
 
