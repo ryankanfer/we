@@ -130,7 +130,7 @@ struct WalkthroughSeedTests {
         }
     }
 
-    /// Both Japan rows are dateless, which is what makes them promotable at
+    /// Both Japan rows are undated, which is what makes them promotable at
     /// all — `FieldPromotion` only ever asks about something that is not
     /// already a plan.
     @Test
@@ -138,7 +138,9 @@ struct WalkthroughSeedTests {
         let items = WalkthroughSeed.promotionItems(now: FieldSampleData.today)
 
         #expect(items.allSatisfy { $0.dueOn == nil })
-        #expect(items.allSatisfy { !$0.category.carriesDates })
+        // Trips carry dates now, so "dateless" is a fact about these rows,
+        // not about their category: a dated trip is already a horizon.
+        #expect(items.allSatisfy { $0.objectTiming == nil })
         // One each. The second beat says "two different people".
         #expect(Set(items.map(\.owner)) == [.a, .b])
     }

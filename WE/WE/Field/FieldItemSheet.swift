@@ -256,11 +256,24 @@ struct FieldItemSheet: View {
             Text(whose(item))
                 .font(.system(.footnote))
                 .foregroundStyle(.fieldInk(.reasoning))
+
+            // A dated trip lives in three places at once. Saying where is what
+            // makes the other two findable.
+            if store.tripHorizons.contains(where: { $0.linkedLifeItemIDs.contains(item.id) }) {
+                Label("On the calendar, and in where you\u{2019}re headed", systemImage: "calendar")
+                    .font(.system(.footnote))
+                    .foregroundStyle(.fieldInk(.reasoning))
+                    .accessibilityIdentifier("field.item.tripHorizon")
+            }
         }
     }
 
     private func whose(_ item: LifeItem) -> String {
         let owner = store.identity.name(for: item.owner)
+        if let timing = item.timing, timing.precision == .day,
+           let start = WEObjectTiming.day(timing.startDay) {
+            return "\(owner) · \(FieldPhrasing.spanLabel(start, WEObjectTiming.day(timing.endDay)))"
+        }
         guard let dueOn = item.dueOn else { return owner }
         return "\(owner) · \(DateFormatter.fieldDayMonth.string(from: dueOn))"
     }

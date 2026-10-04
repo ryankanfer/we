@@ -5,6 +5,7 @@ struct FieldGoalsSurface: View {
     @EnvironmentObject private var session: AppSession
     @State private var editing: FieldHorizon?
     @State private var opened: FieldItemReference?
+    @State private var openTrip: FieldItemReference?
     @State private var reviewed: FieldGoalSuggestion?
     @State private var showsConversation = false
     @State private var suggestions: [FieldGoalSuggestion] = []
@@ -61,9 +62,10 @@ struct FieldGoalsSurface: View {
                     }.padding(22).background(WECanvas.surface.bgElevated, in: RoundedRectangle(cornerRadius: 18))
                     .accessibilityIdentifier("field.us.goal.suggestion")
                 }
+                comingUp
                 group("Building together", detail: "Goals you’ve both chosen to pursue.", goals: building)
                 group("Exploring", detail: "Possibilities to shape before you commit.", goals: exploring)
-                if store.state.horizons.isEmpty {
+                if store.horizons.isEmpty {
                     VStack(alignment: .leading, spacing: 18) {
                         Text("What could be next for you two?").font(FieldType.captureWriting)
                         Button("Explore a goal") { editing = newGoal() }.buttonStyle(FieldGoalPrimaryStyle())
@@ -78,6 +80,7 @@ struct FieldGoalsSurface: View {
         }
         .sheet(item: $editing) { FieldGoalEditor(goal: $0).environment(store) }
         .sheet(item: $opened) { FieldGoalRoom(goalID: $0.id).environment(store) }
+        .sheet(item: $openTrip) { FieldItemSheet(itemID: $0.id).environment(store) }
         .sheet(item: $reviewed) { FieldGoalSuggestionReview(suggestion: $0).environment(store) }
          .sheet(isPresented: $showsConversation) {
             VStack(spacing: 0) {
@@ -127,6 +130,51 @@ struct FieldGoalsSurface: View {
             }
         }
     }
+    /// Dated trips, soonest first. Nobody had to promote these: a trip with
+    /// days on it is already somewhere you are headed. Each row is the trip
+    /// itself, so tapping it opens the trip, where the dates are edited.
+    @ViewBuilder private var comingUp: some View {
+        let trips = store.tripHorizons
+        if !trips.isEmpty {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Coming up").font(FieldType.weLifeSection)
+                Text("Trips with dates. They\u{2019}re on the calendar too.")
+                    .font(.system(.subheadline)).foregroundStyle(.fieldInk(.reasoning))
+                ForEach(trips) { trip in
+                    Button { openTrip = trip.linkedLifeItemIDs.first.map { FieldItemReference(id: $0) } } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            // Shared, not decided yet: it is on both lists,
+                            // and nobody has said yes to anything.
+                            WELightsMark(identity: store.viewerIdentity, reading: .apart)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(trip.title).font(FieldType.captureWriting)
+                                if let window = trip.window {
+                                    Text(window.uppercased())
+                                        .font(FieldType.subLabel)
+                                        .tracking(2.2)
+                                        .foregroundStyle(.fieldInk(.label))
+                                }
+                            }
+                            Spacer()
+                            Image(systemName: "calendar")
+                                .imageScale(.small)
+                                .foregroundStyle(.fieldInk(.label))
+                        }
+                        .padding(.vertical, 18)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .overlay(alignment: .top) {
+                            Rectangle().fill(WECanvas.surface.ink.opacity(0.12)).frame(height: 0.5)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(trip.title), \(trip.window ?? ""), shared trip")
+                    .accessibilityIdentifier("field.us.trip.open")
+                }
+            }
+        }
+    }
+
     private func newGoal() -> FieldHorizon {
         FieldHorizon(goalPlan: FieldGoalPlan(), id: UUID().uuidString, title: "", window: nil, owner: .shared, isPrimary: false, thesis: nil, targetDate: nil, linkedLifeItemIDs: [], openQuestion: nil)
     }

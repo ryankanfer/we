@@ -103,6 +103,11 @@ struct WEApp: App {
                 }
             }
             .environmentObject(walkthrough)
+            // Provided to every mode, not only `.live`: Account reads it, and
+            // the seeded, demo, gallery and sparse launches that exist so the
+            // whole app can be reviewed without an account crashed the moment
+            // Account opened.
+            .environmentObject(externalSurfaces)
             // Paper, dark, or following the iPhone. Read here so the whole
             // scene redraws when it changes.
             .weThemeRoot()

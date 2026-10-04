@@ -59,7 +59,13 @@ enum FieldLookupEngine {
         "what did", "what was", "what were", "what's the", "what is the",
         "when did", "when is", "when's", "where did", "where is", "where's",
         "did we", "did i", "did you", "have we", "have i", "who ",
-        "remind me", "find ", "show me", "what about", "what do we",
+        // "Remind me" only when what follows is a question. "Remind me to
+        // call mom tomorrow" is the most natural way there is to write down
+        // a plan, and reading every "remind me" as a look-up turned it into a
+        // search that saved nothing.
+        "remind me what", "remind me when", "remind me where", "remind me who",
+        "remind me how", "remind me if", "remind me whether", "remind me which",
+        "find ", "show me", "what about", "what do we",
     ]
 
     static let stopwords: Set<String> = [
@@ -78,7 +84,12 @@ enum FieldLookupEngine {
     /// phone something the person meant to share.
     static func isLookup(_ text: String) -> Bool {
         let lowered = text.lowercased().trimmingCharacters(in: .whitespaces)
-        return lookupOpeners.contains { lowered.hasPrefix($0) }
+        guard lookupOpeners.contains(where: { lowered.hasPrefix($0) }) else { return false }
+        // "Find" is the one opener that is also an errand. "Find a sitter for
+        // saturday" is something to do on a day, not a question about what is
+        // already written down; "what did we book for saturday" still is.
+        if lowered.hasPrefix("find ") { return !FieldClassifier.namesADate(lowered) }
+        return true
     }
 
     static func keywords(in text: String) -> [String] {

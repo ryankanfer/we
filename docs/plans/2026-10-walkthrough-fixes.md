@@ -23,7 +23,7 @@ So three rules, written into code and tests:
 3. **The tutorial only demonstrates rules the app actually keeps.** If the tutorial
    shows it, the real app does it, in the same order.
 
-## Phase 1 · Correctness (one PR)
+## Phase 1 · Correctness (one PR) · implemented
 
 ### 1.1 "Remind me to" saves, "remind me what" searches
 
@@ -69,8 +69,9 @@ Change:
    `11/1-11/5`. A date already past this year rolls to next year. `Result` gains
    `timing: WEObjectTiming?` (the type already supports `startDay` and `endDay`), with
    `dueOn` kept as its start for existing callers.
-2. **Model.** Rename the meaning of `dateless` to "never *infer* a date here." A typed
-   date survives in every category. Remove the two erasures in `FieldStore`.
+2. **Model.** Trips leave `LifeCategory.dateless`; Watchlist and Talk stay in it, so
+   a film is still never due on Thursday. Any date typed into Trips, Notes or a task
+   list now survives to the calendar.
 3. **Trips specifically.** A dated Trips item lives in three places at once, each a
    reading of the same record: the Trips list, the calendar (across every day of its
    span), and Us as a horizon. See 1.4.
@@ -99,8 +100,8 @@ written down, not a new copy." So the dated trip horizon is **derived, not store
 3. **Only me trips do not become horizons.** Us is shared furniture, so a private trip
    appears on the owner's calendar only. The moment it is shared it appears in Us for
    both, which is exactly the one way crossing the privacy contract allows.
-4. A derived horizon never takes the primary slot on its own; the couple's chosen
-   primary stays primary. When none exists, the soonest dated trip may lead.
+4. A derived horizon never takes the primary slot; it appears in Us under its own
+   heading, **Coming up**, soonest first, and tapping it opens the trip.
 5. After the span ends it leaves Us. The Trips item stays, ready for **We went**.
 6. `FieldPromotion` is unchanged: undated trips mentioned twice still get the
    question. Its "a thing with a date is already a plan" rule now has a home: dated

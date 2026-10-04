@@ -693,7 +693,7 @@ final class FieldStore {
             speaker: speaker,
             now: now,
             lifeItems: state.lifeItems,
-            horizons: state.horizons,
+            horizons: horizons,
             rhythms: state.rhythms,
             corrections: state.corrections,
             lifeCategories: lifeCategories,
@@ -708,7 +708,7 @@ final class FieldStore {
             speaker: speaker,
             lifeItems: state.lifeItems,
             clusters: state.clusters,
-            horizons: state.horizons,
+            horizons: horizons,
             rhythms: state.rhythms,
             partners: state.partners,
             captures: state.captures,
@@ -817,11 +817,61 @@ final class FieldStore {
     }
 
     var primaryHorizon: FieldHorizon? {
-        state.horizons.first(where: \.isPrimary)
+        horizons.first(where: \.isPrimary)
     }
 
     var otherHorizons: [FieldHorizon] {
-        state.horizons.filter { !$0.isPrimary }
+        horizons.filter { !$0.isPrimary }
+    }
+
+    /// Where the two of you are headed: the horizons somebody shaped, and
+    /// every dated trip.
+    ///
+    /// A trip with dates is a horizon without anybody having to say so —
+    /// "Bermuda, Nov 1 to 5" is already the most concrete thing on the list.
+    /// It is derived, not stored, for the reason `FieldHorizon` gives: a
+    /// horizon is a reading of things already written down. So it cannot
+    /// drift. Move the dates and Us moves with them; delete the trip and it is
+    /// gone from Us and the calendar together, with no second row to sync.
+    var horizons: [FieldHorizon] { state.horizons + tripHorizons }
+
+    /// The derived half of `horizons`, soonest first.
+    ///
+    /// Shared trips only. Us is furniture you both see, so an Only me trip
+    /// stays on its owner's calendar and nowhere else until it is shared —
+    /// the one way crossing the privacy contract allows. A horizon somebody
+    /// already shaped around the trip wins, so it never appears twice. Once
+    /// the last day has gone by it leaves Us; the trip stays in Trips.
+    var tripHorizons: [FieldHorizon] {
+        let calendar = Calendar.gregorianUS
+        let today = calendar.startOfDay(for: now)
+        let shaped = Set(state.horizons.flatMap(\.linkedLifeItemIDs))
+        return state.lifeItems
+            .filter {
+                $0.category == .trips && !$0.isDone && $0.isSharedPresence
+                    && !shaped.contains($0.id)
+            }
+            .compactMap { item -> (horizon: FieldHorizon, start: Date)? in
+                guard let timing = item.objectTiming, timing.isResolved,
+                      let start = timing.anchor ?? item.dueOn
+                else { return nil }
+                let end = WEObjectTiming.day(timing.endDay)
+                guard calendar.startOfDay(for: end ?? start) >= today else { return nil }
+                let horizon = FieldHorizon(
+                    id: "trip-\(item.id)",
+                    title: item.title,
+                    window: FieldPhrasing.spanLabel(start, end, calendar: calendar),
+                    owner: item.owner,
+                    isPrimary: false,
+                    thesis: nil,
+                    targetDate: start,
+                    linkedLifeItemIDs: [item.id],
+                    openQuestion: nil
+                )
+                return (horizon, start)
+            }
+            .sorted { $0.start < $1.start }
+            .map(\.horizon)
     }
 
     /// Us has nothing to say until there is a horizon or a week's evidence.
@@ -831,7 +881,7 @@ final class FieldStore {
     /// nothing — and a heading over nothing is the app talking to fill the
     /// silence, which is the same fault `FieldLifeZone` guards against.
     var usIsEmpty: Bool {
-        state.horizons.isEmpty && state.evidence.isEmpty
+        horizons.isEmpty && state.evidence.isEmpty
     }
 
     var currentSeason: FieldSeason? {
@@ -1294,7 +1344,7 @@ final class FieldStore {
             $0.title.localizedCaseInsensitiveCompare(receipt.title) == .orderedSame
                 && $0.owner != speaker && !$0.isDone
         }
-        return LifeItem(
+        var item = LifeItem(
             id: receipt.id, title: receipt.title, category: receipt.category,
             owner: match == nil ? speaker : .shared, dueOn: receipt.dueOn,
             closesAt: nil, clusterID: nil, source: .captured,
@@ -1304,6 +1354,17 @@ final class FieldStore {
             visibility: receipt.isPrivate ? .private : nil,
             holdUntil: receipt.isPrivate ? receipt.holdUntil : nil
         )
+        // A span lives in `timing`, which the calendar already draws across
+        // every day it covers. `dueOn` stays the first day, so Today and
+        // everything else that reads one date still reads the right one.
+        if let start = receipt.dueOn, let end = receipt.endsOn {
+            item.timing = WEObjectTiming(
+                precision: .day,
+                startDay: DateFormatter.fieldDay.string(from: start),
+                endDay: DateFormatter.fieldDay.string(from: end)
+            )
+        }
+        return item
     }
 
     /// Where these words would be filed, without filing anything. For the +
@@ -1315,6 +1376,15 @@ final class FieldStore {
         return FieldClassifier.classify(words, context: classifierContext).category
     }
 
+    /// The day, or days, these words would be filed on in `category`, said
+    /// the way the calendar says them. Nil where there is no date to keep.
+    func previewWhen(for text: String, in category: LifeCategory) -> String? {
+        guard category.carriesDates else { return nil }
+        let phrasing = FieldPhrasing.tidy(text, now: now)
+        guard let start = phrasing.dueOn else { return nil }
+        return FieldPhrasing.spanLabel(start, phrasing.endsOn)
+    }
+
     /// Hands a link to the receipt about to be sent. A site whose kind is
     /// plain decides the category, the same way the preview said it would.
     func attachLink(_ url: URL?) {
@@ -1322,7 +1392,10 @@ final class FieldStore {
         lastReceipt?.sourceURL = url
         if let category = FieldLinkReader.category(for: url) {
             lastReceipt?.category = category
-            if !category.carriesDates { lastReceipt?.dueOn = nil }
+            if !category.carriesDates {
+                lastReceipt?.dueOn = nil
+                lastReceipt?.endsOn = nil
+            }
         }
     }
 
@@ -1346,6 +1419,7 @@ final class FieldStore {
         } ?? false
 
         receipt.dueOn = alreadyToday ? nil : today
+        receipt.endsOn = nil
         lastReceipt = receipt
     }
 
@@ -2186,8 +2260,22 @@ final class FieldStore {
 
         var item = state.lifeItems[index]
         item.dueOn = day.map { Calendar.gregorianUS.startOfDay(for: $0) }
-        if item.timing != nil {
-            item.timing = day.map { WEObjectTiming(precision: .day, startDay: DateFormatter.fieldDay.string(from: $0)) } ?? .init()
+        if let existing = item.timing {
+            // A trip moved by a day is still five days long. The span keeps
+            // its length and travels with its first day.
+            let length: Int? = {
+                guard let start = WEObjectTiming.day(existing.startDay),
+                      let end = WEObjectTiming.day(existing.endDay) else { return nil }
+                return Calendar.current.dateComponents([.day], from: start, to: end).day
+            }()
+            item.timing = day.map { (day: Date) -> WEObjectTiming in
+                var timing = WEObjectTiming(precision: .day, startDay: DateFormatter.fieldDay.string(from: day))
+                if let length, length > 0,
+                   let end = Calendar.gregorianUS.date(byAdding: .day, value: length, to: day) {
+                    timing.endDay = DateFormatter.fieldDay.string(from: end)
+                }
+                return timing
+            } ?? .init()
             item.closesAt = nil
         }
         if day == nil { item.closesAt = nil }

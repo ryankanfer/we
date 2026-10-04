@@ -235,7 +235,10 @@ enum FieldLookupQuery {
 // MARK: - The next useful step
 
 enum FieldItemPurpose: Equatable {
-    case decision, task, reference
+    /// `plan` is a trip with days on it: something you are going to, not
+    /// something to tick off. It keeps its date editor and has no completion
+    /// control while the days are still ahead.
+    case decision, task, reference, plan
 
     static func resolve(_ item: LifeItem) -> Self {
         // A domain such as choose.com is a reference, not the verb “choose”.
@@ -243,6 +246,9 @@ enum FieldItemPurpose: Equatable {
             .map { String($0).trimmingCharacters(in: .punctuationCharacters) }
         if ["decide", "choose", "pick"].contains(first ?? "") {
             return .decision
+        }
+        if item.category == .trips, item.objectTiming?.isResolved == true {
+            return .plan
         }
         if item.explicitTask == true { return .task }
         if item.dueOn == nil,
@@ -257,6 +263,7 @@ enum FieldItemPurpose: Equatable {
         switch resolve(item) {
         case .decision: return "Make a decision"
         case .reference: return "Explore this"
+        case .plan: return "Open trip"
         case .task:
             if item.title.lowercased().hasPrefix("send ") { return "Prepare to share" }
             switch FieldTodaySelector.primaryAct(for: item) {

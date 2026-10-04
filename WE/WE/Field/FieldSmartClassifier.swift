@@ -38,7 +38,8 @@ enum FieldSmartClassifier {
             watchlist is only for films, shows and series.
             buys is anything to purchase, including groceries and household things.
             food is places to eat and things to cook or crave.
-            trips is places to go. care is people and appointments.
+            trips is places to go, and a place name with dates is always trips.
+            care is people and appointments.
             notes is for anything that fits none of the others.
             """
         do {

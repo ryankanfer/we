@@ -182,17 +182,22 @@ struct LifeCategory: RawRepresentable, Codable, Hashable, Sendable, Identifiable
 
     /// Categories where a date would be a lie.
     ///
-    /// A film is not due on Thursday. A trip with a date is not a list item at
-    /// all any more — it is a horizon, and the only way it becomes one is by
-    /// somebody answering the question the app asks about it. And a question
-    /// one of them asked is not due at all: putting a date on a conversation
-    /// is how it becomes a chore.
+    /// A film is not due on Thursday. And a question one of them asked is not
+    /// due at all: putting a date on a conversation is how it becomes a chore.
+    ///
+    /// Trips used to be here, on the reading that a trip with a date was no
+    /// longer a list item but a horizon. That threw away the one thing people
+    /// type with a trip — "Bermuda nov 1-5" lost its days unless somebody
+    /// moved it by hand. A dated trip is now all three at once, each a reading
+    /// of the same row: an item in Trips, a span on the calendar, and a
+    /// horizon in Us (`FieldStore.horizons`). An undated trip is still exactly
+    /// what `FieldPromotion` asks about.
     ///
     /// This is the whole of what used to be the Ours/Life distinction. There
     /// is no second type and no second table: an item with no date already
     /// ranks about 0.24 against a surfacing threshold of 0.42, so it sits
     /// there quietly for as long as it likes.
-    static let dateless: Set<LifeCategory> = [.watchlist, .trips, .talk]
+    static let dateless: Set<LifeCategory> = [.watchlist, .talk]
 
     var carriesDates: Bool { !Self.dateless.contains(self) }
 
@@ -784,6 +789,10 @@ struct FieldReceipt: Identifiable, Codable, Hashable, Sendable {
     var title: String
     /// The day the phrasing named, if it named one.
     var dueOn: Date?
+    /// The last day, when the phrasing named a span — "nov 1 to 5". Optional
+    /// and defaulted so a receipt saved as a draft before spans existed still
+    /// decodes.
+    var endsOn: Date? = nil
     /// Where it goes. One filing system, so this is a category and never a
     /// zone — nothing is ever filed to Us.
     var category: LifeCategory

@@ -44,6 +44,9 @@ struct FieldChatComposer: View {
     /// a correction, so the app learns it for next time.
     @State private var chosenCategory: LifeCategory?
     @State private var choosingCategory = false
+    /// The person said this is something to keep, not a question. A look-up
+    /// guess is one tap to overrule, never a retype.
+    @State private var savesInstead = false
 
     /// Closes the card without sending.
     var onClose: () -> Void = {}
@@ -56,7 +59,10 @@ struct FieldChatComposer: View {
     }
 
     /// A link makes it something to keep, never a question to WE.
-    private var isLookup: Bool { link == nil && FieldLookupEngine.isLookup(trimmed) }
+    private var isLookup: Bool { link == nil && !savesInstead && FieldLookupEngine.isLookup(trimmed) }
+
+    /// Whether WE read the words as a question, before anybody overruled it.
+    private var readsAsQuestion: Bool { link == nil && FieldLookupEngine.isLookup(trimmed) }
 
     private var canSend: Bool { !trimmed.isEmpty || link != nil }
 
@@ -74,7 +80,10 @@ struct FieldChatComposer: View {
                 .focused($focused)
                 .submitLabel(.send)
                 .onSubmit(send)
-                .onChange(of: text) { _, new in liftLink(from: new) }
+                .onChange(of: text) { _, new in
+                    liftLink(from: new)
+                    if new.isEmpty { savesInstead = false }
+                }
                 .accessibilityIdentifier("field.composer.text")
 
             if let link {
@@ -93,10 +102,29 @@ struct FieldChatComposer: View {
                 sendButton
             }
 
-            Text(footnote)
-                .font(.system(size: 12))
-                .foregroundStyle(.fieldInk(.legend))
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(footnote)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.fieldInk(.legend))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .contentTransition(.opacity)
+
+                if readsAsQuestion {
+                    Spacer(minLength: 0)
+                    Button(savesInstead ? "Ask instead" : "Save instead") {
+                        withAnimation(reduceMotion ? nil : .spring(duration: 0.3)) {
+                            savesInstead.toggle()
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.fieldInk(.headline))
+                    .underline()
+                    .frame(minHeight: 32)
+                    .accessibilityHint(savesInstead ? "Asks WE instead of saving" : "Saves this instead of asking WE")
+                    .accessibilityIdentifier("field.composer.saveInstead")
+                }
+            }
 
             if justMe && !isLookup {
                 holdRow
@@ -225,6 +253,14 @@ struct FieldChatComposer: View {
                         .fontWeight(.semibold)
                         .foregroundStyle(.fieldInk(.headline))
                         .contentTransition(.opacity)
+                    // The day WE read, said back before anything is saved,
+                    // so a wrong reading is caught here and not on the
+                    // calendar a week later.
+                    if let when = store.previewWhen(for: wordsToFile, in: category) {
+                        Text("· \(when)")
+                            .foregroundStyle(.fieldInk(.headline))
+                            .contentTransition(.opacity)
+                    }
                     Image(systemName: "chevron.down")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.fieldInk(.legend))
@@ -237,7 +273,7 @@ struct FieldChatComposer: View {
                 .contentShape(Capsule())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Goes to \(category.word). Change list")
+            .accessibilityLabel("Goes to \(category.word)\(store.previewWhen(for: wordsToFile, in: category).map { ", \($0)" } ?? ""). Change list")
             .accessibilityIdentifier("field.composer.destination")
 
             if choosingCategory {
@@ -438,6 +474,7 @@ struct FieldChatComposer: View {
         holdDay = nil
         chosenCategory = nil
         choosingCategory = false
+        savesInstead = false
         onSent()
     }
 }
